@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SoundPreviewer.Tests</RootNamespace>
+    <AssemblyName>SoundPreviewer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
+  </ItemGroup>
+</Project>

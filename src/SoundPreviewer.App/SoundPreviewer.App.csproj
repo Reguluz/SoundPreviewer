@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>SoundPreviewer</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
+    <ProjectReference Include="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyRenderWorker" AfterTargets="Build">
+    <ItemGroup>
+      <WorkerFiles Include="../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/SoundPreviewer.Worker*" />
+      <RendererFiles Include="../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/Renderers/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WorkerFiles)" DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="@(RendererFiles)" DestinationFolder="$(OutDir)Renderers/" />
+  </Target>
+  <Target Name="PublishRenderWorker" AfterTargets="Publish">
+    <MSBuild Projects="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)" />
+  </Target>
+</Project>
