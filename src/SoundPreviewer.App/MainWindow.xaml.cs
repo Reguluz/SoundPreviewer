@@ -46,7 +46,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<PluginConfiguration> Plugins { get; } = [];
     public ICollectionView PresetsView { get; }
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
-    public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
+    public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
     public List<Choice<PresetStatus?>> StatusFilters { get; } = [new("全部状态", null), .. Enum.GetValues<PresetStatus>().Select(s => new Choice<PresetStatus?>(Labels.Status(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer)];
     public List<CompatibilityRow> Compatibility { get; } =
@@ -99,6 +99,58 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (App.ScanOnStart) await Scan();
             if (App.SmokeTest)
             {
+                var expectedFormats = new Dictionary<SynthKind, string>
+                {
+                    [SynthKind.Vital] = "Vital (.vital / .vitalbank)",
+                    [SynthKind.Serum1] = "Serum 1 (.fxp)",
+                    [SynthKind.Serum2] = "Serum 2 (.SerumPreset / .fxp)",
+                    [SynthKind.Sylenth1] = "Sylenth1 (.fxp / .fxb)"
+                };
+                if (SynthFilters.Count != expectedFormats.Count + 1 || SynthFilters.Count(c => c.Value is null) != 1)
+                    throw new InvalidOperationException("音源筛选选项数量检查失败。");
+                foreach (var (synth, label) in expectedFormats)
+                    if (SynthFilters.Count(c => c.Value == synth && c.Label == label) != 1)
+                        throw new InvalidOperationException($"音源筛选标签与类型不匹配：{synth}。");
+                var allFilter = SynthFilters.Single(c => c.Value is null);
+                var serumFilter = SynthFilters.Single(c => c.Value == SynthKind.Serum2);
+
+                Rect Bounds(FrameworkElement element) => element.TransformToAncestor((FrameworkElement)Content)
+                    .TransformBounds(new Rect(new Point(), element.RenderSize));
+                IEnumerable<DependencyObject> Descendants(DependencyObject element)
+                {
+                    for (var childIndex = 0; childIndex < VisualTreeHelper.GetChildrenCount(element); childIndex++)
+                    {
+                        var child = VisualTreeHelper.GetChild(element, childIndex);
+                        yield return child;
+                        foreach (var descendant in Descendants(child)) yield return descendant;
+                    }
+                }
+                void CheckFormatLayout()
+                {
+                    var visual = (FrameworkElement)Content;
+                    var hint = Bounds(PresetFormatHint);
+                    var table = Bounds(PresetGrid);
+                    if (!PresetFormatHint.IsVisible || hint.Width <= 0 || hint.Height <= 0
+                        || !new Rect(new Point(), visual.RenderSize).Contains(hint)
+                        || hint.Bottom > table.Top + 1 || hint.Left < table.Left - 1 || hint.Right > table.Right + 1)
+                        throw new InvalidOperationException("文件后缀说明不可见或超出表格区域。");
+                    foreach (var control in new FrameworkElement[] { SearchBox, SynthFilter, StatusFilter, FavoritesOnly })
+                        if (Bounds(control).Bottom > hint.Top + 1)
+                            throw new InvalidOperationException("文件后缀说明与筛选工具栏重叠。");
+                    foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
+                        if (!PresetFormatHint.Text.Contains(suffix, StringComparison.Ordinal))
+                            throw new InvalidOperationException($"文件后缀说明缺少 {suffix}。");
+                }
+                void Capture(string name)
+                {
+                    var visual = (FrameworkElement)Content;
+                    var bitmap = new RenderTargetBitmap((int)visual.ActualWidth, (int)visual.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(visual);
+                    using var output = File.Create(Path.Combine(App.DataDirectory, name));
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    encoder.Save(output);
+                }
                 if (Presets.Count > 0)
                 {
                     PresetGrid.SelectedItem = Presets.FirstOrDefault(p => File.Exists(p.Record.PreviewPath)) ?? Presets[0];
@@ -127,24 +179,42 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     playbackChecked = true;
                 }
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                var smokeSelection = PresetGrid.SelectedItem;
                 foreach (var (width, height, name) in new[] { (1380d, 900d, "desktop"), (1040d, 700d, "compact") })
                 {
                     Width = width; Height = height;
+                    Pages.SelectedIndex = 0;
+                    SynthFilter.SelectedItem = serumFilter;
+                    UpdateLayout();
+                    await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    CheckFormatLayout();
+                    if (SynthFilter.SelectedItem is not Choice<SynthKind?> { Value: SynthKind.Serum2 }
+                        || PresetsView.Cast<PresetRow>().Any(row => row.Record.Synth != SynthKind.Serum2))
+                        throw new InvalidOperationException("Serum 2 音源筛选类型检查失败。");
+                    var selectedLabel = Descendants(SynthFilter).OfType<TextBlock>()
+                        .FirstOrDefault(text => text.IsVisible && text.Text == serumFilter.Label)
+                        ?? throw new InvalidOperationException("Serum 2 筛选标签未显示。");
+                    var labelWidth = new FormattedText(selectedLabel.Text, CultureInfo.CurrentCulture,
+                        selectedLabel.FlowDirection, new Typeface(selectedLabel.FontFamily, selectedLabel.FontStyle,
+                            selectedLabel.FontWeight, selectedLabel.FontStretch), selectedLabel.FontSize,
+                        selectedLabel.Foreground, VisualTreeHelper.GetDpi(selectedLabel).PixelsPerDip).WidthIncludingTrailingWhitespace;
+                    if (selectedLabel.ActualWidth + 1 < labelWidth || !Bounds(SynthFilter).Contains(Bounds(selectedLabel)))
+                        throw new InvalidOperationException("Serum 2 最长筛选标签被裁切。");
+                    Capture($"ui-format-{name}.png");
+                    SynthFilter.SelectedItem = allFilter;
+                    if (PresetsView.Cast<PresetRow>().Count() != Presets.Count)
+                        throw new InvalidOperationException("全部音源筛选未恢复。");
+                    PresetGrid.SelectedItem = smokeSelection;
+                    await LoadSelectedPreview();
                     for (var page = 0; page < 3; page++)
                     {
                         Pages.SelectedIndex = page;
                         UpdateLayout();
                         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-                        var visual = (FrameworkElement)Content;
-                        var bitmap = new RenderTargetBitmap((int)visual.ActualWidth, (int)visual.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-                        bitmap.Render(visual);
-                        using var output = File.Create(Path.Combine(App.DataDirectory, $"ui-{name}-{page}.png"));
-                        var encoder = new PngBitmapEncoder();
-                        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                        encoder.Save(output);
+                        Capture($"ui-{name}-{page}.png");
                     }
                 }
-                await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, Width = ActualWidth, Height = ActualHeight }));
+                await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2, Width = ActualWidth, Height = ActualHeight }));
                 Application.Current.Shutdown();
             }
         }

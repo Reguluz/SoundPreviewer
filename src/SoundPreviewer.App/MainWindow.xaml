@@ -24,9 +24,9 @@
     <Grid Background="White">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="290"/></Grid.ColumnDefinitions>
      <Grid Margin="0,0,18,0">
-      <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
       <Grid Margin="0,16,0,16">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="135"/><ColumnDefinition Width="135"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="270"/><ColumnDefinition Width="135"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
        <Grid Margin="0,0,8,0" VerticalAlignment="Center">
         <TextBox x:Name="SearchBox" TextChanged="Filter_Changed" ToolTip="搜索音色名称、包或文件路径" AutomationProperties.Name="搜索音色"/>
         <TextBlock Text="搜索音色、包或目录" Foreground="#88978E" Margin="10,0" VerticalAlignment="Center" IsHitTestVisible="False">
@@ -37,7 +37,9 @@
        <ComboBox x:Name="StatusFilter" Grid.Column="2" ItemsSource="{Binding StatusFilters}" SelectedIndex="0" DisplayMemberPath="Label" SelectionChanged="Filter_Changed" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="状态筛选"/>
        <CheckBox x:Name="FavoritesOnly" Grid.Column="3" Content="收藏" VerticalAlignment="Center" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
       </Grid>
-      <Grid Grid.Row="1">
+      <TextBlock x:Name="PresetFormatHint" Grid.Row="1" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,12"
+       Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb。音色包与银行暂仅索引。"/>
+      <Grid Grid.Row="2">
        <DataGrid x:Name="PresetGrid" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" MouseDoubleClick="Preset_DoubleClick">
         <DataGrid.Columns>
          <DataGridTextColumn Header="音色名称" Binding="{Binding Name}" Width="2*" MinWidth="160" ElementStyle="{StaticResource GridText}"/>
@@ -54,7 +56,7 @@
         <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}"/>
        </StackPanel>
       </Grid>
-      <TextBlock Grid.Row="2" Text="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Row="3" Text="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
      </Grid>
      <Border Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="20,18,0,0">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
