@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
+    <ProjectReference Include="../../src/SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" />
   </ItemGroup>
 </Project>

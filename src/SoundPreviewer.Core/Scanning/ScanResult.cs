@@ -8,4 +8,5 @@ public sealed class ScanResult
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public int Added { get; init; }
     public int Changed { get; init; }
+    public int Duplicates { get; init; }
 }

@@ -4,8 +4,8 @@ using System.Text.Json;
 
 namespace SoundPreviewer.Core.Models;
 
-public enum SynthKind { Vital, Serum1, Serum2, Sylenth1 }
-public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing }
+public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4 }
+public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
 public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer }
 
 public sealed class PresetRecord
@@ -13,9 +13,14 @@ public sealed class PresetRecord
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public SynthKind Synth { get; set; }
+    public string DetectionReason { get; set; } = "";
+    public bool SynthAssignedManually { get; set; }
+    public List<string> Tags { get; set; } = [];
     public string SourceId { get; set; } = "";
     public string SourcePath { get; set; } = "";
     public string ContentHash { get; set; } = "";
+    public string ContentMd5 { get; set; } = "";
+    public string DuplicateOfId { get; set; } = "";
     public string Package { get; set; } = "";
     public string InternalPath { get; set; } = "";
     public int? BankSlot { get; set; }
@@ -43,6 +48,7 @@ public sealed class SourceFolder
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Path { get; set; } = "";
     public SynthKind Synth { get; set; }
+    public bool AutoDetect { get; set; }
     public bool Enabled { get; set; } = true;
 }
 
@@ -84,7 +90,9 @@ public sealed class PreviewTemplate
 public sealed class AppSettings
 {
     public List<SourceFolder> Sources { get; set; } = [];
-    public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Select(s => new PluginConfiguration { Synth = s }).ToList();
+    public List<string> PluginDirectories { get; set; } = [];
+    public List<DiscoveredPlugin> DiscoveredPlugins { get; set; } = [];
+    public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new PluginConfiguration { Synth = s }).ToList();
     public PreviewTemplate Template { get; set; } = new();
     public string PreviewDirectory { get; set; } = "";
     public double StorageBudgetGb { get; set; } = 10;
@@ -152,6 +160,16 @@ public static class Fingerprints
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    }
+    public static string PluginBinaryHash(PluginConfiguration plugin, IReadOnlyList<DiscoveredPlugin> discovered)
+    {
+        if (File.Exists(plugin.PluginPath)) return HashFile(plugin.PluginPath);
+        if (!Directory.Exists(plugin.PluginPath)) return "";
+        var binaries = discovered.Where(p => string.Equals(p.FilePath, plugin.PluginPath, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.BinaryPath).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new { Path = p.ToUpperInvariant(), Hash = HashFile(p) }).ToList();
+        return binaries.Count == 0 ? "" : HashText(JsonSerializer.Serialize(binaries));
     }
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>
         HashText($"{synth}|{System.IO.Path.GetFullPath(path).ToUpperInvariant()}|{internalPath}|{slot}");

@@ -7,6 +7,7 @@ public sealed class WorkerProcessClient
 {
     public async Task<RenderResult> RenderAsync(RenderRequest request, string workerPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         request.Template.Validate();
         string finalPath = Path.GetFullPath(request.OutputPath);
         string parent = Path.GetDirectoryName(finalPath)!;
@@ -35,6 +36,7 @@ public sealed class WorkerProcessClient
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
             var outcome = await ProcessRunner.RunAsync(executable, arguments, staging,
                 TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (!File.Exists(resultFile))
                 throw new IOException($"渲染进程未返回结果（退出码 {outcome.ExitCode}）：{outcome.StandardError}");
             if (new FileInfo(resultFile).Length > 1024 * 1024) throw new InvalidDataException("渲染结果文件超过限制。");
@@ -50,14 +52,18 @@ public sealed class WorkerProcessClient
                 throw new InvalidDataException("渲染进程返回的音频路径与请求不符。");
             if (new FileInfo(stagedAudio).Length > request.MaxOutputBytes)
                 throw new InvalidDataException("预览输出超出存储剩余额度，未提交音频。");
+            cancellationToken.ThrowIfCancellationRequested();
             var audio = WaveFile.Read(stagedAudio);
+            cancellationToken.ThrowIfCancellationRequested();
             result.Metrics = WaveFile.Analyze(audio);
+            cancellationToken.ThrowIfCancellationRequested();
             if (result.Metrics.HasNonFinite) throw new InvalidDataException("音频包含 NaN / Infinity，未提交预览。");
             if (result.Metrics.SampleRate != request.Template.SampleRate)
                 throw new InvalidDataException("音频采样率与试听模板不一致。");
             ValidateNotes(result, request.Template);
             foreach (var note in result.Notes)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int first = Math.Clamp((int)Math.Round(note.StartSeconds * audio.SampleRate), 0, audio.Frames - 1);
                 int count = Math.Min(audio.Frames - first, (int)Math.Round(note.DurationSeconds * audio.SampleRate));
                 note.Metrics = WaveFile.Analyze(new WaveData
@@ -69,6 +75,7 @@ public sealed class WorkerProcessClient
             }
             result.NeedsReview |= result.Metrics.IsSilent || result.Metrics.HasClipping;
             cancellationToken.ThrowIfCancellationRequested();
+            // After the atomic move, return success so the queue can persist this completed item even if cancellation arrives.
             File.Move(stagedAudio, finalPath, overwrite: true);
             result.OutputPath = finalPath;
             return result;

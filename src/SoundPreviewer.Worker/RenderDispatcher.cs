@@ -10,14 +10,19 @@ public static class RenderDispatcher
 {
     public const string VitalAdapterVersion = "vital-native-seconds-v1";
 
-    public static Task<RenderResult> RenderAsync(RenderRequest request, CancellationToken cancellationToken) =>
-        request.Plugin.Backend switch
+    public static Task<RenderResult> RenderAsync(RenderRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Preset.Synth == SynthKind.Unknown || request.Plugin.Synth == SynthKind.Unknown ||
+            request.Preset.Status == PresetStatus.Unidentified)
+            return Task.FromResult(new RenderResult { Message = "无法识别此预制的音源，禁止生成预览。请先核对预制格式与插件身份。" });
+        return request.Plugin.Backend switch
         {
             RenderBackend.VitalCli => RenderVitalAsync(request, cancellationToken),
             RenderBackend.ExternalWorker => RenderExternalAsync(request, cancellationToken),
             RenderBackend.DawDreamer => RenderExternalAsync(request, cancellationToken, dawdreamer: true),
             _ => Task.FromResult(new RenderResult { Message = "尚未配置音源渲染后端。" })
         };
+    }
 
     private static async Task<RenderResult> RenderVitalAsync(RenderRequest request, CancellationToken cancellationToken)
     {

@@ -14,8 +14,9 @@
     </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
      <Button Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip="扫描已配置的预制目录"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="扫描目录"/></StackPanel></Button>
-     <Button Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="生成预览"/></StackPanel></Button>
-     <Button Click="Pause_Click" IsEnabled="{Binding IsBusy}" Style="{StaticResource IconButton}" Content="&#xE769;" ToolTip="暂停当前任务" Margin="0"/>
+     <CheckBox x:Name="ForceGeneration" Content="强制全量生成" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" AutomationProperties.Name="强制全量生成"/>
+     <Button Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
+     <Button x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71A;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
     </StackPanel>
    </Grid>
   </Border>
@@ -56,7 +57,7 @@
         <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}"/>
        </StackPanel>
       </Grid>
-      <TextBlock Grid.Row="3" Text="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+      <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" Checked="Filter_Changed" Unchecked="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
      <Border Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="20,18,0,0">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -73,6 +74,14 @@
         <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="#97632E" Margin="0,6,0,0"/>
         <TextBlock Text="来源" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Selected.Record.SourcePath}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0"/>
         <TextBlock Text="{Binding Selected.Record.InternalPath}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Muted}"/>
+        <TextBlock Text="文件 MD5" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Selected.Record.ContentMd5}" IsReadOnly="True" TextWrapping="Wrap" FontSize="12" BorderThickness="0" Background="Transparent" Padding="0"/>
+        <TextBlock Text="{Binding Selected.DuplicateLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+        <Button Content="查看保留项" Click="ViewCanonical_Click" IsEnabled="{Binding CanViewCanonical}" Visibility="{Binding CanonicalVisibility}" Margin="0,6,0,0"/>
+        <TextBlock Text="识别依据" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding Selected.Record.DetectionReason}" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding Selected.TagsLabel}" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+        <TextBlock Text="音源归属" Style="{StaticResource FieldLabel}"/>
+        <ComboBox x:Name="AssignmentSynthChoice" ItemsSource="{Binding SynthChoices}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Selected.Record.Synth, Mode=OneWay}" IsEnabled="{Binding CanAssignSynth}" AutomationProperties.Name="确认音色所属音源"/>
+        <Button Content="确认音源标签" Click="AssignSynth_Click" IsEnabled="{Binding CanAssignSynth}" Margin="0,8,0,0"/>
         <TextBlock Text="预览" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding Selected.AudioLabel}" TextWrapping="Wrap"/>
         <TextBlock Text="{Binding Selected.QualityLabel}" Foreground="#97632E" Margin="0,6,0,0" TextWrapping="Wrap"/>
         <TextBlock Text="音源版本" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding Selected.Record.PluginVersion}"/>
@@ -88,7 +97,7 @@
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
       <Button Content="重试失败任务" Click="Retry_Click" IsEnabled="{Binding IsIdle}"/>
-      <Button Content="导出来源映射" Click="Export_Click" IsEnabled="{Binding IsIdle}"/>
+      <Button Content="导出 MD5 索引" Click="Export_Click" IsEnabled="{Binding IsIdle}"/>
       <Button Content="打开本地数据目录" Click="OpenData_Click"/>
      </StackPanel>
      <DataGrid Grid.Row="1" ItemsSource="{Binding Presets}" IsReadOnly="True">
@@ -110,24 +119,52 @@
      <StackPanel Margin="4,18,16,20">
       <TextBlock Text="预制目录" FontSize="17" FontWeight="SemiBold"/>
       <StackPanel Orientation="Horizontal" Margin="0,12,0,10">
-       <ComboBox x:Name="SourceSynthChoice" ItemsSource="{Binding SynthChoices}" DisplayMemberPath="Label" SelectedIndex="0" Width="145" Margin="0,0,8,0"/>
+       <ComboBox x:Name="SourceSynthChoice" ItemsSource="{Binding SourceChoices}" DisplayMemberPath="Label" SelectedIndex="0" Width="245" Margin="0,0,8,0" AutomationProperties.Name="目录音源识别方式"/>
        <Button Content="添加目录" Click="AddSource_Click" IsEnabled="{Binding IsIdle}"/>
+       <Button Content="自动识别此目录" Click="AutoDetectSource_Click" IsEnabled="{Binding IsIdle}" ToolTip="将选中的目录切换为混合音色包自动识别"/>
        <Button Style="{StaticResource IconButton}" Content="&#xE74D;" Click="RemoveSource_Click" IsEnabled="{Binding IsIdle}" ToolTip="移除选中的目录"/>
       </StackPanel>
       <DataGrid x:Name="SourceGrid" ItemsSource="{Binding Sources}" Height="135" IsReadOnly="True">
-       <DataGrid.Columns><DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="110"/><DataGridTextColumn Header="路径" Binding="{Binding Path}" Width="*"/></DataGrid.Columns>
+       <DataGrid.Columns>
+        <DataGridTemplateColumn Header="音源 / 识别方式" Width="170"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource GridText}"><Setter Property="Text" Value="{Binding Synth}"/><Style.Triggers><DataTrigger Binding="{Binding AutoDetect}" Value="True"><Setter Property="Text" Value="自动识别"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+        <DataGridTextColumn Header="路径" Binding="{Binding Path}" Width="*"/>
+       </DataGrid.Columns>
       </DataGrid>
-      <TextBlock Text="渲染器" FontSize="17" FontWeight="SemiBold" Margin="0,24,0,12"/>
+      <TextBlock Text="VSTi 安装目录" FontSize="17" FontWeight="SemiBold" Margin="0,24,0,0"/>
+      <StackPanel Orientation="Horizontal" Margin="0,12,0,10">
+       <Button Click="AddPluginDirectory_Click" IsEnabled="{Binding IsIdle}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="添加安装目录"/></StackPanel></Button>
+       <Button Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
+       <Button Style="{StaticResource IconButton}" Content="&#xE74D;" Click="RemovePluginDirectory_Click" IsEnabled="{Binding IsIdle}" ToolTip="移除选中的安装目录"/>
+      </StackPanel>
+      <DataGrid x:Name="PluginDirectoryGrid" ItemsSource="{Binding PluginDirectories}" Height="110" IsReadOnly="True" AutomationProperties.Name="共享 VSTi 安装目录">
+       <DataGrid.Columns><DataGridTextColumn Header="安装目录" Binding="{Binding}" Width="*"/></DataGrid.Columns>
+      </DataGrid>
+      <Grid Margin="0,18,0,10"><TextBlock Text="已发现音源" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/><Button Content="使用选中版本" Click="UseDiscoveredPlugin_Click" HorizontalAlignment="Right" IsEnabled="{Binding IsIdle}" Margin="0"/></Grid>
+      <DataGrid x:Name="DiscoveredPluginGrid" ItemsSource="{Binding DiscoveredPlugins}" Height="170" IsReadOnly="True" AutomationProperties.Name="音源扫描结果">
+       <DataGrid.Columns>
+        <DataGridTextColumn Header="插件 / 音源" Binding="{Binding NameLabel}" Width="160" ElementStyle="{StaticResource GridText}"/>
+        <DataGridTextColumn Header="版本" Binding="{Binding Record.Version}" Width="105"/>
+        <DataGridTextColumn Header="位数" Binding="{Binding ArchitectureLabel}" Width="65"/>
+        <DataGridTextColumn Header="格式" Binding="{Binding FormatLabel}" Width="75"/>
+        <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="100"/>
+        <DataGridTextColumn Header="文件" Binding="{Binding Record.FilePath}" Width="*" MinWidth="200" ElementStyle="{StaticResource GridText}"/>
+       </DataGrid.Columns>
+      </DataGrid>
+      <TextBlock Text="{Binding SelectedItem.Record.Reason, ElementName=DiscoveredPluginGrid}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0"/>
+      <Expander Header="预览渲染器（高级）" Margin="0,24,0,0" IsExpanded="False">
+      <StackPanel Margin="0,12,0,0">
       <DataGrid x:Name="PluginGrid" ItemsSource="{Binding Plugins}" Height="208" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}">
        <DataGrid.Columns>
         <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="92" IsReadOnly="True"/>
         <DataGridTemplateColumn Header="方式" Width="145"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox ItemsSource="{Binding DataContext.BackendChoices, RelativeSource={RelativeSource AncestorType=Window}}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Backend, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-        <DataGridTemplateColumn Header="程序路径" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8B7;" Tag="{Binding}" Click="BrowsePlugin_Click" ToolTip="选择渲染程序" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-        <DataGridTemplateColumn Header="音源插件路径" Width="230"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8B7;" Tag="{Binding}" Click="BrowsePluginBinary_Click" ToolTip="选择音源插件" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding PluginPath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+        <DataGridTemplateColumn Header="渲染程序" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE8B7;" Tag="{Binding}" Click="BrowsePlugin_Click" ToolTip="选择预览宿主或外部渲染程序" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+        <DataGridTextColumn Header="已关联插件" Binding="{Binding PluginPath}" Width="220" IsReadOnly="True" ElementStyle="{StaticResource GridText}"/>
         <DataGridTextColumn Header="实际版本" Binding="{Binding Version, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
         <DataGridTextColumn Header="超时 (秒)" Binding="{Binding TimeoutSeconds, UpdateSourceTrigger=PropertyChanged}" Width="95"/>
        </DataGrid.Columns>
       </DataGrid>
+      </StackPanel>
+      </Expander>
       <TextBlock Text="三音区试听模板" FontSize="17" FontWeight="SemiBold" Margin="0,24,0,10"/>
       <WrapPanel IsEnabled="{Binding IsIdle}">
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="低音 MIDI" Style="{StaticResource FieldLabel}"/><TextBox x:Name="LowNoteBox"/></StackPanel>

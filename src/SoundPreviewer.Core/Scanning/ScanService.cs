@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
 using SoundPreviewer.Core.Models;
@@ -12,12 +11,41 @@ public sealed class ScanService
     private const int MaximumBankEntries = 4096;
     private const long MaximumBankExpandedBytes = 256 * 1024 * 1024;
 
+    public static void AssignSynth(PresetRecord record, SynthKind synth)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (!Enum.IsDefined(synth) || synth == SynthKind.Unknown)
+            throw new ArgumentException("请选择已支持的音源。", nameof(synth));
+        string extension = Path.GetExtension(record.SourcePath);
+        if (!Supports(synth, extension))
+            throw new ArgumentException($"{PresetDetection.SynthName(synth)} 不能处理 {extension} 格式，音源指定未变更。", nameof(synth));
+        bool changed = record.Synth != synth;
+        if (changed)
+        {
+            bool missing = record.Status == PresetStatus.Missing;
+            record.Synth = synth;
+            ClearPreview(record);
+            record.Attempts = 0;
+            record.AttemptedCacheKey = "";
+            record.Status = missing ? PresetStatus.Missing : PresetStatus.Pending;
+            record.Message = "已手动指定音源，等待验证实际预制加载。";
+        }
+        record.SynthAssignedManually = true;
+        record.DetectionReason = "用户手动指定为 " + PresetDetection.SynthName(synth) + "。";
+        record.Tags = PresetDetection.MergeTags(record.Tags, synth, record.SourcePath);
+        if (extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(record.InternalPath))
+        {
+            if (record.Status != PresetStatus.Missing) record.Status = PresetStatus.Unsupported;
+            record.Message = "已指定银行音源；银行加载与槽位尚未验证，暂不生成预览。";
+        }
+    }
+
     public Task<ScanResult> ScanAsync(IReadOnlyList<SourceFolder> sources, IReadOnlyList<PresetRecord> existing, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(existing);
         cancellationToken.ThrowIfCancellationRequested();
-        var sourceSnapshot = sources.Select(source => new SourceFolder { Id = source.Id, Path = source.Path, Synth = source.Synth, Enabled = source.Enabled }).ToList();
+        var sourceSnapshot = sources.Select(source => new SourceFolder { Id = source.Id, Path = source.Path, Synth = source.Synth, AutoDetect = source.AutoDetect, Enabled = source.Enabled }).ToList();
         var recordSnapshot = existing.ToList();
         return Task.Run(() => Scan(sourceSnapshot, recordSnapshot, cancellationToken), cancellationToken);
     }
@@ -26,10 +54,14 @@ public sealed class ScanService
     {
         var warnings = new List<string>();
         var records = existing.GroupBy(p => p.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => Clone(g.First()), StringComparer.Ordinal);
+        var previousLocations = records.Values.GroupBy(LocationKey, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         var scannedIds = new HashSet<string>(StringComparer.Ordinal);
+        var scannedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scannedFileContexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var completedSources = new HashSet<string>(StringComparer.Ordinal);
         var roots = new Dictionary<string, string>(StringComparer.Ordinal);
-        var enabledSources = sources.Where(s => s.Enabled).ToList();
+        var sourceDefinitions = sources.GroupBy(s => s.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var enabledSources = sources.Where(s => s.Enabled).OrderBy(s => s.AutoDetect).ToList();
         int added = 0;
         int changed = 0;
         foreach (var source in enabledSources)
@@ -87,26 +119,47 @@ public sealed class ScanService
                             directories.Push(path);
                             continue;
                         }
-                        if (!Supports(source.Synth, Path.GetExtension(path))) continue;
+                        if (!(source.AutoDetect ? PresetDetection.SupportsAny(Path.GetExtension(path)) : Supports(source.Synth, Path.GetExtension(path)))) continue;
+                        string fileContext = (source.AutoDetect ? "auto" : source.Synth.ToString()) + "|" + path;
+                        if (source.AutoDetect ? scannedFiles.Contains(path) : scannedFileContexts.Contains(fileContext)) continue;
                         try
                         {
-                            foreach (var candidate in ReadPresets(source, root, path, token, warnings))
+                            var candidates = ReadPresets(source, root, path, token, warnings);
+                            scannedFiles.Add(path);
+                            scannedFileContexts.Add(fileContext);
+                            foreach (var candidate in candidates)
                             {
-                                if (!scannedIds.Add(candidate.Id)) continue;
-                                if (records.TryGetValue(candidate.Id, out var previous))
+                                string location = LocationKey(candidate);
+                                PresetRecord? previous = null;
+                                if (previousLocations.TryGetValue(location, out var matches))
                                 {
-                                    if (enabledSources.Any(s => s.Id == previous.SourceId && s.Synth == candidate.Synth && roots.TryGetValue(s.Id, out string? ownerRoot) && IsInside(candidate.SourcePath, ownerRoot)))
-                                        candidate.SourceId = previous.SourceId;
-                                    if (string.Equals(previous.ContentHash, candidate.ContentHash, StringComparison.Ordinal))
+                                    var eligible = matches.Where(p => !scannedIds.Contains(p.Id) && (source.AutoDetect || p.Id == candidate.Id || p.SourceId == source.Id ||
+                                        p.Synth == SynthKind.Unknown || p.Status == PresetStatus.Unidentified ||
+                                        (sourceDefinitions.TryGetValue(p.SourceId, out var owner) ? owner.AutoDetect : p.Synth == candidate.Synth))).ToList();
+                                    previous = eligible.FirstOrDefault(p => p.SynthAssignedManually) ?? eligible.FirstOrDefault(p => p.Id == candidate.Id) ??
+                                        eligible.FirstOrDefault(p => p.SourceId == source.Id) ?? eligible.FirstOrDefault(p => p.Synth == candidate.Synth) ?? eligible.FirstOrDefault();
+                                }
+                                if (previous is not null)
+                                {
+                                    candidate.Id = previous.Id;
+                                    if (previous.SynthAssignedManually)
+                                    {
+                                        string automaticReason = candidate.DetectionReason;
+                                        AssignSynth(candidate, previous.Synth);
+                                        candidate.DetectionReason += " 自动识别线索：" + automaticReason;
+                                    }
+                                    candidate.Tags = PresetDetection.MergeTags(previous.Tags, candidate.Synth, candidate.SourcePath);
+                                    scannedIds.Add(candidate.Id);
+                                    if (previous.Synth == candidate.Synth && string.Equals(previous.ContentHash, candidate.ContentHash, StringComparison.Ordinal))
                                     {
                                         RefreshLocation(previous, candidate);
-                                        if (candidate.Status == PresetStatus.Unsupported)
+                                        if (candidate.Status is PresetStatus.Unsupported or PresetStatus.Unidentified)
                                         {
-                                            previous.Status = PresetStatus.Unsupported;
+                                            previous.Status = candidate.Status;
                                             previous.Message = candidate.Message;
                                             ClearPreview(previous);
                                         }
-                                        else if (previous.Status == PresetStatus.Unsupported)
+                                        else if (previous.Status is PresetStatus.Unsupported or PresetStatus.Unidentified)
                                         {
                                             previous.Status = PresetStatus.Pending;
                                             previous.Message = candidate.Message;
@@ -135,6 +188,7 @@ public sealed class ScanService
                                 }
                                 else
                                 {
+                                    scannedIds.Add(candidate.Id);
                                     records.Add(candidate.Id, candidate);
                                     added++;
                                 }
@@ -165,23 +219,20 @@ public sealed class ScanService
                 record.Message = "源音色已移除或不再属于此来源。";
             }
         }
+        int duplicates = PresetIndex.RebuildDuplicates(records.Values, sources);
         return new ScanResult
         {
             Presets = records.Values.OrderBy(p => p.Synth).ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(p => p.Id, StringComparer.Ordinal).ToList(),
             Warnings = warnings,
             Added = added,
-            Changed = changed
+            Changed = changed,
+            Duplicates = duplicates
         };
-    }
-
-    private static bool IsInside(string path, string root)
-    {
-        string prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
-        return string.Equals(path, root, StringComparison.OrdinalIgnoreCase) || path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool Supports(SynthKind synth, string extension)
     {
+        if (synth == SynthKind.Unknown) return false;
         if (synth == SynthKind.Vital) return extension.Equals(".vital", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase);
         if (extension.Equals(".fxp", StringComparison.OrdinalIgnoreCase)) return true;
         return synth == SynthKind.Serum2 && extension.Equals(".SerumPreset", StringComparison.OrdinalIgnoreCase) ||
@@ -194,9 +245,13 @@ public sealed class ScanService
         long fileSize = file.Length;
         DateTime lastWriteUtc = file.LastWriteTimeUtc;
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
-        string fileHash = Hash(stream, token);
+        var fileHashes = Hash(stream, token);
+        string fileHash = fileHashes.Sha256;
         stream.Position = 0;
         string extension = file.Extension;
+        VstEnvelope? envelope = extension.Equals(".fxp", StringComparison.OrdinalIgnoreCase) || extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase)
+            ? PresetDetection.ReadEnvelope(stream, fileSize, extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase)) : null;
+        var detection = source.AutoDetect ? PresetDetection.Detect(path, root, envelope) : new SynthDetection(source.Synth, "扫描来源已指定为 " + PresetDetection.SynthName(source.Synth) + "。");
         string package = Path.GetDirectoryName(Path.GetRelativePath(root, path)) ?? "";
         if (package.Length == 0 || package == ".") package = Path.GetFileName(root);
 
@@ -220,9 +275,9 @@ public sealed class ScanService
                 using var content = new MemoryStream();
                 CopyBounded(entryStream, content, MaximumVitalBytes, token);
                 content.Position = 0;
-                string entryHash = Hash(content, token);
+                string entryHash = Hash(content, token).Sha256;
                 content.Position = 0;
-                var record = CreateRecord(source, path, Path.GetFileNameWithoutExtension(internalPath), Path.GetFileNameWithoutExtension(path), Fingerprints.HashText($"{fileHash}|{internalPath}|{entryHash}"), entry.Length, lastWriteUtc, internalPath);
+                var record = CreateRecord(source, detection, path, Path.GetFileNameWithoutExtension(internalPath), Path.GetFileNameWithoutExtension(path), Fingerprints.HashText($"{fileHash}|{internalPath}|{entryHash}"), fileHashes.Md5, entry.Length, lastWriteUtc, internalPath);
                 record.Status = PresetStatus.Unsupported;
                 record.Message = "已识别 Vital 音色包条目；尚未验证原生音色包导入及依赖资源，不生成预览。";
                 try { ValidateVital(content, record); }
@@ -235,7 +290,7 @@ public sealed class ScanService
             }
             if (entries.Count == 0)
             {
-                var empty = CreateRecord(source, path, Path.GetFileNameWithoutExtension(path), package, fileHash, fileSize, lastWriteUtc);
+                var empty = CreateRecord(source, detection, path, Path.GetFileNameWithoutExtension(path), package, fileHash, fileHashes.Md5, fileSize, lastWriteUtc);
                 empty.Status = PresetStatus.Unsupported;
                 empty.Message = "此 Vital 音色包没有可识别的 .vital 条目。";
                 bankRecords.Add(empty);
@@ -244,7 +299,14 @@ public sealed class ScanService
             return bankRecords;
         }
 
-        var preset = CreateRecord(source, path, Path.GetFileNameWithoutExtension(path), package, fileHash, fileSize, lastWriteUtc);
+        var preset = CreateRecord(source, detection, path, Path.GetFileNameWithoutExtension(path), package, fileHash, fileHashes.Md5, fileSize, lastWriteUtc);
+        if (preset.Synth == SynthKind.Unknown)
+        {
+            preset.Status = PresetStatus.Unidentified;
+            preset.Message = detection.Reason;
+            VerifyStable(file, fileSize, lastWriteUtc);
+            return [preset];
+        }
         if (extension.Equals(".vital", StringComparison.OrdinalIgnoreCase))
         {
             try
@@ -262,24 +324,19 @@ public sealed class ScanService
         else if (extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase))
         {
             preset.Status = PresetStatus.Unsupported;
-            preset.Message = "Sylenth1 FXB 为不透明音色库；需要原生适配器确认音色槽位，暂不拆分或生成预览。";
+            preset.Message = "FXB 为不透明音色库；需要原生适配器确认音色槽位，暂不拆分或生成预览。";
+            if (!string.IsNullOrWhiteSpace(envelope?.Diagnostic)) preset.Message += " " + envelope.Diagnostic;
         }
         else if (extension.Equals(".fxp", StringComparison.OrdinalIgnoreCase))
         {
-            Span<byte> header = stackalloc byte[12];
-            int bytes = stream.Read(header);
-            uint declaredSize = bytes == header.Length ? BinaryPrimitives.ReadUInt32BigEndian(header[4..8]) : 0;
-            if (bytes != header.Length || fileSize < 56 || !header[..4].SequenceEqual("CcnK"u8) ||
-                (declaredSize != fileSize - 8 && declaredSize != fileSize) ||
-                (!header[8..12].SequenceEqual("FxCk"u8) && !header[8..12].SequenceEqual("FPCh"u8)) ||
-                (header[8..12].SequenceEqual("FPCh"u8) && fileSize < 60))
+            if (envelope?.IsValid != true)
             {
                 preset.Status = PresetStatus.Unsupported;
                 preset.Message = "FXP 文件头无效或此文件实际为音色库。";
                 warnings.Add($"{path}：{preset.Message}");
             }
-            else if (declaredSize == fileSize)
-                preset.Message = "FXP 使用完整文件长度字段，已按兼容格式识别；实际预制加载仍须由音源确认。";
+            else if (!string.IsNullOrWhiteSpace(envelope.Diagnostic))
+                preset.Message = envelope.Diagnostic + " 实际预制加载仍须由音源确认。";
         }
         VerifyStable(file, fileSize, lastWriteUtc);
         return [preset];
@@ -302,16 +359,19 @@ public sealed class ScanService
             preset.Name = name.GetString()!;
     }
 
-    private static PresetRecord CreateRecord(SourceFolder source, string path, string name, string package, string hash, long size, DateTime modified, string internalPath = "") => new()
+    private static PresetRecord CreateRecord(SourceFolder source, SynthDetection detection, string path, string name, string package, string hash, string md5, long size, DateTime modified, string internalPath = "") => new()
     {
-        Id = Fingerprints.PresetId(source.Synth, path, internalPath),
+        Id = Fingerprints.PresetId(source.AutoDetect ? SynthKind.Unknown : source.Synth, path, internalPath),
         SourceId = source.Id,
-        Synth = source.Synth,
+        Synth = detection.Synth,
+        DetectionReason = detection.Reason,
+        Tags = PresetDetection.Tags(detection.Synth, path),
         SourcePath = Path.GetFullPath(path),
         InternalPath = internalPath,
         Name = name,
         Package = package,
         ContentHash = hash,
+        ContentMd5 = md5,
         FileSize = size,
         LastWriteUtc = modified,
         Status = PresetStatus.Pending
@@ -325,6 +385,10 @@ public sealed class ScanService
         previous.Package = candidate.Package;
         previous.FileSize = candidate.FileSize;
         previous.LastWriteUtc = candidate.LastWriteUtc;
+        previous.ContentMd5 = candidate.ContentMd5;
+        previous.DetectionReason = candidate.DetectionReason;
+        previous.SynthAssignedManually = candidate.SynthAssignedManually;
+        previous.Tags = candidate.Tags;
     }
 
     private static void ClearPreview(PresetRecord preset)
@@ -341,18 +405,28 @@ public sealed class ScanService
 
     private static PresetRecord Clone(PresetRecord record) => JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(record, LibraryJson.Options), LibraryJson.Options)!;
 
-    private static string Hash(Stream stream, CancellationToken token)
+    private static string LocationKey(PresetRecord record)
+    {
+        string path;
+        try { path = Path.GetFullPath(record.SourcePath).ToUpperInvariant(); }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { path = record.SourcePath.ToUpperInvariant(); }
+        return JsonSerializer.Serialize(new { Path = path, record.InternalPath, record.BankSlot });
+    }
+
+    private static (string Sha256, string Md5) Hash(Stream stream, CancellationToken token)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         byte[] buffer = new byte[65536];
         int count;
         while ((count = stream.Read(buffer, 0, buffer.Length)) > 0)
         {
             token.ThrowIfCancellationRequested();
             hash.AppendData(buffer, 0, count);
+            md5.AppendData(buffer, 0, count);
         }
         token.ThrowIfCancellationRequested();
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        return (Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(), Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant());
     }
 
     private static void CopyBounded(Stream source, Stream destination, long maximum, CancellationToken token)
