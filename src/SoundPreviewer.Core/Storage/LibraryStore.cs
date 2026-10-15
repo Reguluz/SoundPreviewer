@@ -148,6 +148,11 @@ public sealed class LibraryStore
                 bool missingPreview = (preset.Status == PresetStatus.Ready || preset.Status == PresetStatus.NeedsReview) &&
                     (string.IsNullOrWhiteSpace(preset.PreviewPath) || !File.Exists(preset.PreviewPath));
                 if (!interrupted && !missingPreview) continue;
+                if (interrupted)
+                {
+                    preset.LastRenderOutcome = "已停止";
+                    preset.LastRenderMessage = "上次生成被中断；已有完整预览保留，可继续生成。";
+                }
                 if (interrupted && PresetIndex.HasRecoverablePreview(preset))
                 {
                     preset.Status = PresetStatus.NeedsReview;

@@ -49,6 +49,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _needsRendererSetup;
     private string _taskTitle = "";
     private string _taskProgressText = "";
+    private bool _updatingFilterChoices;
+    private const string MissingFilter = "\0";
+    private readonly PresetCategoryService _categoryService = new();
+    private string _categoryRulesStatus = "";
+    private string _loadedCategoryRules = "";
+    private int _baselineRefreshGeneration;
 
     public ObservableCollection<PresetRow> Presets { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
@@ -57,10 +63,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<string> PluginDirectories { get; } = [];
     public ObservableCollection<DiscoveredPluginRow> DiscoveredPlugins { get; } = [];
     public ICollectionView PresetsView { get; }
+    public ObservableCollection<Choice<string>> SourceFilters { get; } = [new("全部来源", "")];
+    public ObservableCollection<Choice<string>> PackageFilters { get; } = [new("全部音色包", "")];
+    public ObservableCollection<Choice<string>> TagFilters { get; } = [new("全部标签", "")];
+    public ObservableCollection<Choice<string>> CategoryFilters { get; } = [new("全部分类", "")];
+    public List<Choice<int?>> FavoriteFilters { get; } = [new("全部收藏状态", null), new("已收藏", 1), new("未收藏", 0)];
+    public ObservableCollection<InitializationRow> InitBaselines { get; } = [];
+    public string CategoryRulesStatus => _categoryRulesStatus;
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
     public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
-    public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
+    public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), new("最近生成失败", LatestFailedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer)];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
@@ -85,7 +98,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string LibraryLocation => Path.GetFullPath(App.DataDirectory);
     private static string X86HostPath => Path.Combine(AppContext.BaseDirectory, "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe");
     public string NowPlaying => _selected?.Name ?? "未选择预览";
-    public string LibrarySummary => $"已生成 {GeneratedPreviewCount}（待确认 {ReviewPreviewCount}） · {Presets.Count} 条路径索引 · {Presets.Count(p => p.Record.DuplicateOfId.Length > 0)} 个重复副本";
+    public int VisiblePresetCount => PresetsView is CollectionView view ? view.Count : PresetsView.Cast<PresetRow>().Count();
+    public bool CanRenderFiltered => IsIdle && !PresetsView.IsEmpty;
+    public bool CanRetryTasks => IsIdle && Presets.Any(row => row.Record.DuplicateOfId.Length == 0 &&
+        (row.Record.Status == PresetStatus.Failed || row.Record.LastRenderOutcome == "失败"));
+    public string LibrarySummary => $"筛选 {VisiblePresetCount} / {Presets.Count} · 已生成 {GeneratedPreviewCount}（待确认 {ReviewPreviewCount}） · {Presets.Count(p => p.Record.DuplicateOfId.Length > 0)} 个重复副本";
     public string StatusMessage => _statusMessage;
     public double ProgressValue => _progressValue;
     public Visibility TaskStatusVisibility => _hasTaskFeedback ? Visibility.Visible : Visibility.Collapsed;
@@ -102,12 +119,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _store.Initialize();
         _settings = App.ImportedSettings ?? _store.LoadSettings();
         if (string.IsNullOrWhiteSpace(_settings.PreviewDirectory)) _settings.PreviewDirectory = Path.Combine(App.DataDirectory, "Previews");
-        if (App.ImportedSettings is not null) _store.SaveSettings(_settings);
+        bool upgradedNoteOrder = _settings.Template.NoteOrder != PreviewNoteOrder.MiddleHighLow;
+        _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
+        int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath);
+        if (App.ImportedSettings is not null || refreshedHost > 0 || upgradedNoteOrder) _store.SaveSettings(_settings);
         PresetsView = CollectionViewSource.GetDefaultView(Presets);
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
         DataContext = this;
         PopulateSettings();
+        if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
+        LoadCategoryRulesEditor();
         _player.Volume = _settings.PlaybackVolume;
         _playbackTimer.Tick += (_, _) => UpdatePlayback();
         _playbackTimer.Start();
@@ -124,7 +146,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var restored = await Task.Run(() => _store.RecoverInterrupted());
             var records = await Task.Run(_store.LoadPresets);
+            if (_categoryService.Load().Success)
+            {
+                var classified = await Task.Run(() => _categoryService.Apply(records));
+                if (classified.Changed > 0) await Task.Run(() => _store.UpsertMany(records));
+            }
             SetPresets(records);
+            await RefreshInitBaselinesAsync();
             if (GeneratedPreviewCount > 0)
             {
                 _hasTaskFeedback = true;
@@ -187,9 +215,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     var table = Bounds(PresetGrid);
                     if (!PresetFormatHint.IsVisible || hint.Width <= 0 || hint.Height <= 0
                         || !new Rect(new Point(), visual.RenderSize).Contains(hint)
-                        || hint.Bottom > table.Top + 1 || hint.Left < table.Left - 1 || hint.Right > table.Right + 1)
+                        || hint.Bottom > table.Top + 1 || hint.Left < table.Left - 1)
                         throw new InvalidOperationException("文件后缀说明不可见或超出表格区域。");
-                    foreach (var control in new FrameworkElement[] { SearchBox, SynthFilter, StatusFilter, FavoritesOnly })
+                    foreach (var control in new FrameworkElement[] { SearchBox, SynthFilter, StatusFilter })
                         if (Bounds(control).Bottom > hint.Top + 1)
                             throw new InvalidOperationException("文件后缀说明与筛选工具栏重叠。");
                     foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
@@ -210,6 +238,55 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(bitmap));
                     encoder.Save(output);
+                }
+                void CheckLibraryFilters()
+                {
+                    var row = Presets.FirstOrDefault(p => p.Record.DuplicateOfId.Length == 0);
+                    if (row is null) return;
+                    ResetFilterControls();
+                    SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == row.Record.Synth);
+                    SourceFilter.SelectedItem = SourceFilters.Single(choice => choice.Value == (row.Record.SourceId.Length == 0 ? MissingFilter : row.Record.SourceId));
+                    PackageFilter.SelectedItem = PackageFilters.Single(choice => choice.Value == (row.Package.Length == 0 ? MissingFilter : row.Package));
+                    CategoryFilter.SelectedItem = CategoryFilters.First(choice => choice.Value == (row.Record.CategoryTags.FirstOrDefault() ?? MissingFilter));
+                    var tag = row.Record.Tags.Concat(row.Record.CategoryTags).FirstOrDefault();
+                    if (tag is not null) TagFilter.SelectedItem = TagFilters.First(choice => choice.Value == tag);
+                    FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (row.Record.Favorite ? 1 : 0));
+                    StatusFilter.SelectedItem = StatusFilters.Single(choice => choice.Value == row.Record.Status);
+                    SearchBox.Text = row.Name;
+                    PresetsView.Refresh();
+                    if (!PresetsView.Cast<PresetRow>().Contains(row)) throw new InvalidOperationException("来源、分类、标签、状态和收藏组合筛选错误。");
+                    FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (row.Record.Favorite ? 0 : 1));
+                    if (PresetsView.Cast<PresetRow>().Contains(row)) throw new InvalidOperationException("收藏筛选没有排除不匹配音色。");
+                    ResetFilterControls();
+                    var previousOutcome = row.Record.LastRenderOutcome;
+                    row.Record.LastRenderOutcome = "失败";
+                    StatusFilter.SelectedItem = StatusFilters.Single(choice => choice.LatestFailedOnly);
+                    if (!PresetsView.Cast<PresetRow>().Contains(row)) throw new InvalidOperationException("最近失败筛选遗漏保留旧预览的失败项目。");
+                    row.Record.LastRenderOutcome = previousOutcome;
+                    ResetFilterControls();
+                    var menu = new ContextMenu();
+                    ColumnMenu_Opened(menu, new RoutedEventArgs());
+                    var column = PresetGrid.Columns.First(value => value.Visibility == Visibility.Visible);
+                    var item = menu.Items.OfType<MenuItem>().First(value => value.Header?.ToString() == column.Header?.ToString());
+                    item.IsChecked = false;
+                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    if (column.Visibility != Visibility.Collapsed) throw new InvalidOperationException("列选择未隐藏主表列。");
+                    item.IsChecked = true;
+                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    PresetsView.Refresh();
+                }
+                CheckLibraryFilters();
+                foreach (var order in Enum.GetValues<PreviewNoteOrder>())
+                {
+                    var template = new PreviewTemplate { NoteOrder = order };
+                    var record = new PresetRecord
+                    {
+                        TemplateJson = JsonSerializer.Serialize(template, LibraryJson.Options),
+                        Notes = template.Pitches.Select((pitch, index) => new NotePreview { MidiNote = pitch, StartSeconds = index * 0.5, DurationSeconds = 0.5 }).ToList()
+                    };
+                    foreach (var (region, pitch) in new[] { ("Middle", 60), ("High", 84), ("Low", 36) })
+                        if (FindPreviewNote(record, region)?.MidiNote != pitch)
+                            throw new InvalidOperationException("新旧音区顺序的试听按钮映射错误。");
                 }
                 if (Presets.Count > 0)
                 {
@@ -389,10 +466,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     Capture($"ui-generated-{name}.png");
                     ClearFilters_Click(this, new RoutedEventArgs());
                     DiscoveredPluginGrid.BringIntoView();
+                    Pages.SelectedItem = SettingsTab;
+                    SettingsPages.SelectedItem = DiscoveredSettingsTab;
                     UpdateLayout();
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     Capture($"ui-plugins-{name}.png");
                     Pages.SelectedItem = SettingsTab;
+                    SettingsPages.SelectedItem = StorageSettingsTab;
                     var savedQuickMode = QuickPreviewMode.IsChecked;
                     QuickPreviewMode.IsChecked = true;
                     UpdateLayout();
@@ -405,6 +485,28 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     UpdateLayout();
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     Capture($"ui-quick-settings-{name}.png");
+                    foreach (var (tab, suffix, table) in new[]
+                    {
+                        (DirectorySettingsTab, "directories", (DataGrid?)SourceGrid),
+                        (DiscoveredSettingsTab, "discovered", DiscoveredPluginGrid),
+                        (RenderSettingsTab, "renderers", PluginGrid),
+                        (ClassificationSettingsTab, "categories", null)
+                    })
+                    {
+                        SettingsPages.SelectedItem = tab;
+                        UpdateLayout();
+                        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                        if (table is not null)
+                        {
+                            var visible = Rect.Intersect(Bounds(table), Bounds(SettingsPages));
+                            if (visible.Height < table.ColumnHeaderHeight + table.RowHeight * 5)
+                                throw new InvalidOperationException($"设置列表可见空间不足五行：{suffix}，高度 {visible.Height:0}。");
+                            var secondary = tab == DirectorySettingsTab ? PluginDirectoryGrid : tab == RenderSettingsTab ? InitializationGrid : null;
+                            if (secondary is not null && Rect.Intersect(Bounds(secondary), Bounds(SettingsPages)).Height < secondary.ColumnHeaderHeight + secondary.RowHeight * 4)
+                                throw new InvalidOperationException($"设置右侧列表可见空间不足：{suffix}。");
+                        }
+                        Capture($"ui-settings-{suffix}-{name}.png");
+                    }
                 }
                 await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2, MixedDirectoryChecked = true, UnidentifiedChecked = unidentified is not null, PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked, GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked, DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(p => p.Record.DuplicateOfId.Length > 0), ForceDefaultOff = ForceGeneration.IsChecked != true, Width = ActualWidth, Height = ActualHeight }));
                 Application.Current.Shutdown();
@@ -418,17 +520,58 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (item is not PresetRow row) return false;
         if (ShowDuplicates?.IsChecked != true && row.Record.DuplicateOfId.Length > 0) return false;
         var search = SearchBox?.Text?.Trim() ?? "";
-        if (search.Length > 0 && !new[] { row.Name, row.Package, row.Record.SourcePath, row.Record.InternalPath, row.SynthLabel, row.Record.ContentMd5 }.Concat(row.Record.Tags).Any(s => s.Contains(search, StringComparison.CurrentCultureIgnoreCase))) return false;
+        if (search.Length > 0 && !new[] { row.Name, row.Package, row.Record.SourcePath, row.Record.InternalPath, row.SynthLabel, row.Record.ContentMd5 }.Concat(row.Record.Tags).Concat(row.Record.CategoryTags).Any(s => s.Contains(search, StringComparison.CurrentCultureIgnoreCase))) return false;
         if (SynthFilter?.SelectedItem is Choice<SynthKind?> { Value: { } synth } && row.Record.Synth != synth) return false;
         if (StatusFilter?.SelectedItem is StatusFilterChoice statusFilter &&
-            (statusFilter.GeneratedOnly ? !row.HasPreview : statusFilter.Value is { } status && row.Record.Status != status)) return false;
+            (statusFilter.GeneratedOnly ? !row.HasPreview : statusFilter.LatestFailedOnly ? row.Record.LastRenderOutcome != "失败" : statusFilter.Value is { } status && row.Record.Status != status)) return false;
+        if (SourceFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } source &&
+            (source.Value == MissingFilter ? row.Record.SourceId.Length != 0 : row.Record.SourceId != source.Value)) return false;
+        if (PackageFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } package &&
+            (package.Value == MissingFilter ? row.Package.Length != 0 : !string.Equals(row.Package, package.Value, StringComparison.OrdinalIgnoreCase))) return false;
+        if (CategoryFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } category &&
+            (category.Value == MissingFilter ? row.Record.CategoryTags.Count != 0 : !row.Record.CategoryTags.Contains(category.Value, StringComparer.OrdinalIgnoreCase))) return false;
+        if (TagFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } tag &&
+            !row.Record.Tags.Concat(row.Record.CategoryTags).Contains(tag.Value, StringComparer.OrdinalIgnoreCase)) return false;
+        if (FavoriteFilter?.SelectedItem is Choice<int?> { Value: { } favorite } && row.Record.Favorite != (favorite == 1)) return false;
         return FavoritesOnly?.IsChecked != true || row.Record.Favorite;
     }
 
     private void Filter_Changed(object sender, RoutedEventArgs e)
     {
+        if (_updatingFilterChoices) return;
         PresetsView?.Refresh();
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EmptyVisibility)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisiblePresetCount)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRenderFiltered)));
+    }
+
+    private void RefreshFilterChoices()
+    {
+        _updatingFilterChoices = true;
+        try
+        {
+            var records = Presets.Select(p => p.Record).ToList();
+            void Fill(ObservableCollection<Choice<string>> target, ComboBox control, string allLabel, IEnumerable<Choice<string>> values)
+            {
+                var selected = (control.SelectedItem as Choice<string>)?.Value ?? "";
+                target.Clear();
+                target.Add(new(allLabel, ""));
+                foreach (var value in values) target.Add(value);
+                control.SelectedItem = target.FirstOrDefault(item => item.Value == selected) ?? target[0];
+            }
+            Fill(SourceFilters, SourceFilter, "全部来源", records.Select(p => p.SourceId).Distinct(StringComparer.Ordinal)
+                .Select(id => new Choice<string>(id.Length == 0 ? "未关联来源" : Sources.FirstOrDefault(source => source.Id == id)?.Path ??
+                    Path.GetDirectoryName(records.First(p => p.SourceId == id).SourcePath) ?? id,
+                    id.Length == 0 ? MissingFilter : id)).OrderBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase));
+            Fill(PackageFilters, PackageFilter, "全部音色包", records.Select(p => p.Package).Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value.Length == 0 ? "无音色包" : value, value.Length == 0 ? MissingFilter : value)));
+            Fill(CategoryFilters, CategoryFilter, "全部分类", new[] { new Choice<string>("未分类", MissingFilter) }.Concat(records.SelectMany(p => p.CategoryTags)
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value, value))));
+            Fill(TagFilters, TagFilter, "全部标签", records.SelectMany(p => p.Tags.Concat(p.CategoryTags)).Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value, value)));
+        }
+        finally { _updatingFilterChoices = false; }
     }
 
     private void SetPresets(IEnumerable<PresetRecord> records)
@@ -436,6 +579,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var selectedId = _selected?.Record.Id;
         Presets.Clear();
         foreach (var record in records) Presets.Add(new PresetRow(record));
+        RefreshFilterChoices();
         PresetsView.Refresh();
         PresetGrid.SelectedItem = Presets.FirstOrDefault(p => p.Record.Id == selectedId);
         RefreshCompatibility();
@@ -445,11 +589,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async void Scan_Click(object sender, RoutedEventArgs e) => await Scan();
     private async Task Scan() => await RunTask(async token =>
     {
-        if (Sources.Count == 0) { Pages.SelectedItem = SettingsTab; throw new InvalidOperationException("请先添加预制目录。"); }
+        if (Sources.Count == 0) { Pages.SelectedItem = SettingsTab; SettingsPages.SelectedItem = DirectorySettingsTab; throw new InvalidOperationException("请先添加预制目录。"); }
         _statusMessage = "正在扫描预制目录…";
         NotifyAll();
         var scanWatch = Stopwatch.StartNew();
-        var result = await new ScanService().ScanAsync(Sources.ToList(), Presets.Select(p => p.Record).ToList(), token);
+        var result = await new ScanService(_categoryService).ScanAsync(Sources.ToList(), Presets.Select(p => p.Record).ToList(), token);
         var latestFeedback = Presets.ToDictionary(p => p.Record.Id);
         foreach (var record in result.Presets)
             if (latestFeedback.TryGetValue(record.Id, out var latest))
@@ -477,12 +621,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!CanRenderSelection || _selected is null) return;
         await Generate([_selected.Record], forceRegenerate: true);
     }
+    private async void RenderFiltered_Click(object sender, RoutedEventArgs e) =>
+        await Generate(PresetsView.Cast<PresetRow>().Select(row => row.Record).ToList());
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
-        var failed = Presets.Where(p => p.Record.Status == PresetStatus.Failed && p.Record.DuplicateOfId.Length == 0).ToList();
-        foreach (var row in failed) { row.Record.Attempts = 0; row.Record.Status = PresetStatus.Pending; row.Refresh(); }
-        _store.UpsertMany(failed.Select(p => p.Record));
-        await Generate(failed.Select(p => p.Record).ToList());
+        var failed = Presets.Where(row => row.Record.DuplicateOfId.Length == 0 &&
+            (row.Record.Status == PresetStatus.Failed || row.Record.LastRenderOutcome == "失败")).Select(row => row.Record).ToList();
+        if (failed.Count > 0) await Generate(failed, forceRegenerate: true);
     }
 
     private async Task Generate(IReadOnlyList<PresetRecord> records, bool forceRegenerate = false) => await RunTask(async token =>
@@ -558,6 +703,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _statusMessage = result.Summary;
         _taskProgressText = $"已处理 {result.Eligible} / {result.Eligible}";
         RefreshCompatibility();
+        await RefreshInitBaselinesAsync();
         if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
         Log(result.Summary);
     });
@@ -618,6 +764,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             foreach (var row in Presets) row.Refresh();
             PresetsView.Refresh();
             RefreshCompatibility();
+            try { await RefreshInitBaselinesAsync(); }
+            catch (Exception error) { Log("基准状态未刷新：" + error.Message); }
             NotifyAll();
             if (_selected is not null && _selected.Record.PreviewPath != _loadedPreviewPath) await LoadSelectedPreview();
             if (_closeWhenDone) Close();
@@ -638,9 +786,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ViewGenerated_Click(object sender, RoutedEventArgs e) => ShowGeneratedPreviews();
     private void ShowGeneratedPreviews()
     {
-        SearchBox.Clear();
-        SynthFilter.SelectedIndex = 0;
-        FavoritesOnly.IsChecked = false;
+        ResetFilterControls();
         ShowDuplicates.IsChecked = false;
         StatusFilter.SelectedItem = StatusFilters.Single(filter => filter.GeneratedOnly);
         Pages.SelectedIndex = 0;
@@ -651,12 +797,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void ClearFilters_Click(object sender, RoutedEventArgs e)
     {
+        ResetFilterControls();
+        PresetsView.Refresh();
+        NotifyAll();
+    }
+
+    private void ResetFilterControls()
+    {
         SearchBox.Clear();
         SynthFilter.SelectedIndex = 0;
         StatusFilter.SelectedIndex = 0;
+        SourceFilter.SelectedIndex = 0;
+        PackageFilter.SelectedIndex = 0;
+        TagFilter.SelectedIndex = 0;
+        CategoryFilter.SelectedIndex = 0;
+        FavoriteFilter.SelectedIndex = 0;
         FavoritesOnly.IsChecked = false;
-        PresetsView.Refresh();
-        NotifyAll();
     }
 
     private void RefreshCompatibility()
@@ -673,6 +829,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ViewTaskSettings_Click(object sender, RoutedEventArgs e)
     {
         Pages.SelectedItem = SettingsTab;
+        SettingsPages.SelectedItem = RenderSettingsTab;
         RendererSettings.IsExpanded = true;
         RendererSettings.BringIntoView();
     }
@@ -729,10 +886,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void PlayNote_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null || sender is not Button button) return;
-        var index = int.Parse((string)button.Tag, CultureInfo.InvariantCulture);
-        if (_selected.Record.Notes.Count <= index) { Log("此预览缺少分音区映射。"); return; }
-        var note = _selected.Record.Notes[index];
+        var note = FindPreviewNote(_selected.Record, (string)button.Tag);
+        if (note is null) { Log("此预览缺少对应音区的保存记录。"); return; }
         StartPlayback(note.StartSeconds, note.StartSeconds + note.DurationSeconds);
+    }
+    private static NotePreview? FindPreviewNote(PresetRecord record, string region)
+    {
+        if (string.IsNullOrWhiteSpace(record.TemplateJson))
+        {
+            int legacyIndex = region switch { "Low" => 0, "Middle" => 1, "High" => 2, _ => -1 };
+            return legacyIndex >= 0 && legacyIndex < record.Notes.Count ? record.Notes[legacyIndex] : null;
+        }
+        try
+        {
+            var template = JsonSerializer.Deserialize<PreviewTemplate>(record.TemplateJson, LibraryJson.Options);
+            int? pitch = region switch { "Low" => template?.LowNote, "Middle" => template?.MiddleNote, "High" => template?.HighNote, _ => null };
+            int index = template?.NoteOrder == PreviewNoteOrder.MiddleHighLow
+                ? region switch { "Middle" => 0, "High" => 1, "Low" => 2, _ => -1 }
+                : region switch { "Low" => 0, "Middle" => 1, "High" => 2, _ => -1 };
+            return index >= 0 && index < record.Notes.Count && record.Notes[index].MidiNote == pitch ? record.Notes[index] : null;
+        }
+        catch (JsonException) { return null; }
     }
     private void StartPlayback(double seconds, double? end)
     {
@@ -831,10 +1005,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var record = Presets.FirstOrDefault(p => p.Record.Id == _selected?.Record.DuplicateOfId);
         if (record is null) return;
-        SearchBox.Clear();
-        SynthFilter.SelectedIndex = 0;
-        StatusFilter.SelectedIndex = 0;
-        FavoritesOnly.IsChecked = false;
+        ResetFilterControls();
         ShowDuplicates.IsChecked = false;
         PresetGrid.SelectedItem = record;
         PresetGrid.ScrollIntoView(record);
@@ -851,6 +1022,189 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Process.Start(start);
         }
         catch (Exception ex) { ShowError(ex); }
+    }
+
+    private void ShowColumns_Click(object sender, RoutedEventArgs e)
+    {
+        if (ColumnsButton.ContextMenu is not { } menu) return;
+        menu.PlacementTarget = ColumnsButton;
+        menu.IsOpen = true;
+    }
+
+    private void ColumnMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu) return;
+        menu.Items.Clear();
+        foreach (var column in PresetGrid.Columns.OrderBy(column => column.DisplayIndex))
+        {
+            var item = new MenuItem { Header = column.Header?.ToString(), IsCheckable = true,
+                IsChecked = column.Visibility == Visibility.Visible, StaysOpenOnClick = true };
+            item.Click += (_, _) =>
+            {
+                if (!item.IsChecked && PresetGrid.Columns.Count(value => value.Visibility == Visibility.Visible) <= 1)
+                { item.IsChecked = true; return; }
+                column.Visibility = item.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+            };
+            menu.Items.Add(item);
+        }
+    }
+
+    private void LoadCategoryRulesEditor()
+    {
+        RulesPathBox.Text = PresetCategoryService.DefaultRulesPath;
+        try
+        {
+            _categoryService.EnsureRulesFile();
+            if (new FileInfo(PresetCategoryService.DefaultRulesPath).Length > 256 * 1024)
+                throw new InvalidDataException("分类规则超过 256 KiB，请缩小文件后重新加载。");
+            RulesEditor.Text = File.ReadAllText(PresetCategoryService.DefaultRulesPath);
+            _loadedCategoryRules = RulesEditor.Text;
+            var result = _categoryService.Load();
+            _categoryRulesStatus = result.Success ? $"已加载 {result.RuleCount} 个分类。" : result.Error + " 已保留原有分类。";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        { _categoryRulesStatus = "分类规则未加载：" + error.Message; }
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CategoryRulesStatus)));
+    }
+
+    private void ReloadCategoryRules_Click(object sender, RoutedEventArgs e)
+    {
+        if (RulesEditor.Text != _loadedCategoryRules && MessageBox.Show(this, "重新载入将放弃尚未保存的分类规则，是否继续？", "分类规则", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        LoadCategoryRulesEditor();
+    }
+
+    private void OpenCategoryRules_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _categoryService.EnsureRulesFile();
+            Process.Start(new ProcessStartInfo(PresetCategoryService.DefaultRulesPath) { UseShellExecute = true });
+        }
+        catch (Exception error) { ShowError(error); }
+    }
+
+    private async void ApplyCategoryRules_Click(object sender, RoutedEventArgs e)
+    {
+        if (RulesEditor.Text != _loadedCategoryRules)
+        {
+            ShowError(new InvalidOperationException("分类规则尚未保存，请先点击“保存并应用”。"));
+            return;
+        }
+        await ApplyCategoriesAsync();
+    }
+
+    private async void SaveCategoryRules_Click(object sender, RoutedEventArgs e)
+    {
+        var text = RulesEditor.Text;
+        var validation = PresetCategoryService.Validate(text);
+        if (!validation.Success) { ShowError(new InvalidDataException(validation.Error)); return; }
+        await RunTask(async token =>
+        {
+            var path = PresetCategoryService.DefaultRulesPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                await File.WriteAllTextAsync(temporary, text, new System.Text.UTF8Encoding(false), token);
+                token.ThrowIfCancellationRequested();
+                File.Move(temporary, path, overwrite: true);
+                _loadedCategoryRules = text;
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            await ApplyCategoriesCoreAsync(token);
+        });
+    }
+
+    private Task ApplyCategoriesAsync() => RunTask(ApplyCategoriesCoreAsync);
+
+    private async Task ApplyCategoriesCoreAsync(CancellationToken token)
+    {
+        var records = Presets.Select(row => row.Record).ToList();
+        var applied = await Task.Run(() =>
+        {
+            var copies = JsonSerializer.Deserialize<List<PresetRecord>>(JsonSerializer.Serialize(records, LibraryJson.Options), LibraryJson.Options)!;
+            var result = _categoryService.ReloadAndApply(copies, token);
+            if (result.Success)
+            {
+                token.ThrowIfCancellationRequested();
+                _store.UpsertMany(copies);
+            }
+            return (Result: result, Records: copies);
+        }, token);
+        var result = applied.Result;
+        if (!result.Success) throw new InvalidDataException(result.Error);
+        var categories = applied.Records.ToDictionary(record => record.Id, record => record.CategoryTags);
+        foreach (var record in records) record.CategoryTags = categories[record.Id];
+        foreach (var row in Presets) row.Refresh();
+        RefreshFilterChoices();
+        PresetsView.Refresh();
+        _categoryRulesStatus = $"已检查 {result.Processed} 个音色，更新 {result.Changed} 个分类。";
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CategoryRulesStatus)));
+        Log(_categoryRulesStatus);
+        NotifyAll();
+    }
+
+    private async Task RefreshInitBaselinesAsync()
+    {
+        int generation = ++_baselineRefreshGeneration;
+        foreach (var plugin in Plugins)
+            plugin.InitBaselinePath = _settings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth)?.InitBaselinePath ?? "";
+        var settings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
+        var rows = new List<InitializationRow>();
+        foreach (var plugin in settings.Plugins)
+        {
+            var state = await InitBaselineService.InspectAsync(settings, plugin);
+            rows.Add(new(plugin.Synth, Labels.Synth(plugin.Synth), state.Status, state.Detail, state.WavPath,
+                InitBaselineService.Supports(plugin) && File.Exists(plugin.ExecutablePath),
+                state.CanCompare && File.Exists(state.WavPath)));
+        }
+        if (generation != _baselineRefreshGeneration) return;
+        InitBaselines.Clear();
+        foreach (var row in rows) InitBaselines.Add(row);
+    }
+
+    private async void GenerateInitBaseline_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: InitializationRow row }) return;
+        await RunTask(async token =>
+        {
+            var plugin = _settings.Plugins.First(p => p.Synth == row.Kind);
+            _taskTitle = "正在生成默认启动基准";
+            _statusMessage = Labels.Synth(plugin.Synth) + "：采集三份未加载预制的默认启动声音并校准。";
+            NotifyTaskProgress();
+            await Task.Run(() => RefreshBinaryHashes(_settings, token), token);
+            var state = await Task.Run(() => InitBaselineService.GenerateAsync(_settings, plugin, Path.Combine(AppContext.BaseDirectory, "SoundPreviewer.Worker.exe"), token), token);
+            await Task.Run(() => _store.SaveSettings(_settings));
+            Log(state.Detail);
+            _statusMessage = state.Detail;
+            await RefreshInitBaselinesAsync();
+            if (!state.CanCompare) throw new InvalidOperationException(state.Detail);
+            _taskTitle = "默认启动基准已生成";
+        });
+    }
+
+    private async void PlayInitBaseline_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: InitializationRow row }) return;
+        await RunTask(async token =>
+        {
+            StopPlayback();
+            var plugin = _settings.Plugins.First(p => p.Synth == row.Kind);
+            var state = await InitBaselineService.InspectAsync(_settings, plugin, token);
+            if (!state.CanCompare) throw new InvalidOperationException(state.Detail);
+            using var player = new WavePlayer();
+            var audio = await Task.Run(() => WaveFile.Read(state.WavPath, token), token);
+            player.Volume = _settings.PlaybackVolume;
+            player.Load(audio);
+            player.Play(0);
+            var watch = Stopwatch.StartNew();
+            while (player.IsPlaying)
+            {
+                token.ThrowIfCancellationRequested();
+                if (watch.Elapsed.TotalSeconds > audio.DurationSeconds + 10) throw new TimeoutException("基准试听未在预期时间内结束。");
+                await Task.Delay(50, token);
+            }
+        });
     }
 
     private void PopulateSettings()
@@ -880,7 +1234,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         VolumeSlider.Value = _settings.PlaybackVolume;
     }
 
-    private void AddSourceFromLibrary_Click(object sender, RoutedEventArgs e) { Pages.SelectedItem = SettingsTab; AddSource_Click(sender, e); }
+    private void AddSourceFromLibrary_Click(object sender, RoutedEventArgs e) { Pages.SelectedItem = SettingsTab; SettingsPages.SelectedItem = DirectorySettingsTab; AddSource_Click(sender, e); }
     private void AddSource_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "选择预制目录", Multiselect = false };
@@ -952,30 +1306,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _settings.DiscoveredPlugins = merged;
         _settings.Plugins = ClonePlugins();
         _store.SaveSettings(_settings);
-        InvalidateChangedPreviews();
+        await InvalidateChangedPreviewsAsync();
         RefreshDiscoveredPlugins();
         PluginGrid.Items.Refresh();
+        await RefreshInitBaselinesAsync();
         foreach (var warning in result.Warnings) Log(warning);
         _taskTitle = "音源扫描完成";
         _statusMessage = $"发现 {result.Plugins.Count} 个插件 / 独立程序，自动关联 {associated} 个音源。渲染兼容性仍需验证。";
         Log(_statusMessage);
     });
-    private void UseDiscoveredPlugin_Click(object sender, RoutedEventArgs e)
+    private async void UseDiscoveredPlugin_Click(object sender, RoutedEventArgs e)
     {
         if (DiscoveredPluginGrid.SelectedItem is not DiscoveredPluginRow row) return;
-        try
+        await RunTask(async token =>
         {
             var configuration = Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth)
                 ?? throw new ArgumentException("此插件尚不属于支持的音源类型。");
             PluginSelectionService.Assign(configuration, row.Record, X86HostPath);
             _settings.Plugins = ClonePlugins();
             _store.SaveSettings(_settings);
-            InvalidateChangedPreviews();
+            await InvalidateChangedPreviewsAsync();
             RefreshDiscoveredPlugins();
             PluginGrid.Items.Refresh();
+            await RefreshInitBaselinesAsync();
             Log($"已关联 {Labels.Synth(row.Record.Synth)}：{row.Record.FilePath}（{row.ArchitectureLabel} / {row.FormatLabel}）。");
-        }
-        catch (Exception ex) { ShowError(ex); }
+        });
     }
     private void RefreshDiscoveredPlugins()
     {
@@ -1001,9 +1356,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         TailBox.Text = (hold * 0.3).ToString("0.0", CultureInfo.InvariantCulture);
         VelocityBox.Text = "89";
     }
-    private void SaveSettings_Click(object sender, RoutedEventArgs e)
-    {
-        try
+    private async void SaveSettings_Click(object sender, RoutedEventArgs e) => await RunTask(async token =>
         {
             if (!PluginGrid.CommitEdit(DataGridEditingUnit.Cell, true) || !PluginGrid.CommitEdit(DataGridEditingUnit.Row, true))
                 throw new ArgumentException("请修正渲染器设置中的输入。");
@@ -1029,41 +1382,54 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.Template = template;
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
             candidate.PluginDirectories = PluginDirectories.ToList();
-            RefreshBinaryHashes(candidate);
+            await Task.Run(() => RefreshBinaryHashes(candidate, token), token);
             candidate.PreviewDirectory = Path.GetFullPath(PreviewDirectoryBox.Text.Trim());
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
             _store.SaveSettings(candidate);
             _settings = candidate;
-            InvalidateChangedPreviews();
+            await InvalidateChangedPreviewsAsync();
             RefreshCompatibility();
+            await RefreshInitBaselinesAsync();
             Log("设置已保存。");
-        }
-        catch (Exception ex) { ShowError(ex); }
-    }
-    private void InvalidateChangedPreviews()
+        });
+    private async Task InvalidateChangedPreviewsAsync()
     {
-        foreach (var row in Presets)
+        var records = Presets.Select(row => row.Record).ToList();
+        var updates = await Task.Run(() =>
         {
-            if (row.Record.Synth == SynthKind.Unknown || row.Record.Status == PresetStatus.Unidentified) continue;
-            var plugin = _settings.Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth);
-            if (plugin is null) continue;
-            var previousKey = row.Record.AttemptedCacheKey.Length > 0 ? row.Record.AttemptedCacheKey : row.Record.CacheKey;
-            var key = Fingerprints.CacheKey(row.Record, plugin, _settings.Template);
-            if (row.Record.Status is not (PresetStatus.Missing or PresetStatus.Unsupported) && previousKey.Length > 0 && previousKey != key)
+            var changed = new List<PresetRecord>();
+            foreach (var record in records)
             {
-                if (File.Exists(row.Record.PreviewPath)) row.Record.Message = "配置已变更，已保留现有预览。";
+                if (record.Synth == SynthKind.Unknown || record.Status == PresetStatus.Unidentified) continue;
+                var plugin = _settings.Plugins.FirstOrDefault(p => p.Synth == record.Synth);
+                if (plugin is null) continue;
+                var previousKey = record.AttemptedCacheKey.Length > 0 ? record.AttemptedCacheKey : record.CacheKey;
+                var key = Fingerprints.CacheKey(record, plugin, _settings.Template);
+                if (record.Status is PresetStatus.Missing or PresetStatus.Unsupported || previousKey.Length == 0 || previousKey == key) continue;
+                var copy = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(record, LibraryJson.Options), LibraryJson.Options)!;
+                if (File.Exists(copy.PreviewPath)) copy.Message = "配置已变更，已保留现有预览。";
                 else
                 {
-                    row.Record.Status = PresetStatus.Pending;
-                    row.Record.Attempts = 0;
-                    row.Record.AttemptedCacheKey = key;
-                    row.Record.Message = "配置已变更，等待生成。";
+                    copy.Status = PresetStatus.Pending;
+                    copy.Attempts = 0;
+                    copy.AttemptedCacheKey = key;
+                    copy.Message = "配置已变更，等待生成。";
                 }
-                row.Refresh();
+                changed.Add(copy);
             }
+            if (changed.Count > 0) _store.UpsertMany(changed);
+            return changed.ToDictionary(record => record.Id);
+        });
+        foreach (var row in Presets)
+        {
+            if (!updates.TryGetValue(row.Record.Id, out var copy)) continue;
+            row.Record.Status = copy.Status;
+            row.Record.Attempts = copy.Attempts;
+            row.Record.AttemptedCacheKey = copy.AttemptedCacheKey;
+            row.Record.Message = copy.Message;
+            row.Refresh();
         }
-        _store.UpsertMany(Presets.Select(p => p.Record));
         NotifyAll();
     }
     private static int ParseInt(string value, string label) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : throw new ArgumentException(label + "须为整数。");
@@ -1123,3 +1489,5 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _store.SaveSettings(_settings);
     }
 }
+
+public sealed record InitializationRow(SynthKind Kind, string Synth, string Status, string Detail, string WavPath, bool CanGenerate, bool CanPlay);

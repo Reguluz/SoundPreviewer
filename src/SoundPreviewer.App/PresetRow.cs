@@ -16,6 +16,16 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
     public string DuplicateLabel => Record.DuplicateOfId.Length > 0 ? "相同内容已有保留项，此副本不参与生成。" : "";
     public string Message => Record.Message;
     public string TagsLabel => string.Join(" · ", Record.Tags);
+    public string CategoryTagsLabel => string.Join(" · ", Record.CategoryTags);
+    public string SourceLabel => Path.GetDirectoryName(Record.SourcePath) ?? "";
+    public string SourcePathLabel => Record.SourcePath;
+    public string AttemptsLabel => Record.Attempts.ToString();
+    public string RenderedLabel => Record.RenderedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
+    public string DurationLabel => Record.Metrics is { } metrics ? $"{metrics.DurationSeconds:0.00} 秒" : "";
+    public string PluginVersionLabel => Record.PluginVersion;
+    public string AdapterVersionLabel => Record.AdapterVersion;
+    public string LastRenderOutcomeLabel => Record.LastRenderOutcome;
+    public string LastRenderMessageLabel => Record.LastRenderMessage;
     public string FeedbackLabel => Record.Feedback switch { 1 => "喜欢", -1 => "不喜欢", _ => "" };
     public string FavoriteLabel => Record.Favorite ? "★" : "";
     public string AudioLabel => Record.Metrics is { } m ? $"{m.DurationSeconds:0.0} 秒 · {m.SampleRate} Hz · {m.Channels} 声道" : "尚未生成";
@@ -30,7 +40,7 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
 }
 
 public sealed record Choice<T>(string Label, T Value);
-public sealed record StatusFilterChoice(string Label, PresetStatus? Value = null, bool GeneratedOnly = false);
+public sealed record StatusFilterChoice(string Label, PresetStatus? Value = null, bool GeneratedOnly = false, bool LatestFailedOnly = false);
 public sealed record CompatibilityRow(string Synth, string Status, string Detail);
 
 public static class Labels

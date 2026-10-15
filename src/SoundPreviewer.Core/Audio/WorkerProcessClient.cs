@@ -5,7 +5,11 @@ namespace SoundPreviewer.Core.Audio;
 
 public sealed class WorkerProcessClient
 {
-    public async Task<RenderResult> RenderAsync(RenderRequest request, string workerPath, CancellationToken cancellationToken)
+    public Task<RenderResult> RenderAsync(RenderRequest request, string workerPath, CancellationToken cancellationToken) =>
+        RenderAsync(request, workerPath, cancellationToken, null);
+
+    public async Task<RenderResult> RenderAsync(RenderRequest request, string workerPath, CancellationToken cancellationToken,
+        Func<RenderResult, WaveData, CancellationToken, Task>? beforeCommit)
     {
         cancellationToken.ThrowIfCancellationRequested();
         request.Template.Validate();
@@ -22,6 +26,7 @@ public sealed class WorkerProcessClient
             var stagedRequest = new RenderRequest
             {
                 Preset = request.Preset, Plugin = request.Plugin, Template = request.Template,
+                IsInitializationBaseline = request.IsInitializationBaseline,
                 CacheKey = request.CacheKey, OutputPath = stagedAudio, MaxOutputBytes = request.MaxOutputBytes
             };
             await File.WriteAllTextAsync(requestFile, JsonSerializer.Serialize(stagedRequest, LibraryJson.Options), cancellationToken);
@@ -75,6 +80,7 @@ public sealed class WorkerProcessClient
                 result.NeedsReview |= note.Metrics.IsSilent || note.Metrics.HasClipping;
             }
             result.NeedsReview |= result.Metrics.IsSilent || result.Metrics.HasClipping;
+            if (beforeCommit is not null) await beforeCommit(result, audio, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             // After the atomic move, return success so the queue can persist this completed item even if cancellation arrives.
             File.Move(stagedAudio, finalPath, overwrite: true);

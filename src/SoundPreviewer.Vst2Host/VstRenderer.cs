@@ -18,7 +18,7 @@ internal static class VstRenderer
         if (buffers.Length != 2 || buffers[0][0] != 0.25f) throw new InvalidOperationException("VST.NET buffer interop failed.");
     }
 
-    public static RenderResult Render(RenderRequest request, FxpPreset preset)
+    public static RenderResult Render(RenderRequest request, FxpPreset? preset)
     {
         int rate = request.Template.SampleRate;
         var plan = RenderFramePlan.Create(request.Template, request.MaxOutputBytes);
@@ -26,7 +26,8 @@ internal static class VstRenderer
         int tail = plan.Tail;
         int frames = plan.Frames;
         string output = Path.GetFullPath(request.OutputPath);
-        if (string.Equals(output, Path.GetFullPath(request.Preset.SourcePath), StringComparison.OrdinalIgnoreCase) ||
+        if ((!string.IsNullOrWhiteSpace(request.Preset.SourcePath) &&
+            string.Equals(output, Path.GetFullPath(request.Preset.SourcePath), StringComparison.OrdinalIgnoreCase)) ||
             string.Equals(output, Path.GetFullPath(request.Plugin.PluginPath), StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("输出路径不能覆盖源预制或插件。");
         if (!string.IsNullOrWhiteSpace(request.Plugin.PluginHash) &&
@@ -44,12 +45,14 @@ internal static class VstRenderer
             callbacks.PluginContext = context;
             var commands = context.PluginCommandStub.Commands;
             commands.Open();
-            if (context.PluginInfo.PluginID != preset.PluginId) throw new InvalidDataException("实际插件 ID 与 FXP 不匹配，拒绝生成初始音色。");
+            if (context.PluginInfo.PluginID != (preset?.PluginId ?? 0x73796c31))
+                throw new InvalidDataException("实际插件 ID 与 Sylenth1 / FXP 身份不匹配，拒绝生成。");
             if ((context.PluginInfo.Flags & VstPluginFlags.CanReplacing) == 0 || context.PluginInfo.AudioOutputCount is < 1 or > 2 || context.PluginInfo.AudioInputCount is < 0 or > 2)
                 throw new NotSupportedException("插件不支持预期的单声道/立体声 float32 处理。");
             commands.SetSampleRate(rate);
             commands.SetBlockSize(HostCallbacks.BlockSize);
-            LoadPreset(context, preset);
+            if (preset is not null) LoadPreset(context, preset);
+            else if (!request.IsInitializationBaseline) throw new InvalidDataException("普通渲染必须明确加载 FXP。");
             names.Add(commands.GetProgramName());
             using var inputs = new VstAudioBufferManager(context.PluginInfo.AudioInputCount, HostCallbacks.BlockSize);
             using var outputs = new VstAudioBufferManager(context.PluginInfo.AudioOutputCount, HostCallbacks.BlockSize);
@@ -101,7 +104,9 @@ internal static class VstRenderer
         return new RenderResult
         {
             Success = true, OutputPath = output, Metrics = combinedMetrics, Notes = notes, AdapterVersion = AdapterVersion, NeedsReview = true,
-            Message = "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色：" + string.Join(" / ", names.Distinct())
+            Message = (request.IsInitializationBaseline
+                ? "默认启动基准：每音使用全新 Sylenth1 实例，未加载预制或调用 SetChunk。插件报告音色："
+                : "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色：") + string.Join(" / ", names.Distinct())
         };
     }
 
@@ -121,8 +126,7 @@ internal static class VstRenderer
                 byte[] before = commands.GetChunk(true) ?? [];
                 int consumed = commands.SetChunk(preset.Chunk, true);
                 byte[] after = commands.GetChunk(true) ?? [];
-                if (consumed < 0 || (consumed == 0 && !after.AsSpan().SequenceEqual(preset.Chunk) && after.AsSpan().SequenceEqual(before)))
-                    throw new InvalidDataException("插件未确认载入 FXP 且 program 未发生变化，拒绝把初始音色当成目标音色。");
+                ValidateChunkLoaded(consumed, before, after, preset.Chunk);
             }
             else
             {
@@ -132,6 +136,15 @@ internal static class VstRenderer
             }
         }
         finally { commands.EndSetProgram(); }
+    }
+
+    internal static void ValidateChunkLoaded(int consumed, ReadOnlySpan<byte> before, ReadOnlySpan<byte> after, ReadOnlySpan<byte> target)
+    {
+        if (consumed < 0) throw new InvalidDataException("插件拒绝载入 FXP。");
+        if (!before.IsEmpty && !after.IsEmpty && before.SequenceEqual(after))
+            throw new InvalidDataException("SetChunk 后音色状态完全未变，即使插件返回正值也不能把默认状态当成目标音色。");
+        if (consumed == 0 && !after.SequenceEqual(target) && (before.IsEmpty || after.IsEmpty))
+            throw new InvalidDataException("插件未确认载入 FXP，也没有可核验的音色状态变化。");
     }
 
     private static void WriteFloat32(string path, WaveData audio)

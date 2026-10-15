@@ -15,7 +15,7 @@ using SoundPreviewer.Worker;
 
 namespace SoundPreviewer.Tests;
 
-internal static class Program
+internal static partial class Program
 {
     private static string _fixtureRoot = "";
     private static string TestExecutable => Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe");
@@ -47,6 +47,9 @@ internal static class Program
             ("Mixed roots identify unique suffixes and verified VST IDs", TestMixedRootDetectionAsync),
             ("Directory evidence, ambiguity and fixed-source overlap stay conservative", TestDetectionAmbiguityAsync),
             ("Manual synth assignment preserves identity and invalidates only derived data", TestManualClassificationAsync),
+            ("Editable name category rules preserve metadata and survive invalid edits", TestPresetCategoriesAsync),
+            ("Initialization comparison rejects only strict three-note similarity", TestInitAudioComparisonAsync),
+            ("Startup baselines validate identities and reject before audio replacement", TestInitBaselineWorkflowAsync),
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),
             ("Plugin discovery validates PE exports, architecture and VST3 bundle paths", TestPluginDiscoveryAsync),
             ("Renderer readiness separates configuration, architecture and actual verification", TestRenderReadinessAsync),
@@ -97,7 +100,21 @@ internal static class Program
         True(template.QuickPreview, "New templates default to compact adaptive previews.");
         Near(0.5, template.HoldSeconds, 0, "New templates start with a half-second capture.");
         Near(0.08, template.TailSeconds, 0, "New templates use the bounded capture tail.");
+        True(template.Pitches.SequenceEqual([60, 84, 36]), "New previews play middle, high, then low.");
+        var legacyOrder = JsonSerializer.Deserialize<PreviewTemplate>("{\"Pitches\":[36,60,84]}", LibraryJson.Options)!;
+        Equal(PreviewNoteOrder.LowMiddleHigh, legacyOrder.NoteOrder, "Old JSON with no explicit order retains the original low-middle-high mapping.");
+        True(legacyOrder.Pitches.SequenceEqual([36, 60, 84]), "The old read-only Pitches JSON array does not force new template defaults on legacy audio.");
+        foreach (var order in Enum.GetValues<PreviewNoteOrder>())
+        {
+            var ordered = new PreviewTemplate { NoteOrder = order };
+            var copy = JsonSerializer.Deserialize<PreviewTemplate>(JsonSerializer.Serialize(ordered, LibraryJson.Options), LibraryJson.Options)!;
+            Equal(order, copy.NoteOrder, "Explicit old and new note orders both survive JSON round trips.");
+            True(copy.Pitches.SequenceEqual(ordered.Pitches), "Round-trip order preserves the exact note map.");
+        }
         string original = Fingerprints.CacheKey(preset, plugin, template);
+        template.NoteOrder = PreviewNoteOrder.LowMiddleHigh;
+        NotEqual(original, Fingerprints.CacheKey(preset, plugin, template), "Note order participates in the output and baseline identity.");
+        template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
         Equal(original, Fingerprints.CacheKey(preset, plugin, template), "Cache key must be deterministic.");
         preset.Favorite = true;
         preset.Feedback = -1;
@@ -119,6 +136,7 @@ internal static class Program
         Throws<ArgumentException>(() => new PreviewTemplate { HoldSeconds = double.NaN }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { LowNote = -1 }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { SampleRate = 22050 }.Validate());
+        Throws<ArgumentException>(() => new PreviewTemplate { NoteOrder = (PreviewNoteOrder)99 }.Validate());
         Equal(Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot, "same.fxp")),
             Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot.ToUpperInvariant(), "SAME.FXP")), "Windows source IDs must ignore path case.");
         NotEqual(Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot, "same.fxp")),
@@ -365,6 +383,7 @@ internal static class Program
         var result = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
         True(result.Success && result.NeedsReview, $"Bounded silent pitch remains a real reviewable preview: {result.Message}");
         WorkerProcessClient.ValidateNotes(result, request.Template);
+        True(result.Notes.Select(note => note.MidiNote).SequenceEqual([60, 84, 36]), "The actual worker protocol and quick capture clones preserve middle-high-low ordering.");
         var captured = File.ReadAllLines(request.Preset.SourcePath + ".captures").Select(line => JsonNode.Parse(line)!).ToList();
         True(captured.Select(item => item["Hold"]!.GetValue<double>()).SequenceEqual(new[] { 0.5, 1, 2, 4 }), "The synthetic delayed backend is captured only at the four bounded hold stages.");
         True(captured.All(item => item["Quick"]!.GetValue<bool>() == false && item["Tail"]!.GetValue<double>() == 0.08), "Raw captures use fixed mode and the real capture tail, not recursive quick rendering.");
@@ -556,6 +575,7 @@ internal static class Program
         CompletePreview(recovering, Path.Combine(directory, "recover-test-only.wav"));
         string oldKey = recovering.CacheKey;
         recovering.Status = PresetStatus.Rendering;
+        recovering.LastRenderOutcome = "生成中";
         recovering.Attempts = 2;
         var corrupt = Preset("recover-corrupt-preview");
         CompletePreview(corrupt, Path.Combine(directory, "corrupt-test-only.wav"));
@@ -577,6 +597,7 @@ internal static class Program
         Equal(PresetStatus.NeedsReview, recovered.Status, "A stopped forced render retains its old complete preview after restart.");
         Equal(oldKey, recovered.CacheKey, "Restart recovery retains the previous cache mapping.");
         Equal(2, recovered.Attempts, "Restart recovery preserves attempt history.");
+        Equal("已停止", recovered.LastRenderOutcome, "Restart recovery cannot leave the latest task permanently marked running.");
         foreach (var invalid in new[] { corrupt, wrongRate, incomplete })
         {
             var pending = store.LoadPresets().Single(p => p.Id == invalid.Id);
@@ -934,6 +955,46 @@ internal static class Program
         Equal(standalone, customX86.ExecutablePath, "Custom external executable choice survives the presence of a built-in host.");
         PluginSelectionService.Assign(customX86, sylenth32, TestExecutable);
         Equal(standalone, customX86.ExecutablePath, "Explicit plugin association also preserves an existing custom external renderer.");
+        string currentHostDirectory = Path.Combine(directory, "TEST-ONLY-current-publish", "Vst2Host-x86");
+        Directory.CreateDirectory(currentHostDirectory);
+        string currentHost = Path.Combine(currentHostDirectory, "SoundPreviewer.Vst2Host.exe");
+        File.WriteAllText(currentHost, "TEST ONLY existing host placeholder. This migration test never executes the file.");
+        string oldHost = Path.Combine(directory, "TEST-ONLY-removed-publish", "vst2HOST-X86", "soundpreviewer.VST2host.EXE");
+        PluginConfiguration OldBundledHost() => new()
+        {
+            Synth = SynthKind.Sylenth1, Backend = RenderBackend.ExternalWorker, ExecutablePath = oldHost,
+            ExecutableHash = "TEST ONLY old executable fingerprint", InitBaselinePath = "TEST ONLY old baseline locator",
+            PluginPath = x86, PluginHash = "TEST ONLY unchanged plugin fingerprint", Version = "2.2.1.2"
+        };
+        var migration = OldBundledHost();
+        True(!File.Exists(oldHost), "The previous bundled version is deliberately offline in the migration fixture.");
+        Equal(1, PluginSelectionService.RefreshBundledHost([migration], currentHost), "A recognized previous bundled Sylenth host is refreshed even when its old release was removed.");
+        Equal(Path.GetFullPath(currentHost), migration.ExecutablePath, "Migration uses the current release's available bundled host.");
+        Equal("", migration.ExecutableHash, "Migrating the host invalidates its old executable fingerprint.");
+        Equal("", migration.InitBaselinePath, "An old host's startup baseline cannot be retained for the new release.");
+        Equal(x86, migration.PluginPath, "Migrating the bundled host preserves the selected real plugin path.");
+        Equal("TEST ONLY unchanged plugin fingerprint", migration.PluginHash, "Host migration does not invent a different plugin fingerprint.");
+        Equal("2.2.1.2", migration.Version, "Host migration preserves the actual plugin version.");
+        migration.ExecutableHash = "TEST ONLY current executable fingerprint";
+        migration.InitBaselinePath = "TEST ONLY current baseline locator";
+        Equal(0, PluginSelectionService.RefreshBundledHost([migration], currentHost.ToUpperInvariant()), "A current bundled path is idempotent even when its path case differs.");
+        Equal("TEST ONLY current executable fingerprint", migration.ExecutableHash, "Routine startup does not clear an already-current fingerprint.");
+        Equal("TEST ONLY current baseline locator", migration.InitBaselinePath, "Routine startup keeps a current release's valid baseline locator.");
+        var unavailableMigration = OldBundledHost();
+        string unavailableBefore = JsonSerializer.Serialize(unavailableMigration, LibraryJson.Options);
+        Equal(0, PluginSelectionService.RefreshBundledHost([unavailableMigration], Path.Combine(directory, "TEST-ONLY-missing-host.exe")), "An unavailable new host cannot migrate stored settings.");
+        Equal(0, PluginSelectionService.RefreshBundledHost([unavailableMigration], null), "A missing optional bundled host is a no-op.");
+        Equal(unavailableBefore, JsonSerializer.Serialize(unavailableMigration, LibraryJson.Options), "Failed host discovery leaves all prior settings and baseline metadata unchanged.");
+        var protectedMigrations = Enumerable.Range(0, 6).Select(_ => OldBundledHost()).ToList();
+        protectedMigrations[0].ExecutablePath = Path.Combine(directory, "Vst2Host-x86", "CustomRenderer.exe");
+        protectedMigrations[1].ExecutablePath = Path.Combine(directory, "UserChosenHost", "SoundPreviewer.Vst2Host.exe");
+        protectedMigrations[2].Synth = SynthKind.Serum1;
+        protectedMigrations[3].Backend = RenderBackend.DawDreamer;
+        protectedMigrations[4].Backend = RenderBackend.Unconfigured;
+        protectedMigrations[5].ExecutablePath = "TEST ONLY invalid\0path";
+        string protectedBefore = JsonSerializer.Serialize(protectedMigrations, LibraryJson.Options);
+        Equal(0, PluginSelectionService.RefreshBundledHost(protectedMigrations, currentHost), "Custom names/directories, other synths/backends and malformed legacy paths cannot be mistaken for the bundled host.");
+        Equal(protectedBefore, JsonSerializer.Serialize(protectedMigrations, LibraryJson.Options), "Protected external configurations are not changed in any field.");
         var wrongX86 = new PluginConfiguration { Synth = SynthKind.Serum1 };
         var serum32 = Candidate(SynthKind.Serum1, x86, x86, "1.0.0", PluginBinaryFormat.Vst2, PluginArchitecture.X86);
         Equal(0, PluginSelectionService.ApplyAutomatic([serum32], [wrongX86], TestExecutable), "The Sylenth1-only built-in host cannot automatically enable arbitrary x86 synths.");
@@ -1197,7 +1258,8 @@ internal static class Program
         Equal(PresetStatus.Pending, unknown.Status, "Queue preserves an unknown record's existing status.");
         Equal(PresetStatus.Unidentified, unidentified.Status, "Queue preserves explicit unidentified status.");
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
-        Equal(PresetStatus.Ready, preset.Status, $"Valid worker completes queue: {preset.Message}");
+        Equal(PresetStatus.NeedsReview, preset.Status, $"Valid worker completes queue but its arbitrary external adapter has no startup-baseline contract: {preset.Message}");
+        True(preset.Message.Contains("默认音色保护未适配"), "An unsupported external startup guard is visible instead of claiming initialization protection.");
         string firstKey = preset.CacheKey;
         string firstPath = preset.PreviewPath;
         DateTime written = File.GetLastWriteTimeUtc(firstPath);
@@ -1207,9 +1269,10 @@ internal static class Program
         var legacy = Preset("TEST-ONLY-legacy-12-second-preview");
         legacy.ContentHash = Fingerprints.HashText("TEST ONLY unique legacy preview source");
         CompletePreview(legacy, Path.Combine(directory, "TEST-ONLY-legacy-12-seconds.wav"),
-            new PreviewTemplate { QuickPreview = false, HoldSeconds = 2, TailSeconds = 2, Velocity = 100 });
+            new PreviewTemplate { QuickPreview = false, HoldSeconds = 2, TailSeconds = 2, Velocity = 100, NoteOrder = PreviewNoteOrder.LowMiddleHigh });
         var savedLegacyTemplate = JsonNode.Parse(legacy.TemplateJson)!.AsObject();
         savedLegacyTemplate.Remove(nameof(PreviewTemplate.QuickPreview));
+        savedLegacyTemplate.Remove(nameof(PreviewTemplate.NoteOrder));
         legacy.TemplateJson = savedLegacyTemplate.ToJsonString();
         legacy.Attempts = 5;
         byte[] legacyBytes = File.ReadAllBytes(legacy.PreviewPath);
@@ -1229,11 +1292,11 @@ internal static class Program
         True(File.Exists(preset.PreviewPath), "Deleted cache file is regenerated during the current session.");
         preset.Notes[1].MidiNote = 127;
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
-        Equal(settings.Template.MiddleNote, preset.Notes[1].MidiNote, "Invalid persisted note map cannot be reused as a valid cache.");
+        Equal(settings.Template.Pitches[1], preset.Notes[1].MidiNote, "Invalid persisted note map cannot be reused as a valid cache.");
         settings.Template.Velocity++;
         int renderedBeforeSettings = progress.RenderingCalls;
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
-        Equal(PresetStatus.Ready, preset.Status, "Template changes keep an already complete preview by default.");
+        Equal(PresetStatus.NeedsReview, preset.Status, "Template changes keep an already complete preview and its review status by default.");
         Equal(firstKey, preset.CacheKey, "Default generation retains the original committed template cache key.");
         Equal(renderedBeforeSettings, progress.RenderingCalls, "Default generation skips complete previews using their stored template.");
         var plugin = settings.Plugins.Single();
@@ -1242,11 +1305,11 @@ internal static class Program
         plugin.ExecutablePath = Path.Combine(directory, "missing-renderer.exe");
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
         Equal(renderedBeforeSettings, progress.RenderingCalls, "A complete preview is reused before checking a changed or unavailable renderer.");
-        Equal(PresetStatus.Ready, preset.Status, "Unavailable new renderer cannot destroy a complete preview.");
+        Equal(PresetStatus.NeedsReview, preset.Status, "Unavailable new renderer cannot destroy a complete preview or clear its review requirement.");
         plugin.Backend = RenderBackend.ExternalWorker;
         plugin.ExecutablePath = TestExecutable;
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None, forceRegenerate: true);
-        Equal(PresetStatus.Ready, preset.Status, "Explicit force regenerates complete records with the changed settings.");
+        Equal(PresetStatus.NeedsReview, preset.Status, "Explicit force regenerates complete records but does not certify an unsupported startup guard.");
         NotEqual(firstKey, preset.CacheKey, "Explicit force commits a new template/plugin cache key.");
         Equal(renderedBeforeSettings + 1, progress.RenderingCalls, "Explicit force bypasses complete-preview reuse.");
         string committedKey = preset.CacheKey;
@@ -1262,7 +1325,7 @@ internal static class Program
         int committedAttempts = preset.Attempts;
         preset.Name = "failure";
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None, forceRegenerate: true);
-        Equal(PresetStatus.Ready, preset.Status, "A failed forced regeneration preserves the previously complete record.");
+        Equal(PresetStatus.NeedsReview, preset.Status, "A failed forced regeneration preserves the previously complete record and review status.");
         Equal(committedKey, preset.CacheKey, "Failed force preserves the old cache mapping.");
         Equal(committedPath, preset.PreviewPath, "Failed force preserves the old audio path.");
         Equal(committedAttempts, preset.Attempts, "A failed same-key replacement restores the old completed attempt history.");
@@ -1280,12 +1343,12 @@ internal static class Program
         var nextValid = Preset("success");
         await queue.RunAsync(settings, [invalidOutput, nextValid], TestExecutable, progress, CancellationToken.None);
         Equal(PresetStatus.Failed, invalidOutput.Status, "Malformed worker output is contained as one failed task.");
-        Equal(PresetStatus.Ready, nextValid.Status, "Later tasks continue after malformed worker output.");
+        Equal(PresetStatus.NeedsReview, nextValid.Status, "Later tasks continue after malformed worker output without falsely certifying the external startup guard.");
         var recovered = Preset("success");
         recovered.Status = PresetStatus.Pending;
         recovered.Attempts = settings.MaxAttempts;
         await queue.RunAsync(settings, [recovered], TestExecutable, progress, CancellationToken.None);
-        Equal(PresetStatus.Ready, recovered.Status, "Recovered interrupted task receives a resumable attempt at prior limit.");
+        Equal(PresetStatus.NeedsReview, recovered.Status, "Recovered interrupted task receives a resumable attempt at prior limit.");
         var waiting = Preset("wait");
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         await ThrowsAsync<OperationCanceledException>(() => queue.RunAsync(settings, [waiting], TestExecutable, progress, cancellation.Token));
@@ -1629,8 +1692,9 @@ internal static class Program
 
         await StopAtSecondAsync(false, () =>
         {
-            Equal(PresetStatus.Ready, first.Status, "First item is committed before the second child starts.");
-            Equal(PresetStatus.Ready, store.LoadPresets().Single(p => p.Id == first.Id).Status, "Each committed item is saved immediately, not only at batch completion.");
+            Equal(PresetStatus.NeedsReview, first.Status, "First item is committed before the second child starts, with the external-adapter review requirement intact.");
+            Equal(PresetStatus.NeedsReview, store.LoadPresets().Single(p => p.Id == first.Id).Status, "Each committed item is saved immediately, not only at batch completion.");
+            True(first.Message.Contains("默认音色保护未适配"), "Durable completed audio explicitly says that arbitrary external startup protection is unsupported.");
         });
         string firstKey = first.CacheKey;
         string firstPath = first.PreviewPath;
@@ -1642,7 +1706,7 @@ internal static class Program
         Equal(PresetStatus.Pending, store.LoadPresets().Single(p => p.Id == second.Id).Status, "Stopped current-item state is persisted immediately.");
         second.Name = "success";
         await queue.RunAsync(settings, presets, TestExecutable, progress, CancellationToken.None);
-        True(presets.All(p => p.Status == PresetStatus.Ready), "Resuming completes the remaining items.");
+        True(presets.All(p => p.Status == PresetStatus.NeedsReview), "Resuming completes the remaining items without clearing their review requirement.");
         Equal(firstRendered, first.RenderedUtc, "Resuming skips the already committed first preview.");
         Equal(firstKey, first.CacheKey, "Resume keeps the completed first item's cache mapping.");
         True(File.ReadAllBytes(firstPath).SequenceEqual(firstBytes), "Resume cannot rewrite the completed first item's audio.");
@@ -1666,7 +1730,7 @@ internal static class Program
             True(File.Exists(oldSecond.PreviewPath) && File.Exists(oldThird.PreviewPath), "Force must not clear all previous outputs before processing them.");
             second.Favorite = true; second.Feedback = -1;
         });
-        Equal(PresetStatus.Ready, second.Status, "Stopping a forced task preserves its previous complete status.");
+        Equal(oldSecond.Status, second.Status, "Stopping a forced task preserves its previous complete status, including its review requirement.");
         Equal(oldSecond.CacheKey, second.CacheKey, "Stopping force restores the previous cache mapping for the current item.");
         Equal(oldSecond.PreviewPath, second.PreviewPath, "Stopping force restores the previous audio path.");
         Equal(oldSecond.TemplateJson, second.TemplateJson, "Stopping force restores the previous saved template.");

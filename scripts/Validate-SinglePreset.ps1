@@ -35,6 +35,7 @@ if ($request.Preset.BankSlot -ne $null -or -not [string]::IsNullOrWhiteSpace($re
 if ($request.Preset.Synth -ne $request.Plugin.Synth -or $request.Preset.Synth -eq [SoundPreviewer.Core.Models.SynthKind]::Unknown) {
     throw 'Preset and plugin must identify the same supported synth.'
 }
+$request.Template.NoteOrder = [SoundPreviewer.Core.Models.PreviewNoteOrder]::MiddleHighLow
 $request.Template.Validate()
 $sourcePath = [IO.Path]::GetFullPath($request.Preset.SourcePath)
 $pluginPath = [IO.Path]::GetFullPath($request.Plugin.PluginPath)
@@ -132,6 +133,8 @@ $summary = [ordered]@{
     PluginVersion = $request.Plugin.Version
     CacheKey = $request.CacheKey
     QuickPreview = $request.Template.QuickPreview
+    NoteOrder = $request.Template.NoteOrder.ToString()
+    RenderedPitches = @($request.Template.Pitches)
     MaximumCaptureRounds = $captureRounds
     EffectiveRequest = ([System.Text.Json.JsonSerializer]::Serialize($request, [SoundPreviewer.Core.Models.RenderRequest], $options) | ConvertFrom-Json -Depth 12)
     OutputPath = $outputPath

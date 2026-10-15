@@ -32,7 +32,16 @@ internal static class Program
             if (new FileInfo(requestPath).Length > 1024 * 1024) throw new InvalidDataException("请求超过 1 MiB 限制。");
             var request = JsonSerializer.Deserialize<RenderRequest>(File.ReadAllText(requestPath), LibraryJson.Options) ?? throw new InvalidDataException("请求为空。");
             request.Template.Validate();
-            var preset = FxpPreset.Read(request);
+            FxpPreset? preset;
+            if (request.IsInitializationBaseline)
+            {
+                if (request.Preset.Synth != SynthKind.Sylenth1 || request.Plugin.Synth != SynthKind.Sylenth1 ||
+                    request.Preset.SourcePath.Length > 0 || request.Preset.ContentHash.Length > 0 ||
+                    request.Preset.InternalPath.Length > 0 || request.Preset.BankSlot is not null)
+                    throw new InvalidDataException("默认启动基准必须使用空预制身份及匹配的 Sylenth1 配置。");
+                preset = null;
+            }
+            else preset = FxpPreset.Read(request);
             FxpPreset.ValidatePlugin(request.Plugin.PluginPath);
             result = VstRenderer.Render(request, preset);
         }

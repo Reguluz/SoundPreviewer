@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Services;
 
 namespace SoundPreviewer.Core.Scanning;
 
@@ -10,6 +11,9 @@ public sealed class ScanService
     private const long MaximumVitalBytes = 16 * 1024 * 1024;
     private const int MaximumBankEntries = 4096;
     private const long MaximumBankExpandedBytes = 256 * 1024 * 1024;
+    private readonly PresetCategoryService categories;
+
+    public ScanService(PresetCategoryService? categories = null) => this.categories = categories ?? new PresetCategoryService();
 
     public static void AssignSynth(PresetRecord record, SynthKind synth)
     {
@@ -47,12 +51,21 @@ public sealed class ScanService
         cancellationToken.ThrowIfCancellationRequested();
         var sourceSnapshot = sources.Select(source => new SourceFolder { Id = source.Id, Path = source.Path, Synth = source.Synth, AutoDetect = source.AutoDetect, Enabled = source.Enabled }).ToList();
         var recordSnapshot = existing.ToList();
-        return Task.Run(() => Scan(sourceSnapshot, recordSnapshot, cancellationToken), cancellationToken);
+        return Task.Run(() => Scan(sourceSnapshot, recordSnapshot, categories, cancellationToken), cancellationToken);
     }
 
-    private static ScanResult Scan(IReadOnlyList<SourceFolder> sources, IReadOnlyList<PresetRecord> existing, CancellationToken token)
+    private static ScanResult Scan(IReadOnlyList<SourceFolder> sources, IReadOnlyList<PresetRecord> existing, PresetCategoryService categories, CancellationToken token)
     {
         var warnings = new List<string>();
+        bool categorize = false;
+        try
+        {
+            var loaded = categories.Load();
+            categorize = loaded.Success;
+            if (!loaded.Success) warnings.Add(loaded.Error);
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or NotSupportedException)
+        { warnings.Add("分类规则不可用，已有分类保持不变：" + error.Message); }
         var records = existing.GroupBy(p => p.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => Clone(g.First()), StringComparer.Ordinal);
         var previousLocations = records.Values.GroupBy(LocationKey, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         var scannedIds = new HashSet<string>(StringComparer.Ordinal);
@@ -149,6 +162,7 @@ public sealed class ScanService
                                         candidate.DetectionReason += " 自动识别线索：" + automaticReason;
                                     }
                                     candidate.Tags = PresetDetection.MergeTags(previous.Tags, candidate.Synth, candidate.SourcePath);
+                                    candidate.CategoryTags = [.. (previous.CategoryTags ?? [])];
                                     scannedIds.Add(candidate.Id);
                                     if (previous.Synth == candidate.Synth && string.Equals(previous.ContentHash, candidate.ContentHash, StringComparison.Ordinal))
                                     {
@@ -219,6 +233,7 @@ public sealed class ScanService
                 record.Message = "源音色已移除或不再属于此来源。";
             }
         }
+        if (categorize) categories.Apply(records.Values, token);
         int duplicates = PresetIndex.RebuildDuplicates(records.Values, sources);
         return new ScanResult
         {

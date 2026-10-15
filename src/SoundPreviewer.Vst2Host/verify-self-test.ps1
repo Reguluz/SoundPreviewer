@@ -17,7 +17,7 @@ try {
     $text = $output.GetAwaiter().GetResult()
     if ($process.ExitCode -ne 0) { throw $errorOutput.GetAwaiter().GetResult() }
     $result = $text | ConvertFrom-Json
-    if ($result.Architecture -ne 'x86' -or -not $result.BufferInterop -or -not $result.FxpParse -or -not $result.BadInput -or -not $result.FrameBoundaries -or $result.PluginsLoaded -ne 0) { throw 'TEST ONLY host self-test failed.' }
+    if ($result.Architecture -ne 'x86' -or -not $result.BufferInterop -or -not $result.FxpParse -or -not $result.BadInput -or -not $result.FrameBoundaries -or -not $result.UnchangedChunkRejected -or $result.PluginsLoaded -ne 0) { throw 'TEST ONLY host self-test failed.' }
     $result | Add-Member -NotePropertyName TestOnly -NotePropertyValue $true
     $result | ConvertTo-Json
 } finally { $process.Dispose() }

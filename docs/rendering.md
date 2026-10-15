@@ -61,9 +61,34 @@
 
 快速模式另外用上述两个真实 FXP 验证：Serum / Sylenth1 各生成 66150 帧、44100 Hz 双声道 float32，三个音区均为 22050 帧 / 0.5 秒，总长 1.5 秒。各文件 529256 字节，相比原 12 秒预览体积减少约 87.5%；单轮采集即可满足响度，两份均已低音量播放，无静音、削波或非有限值，源 FXP / DLL 前后未变。报告位于 `artifacts/quick-preview-20261016`。这是实际单样本快速渲染验收，不宣称慢起音样本、Vital 快速模式或批量已完成真实插件验收；慢起音及静音上限由明确标记的测试子进程覆盖。
 
+## 默认启动音色基准
+
+新增代码支持在新插件实例中不加载任何预制，演奏同一套三音区模板，保存当前安装状态的默认启动声音。它不是由用户指定的 `Init.fxp`，也不从已生成音色中挑选一个充当基准；插件自己保存的启动设置仍可能影响此声音，不能将它称为厂商统一的出厂音色。
+
+| 后端组合 | 基准协议实现范围 | 本轮真实插件验收 |
+| --- | --- | --- |
+| Serum 1 / DawDreamer / x64 VST2 | fresh instance，跳过 `load_preset` | 本机 1.334：v2 三参考及独立启动输出自动比对通过，正常 Pluck 区分及低音量设备播放完成；尚无本轮用户身份确认 |
+| Sylenth1 / DawDreamer / x64 VST2 | fresh instance，跳过 `load_preset` | 尚待单独执行；本机已确认的 Sylenth1 DLL 是 x86 |
+| Sylenth1 / 内置 VST.NET / x86 VST2 | fresh instance，跳过 FXP chunk / 参数载入 | 本机 2.2.1.2：v2 三参考及独立启动输出自动比对通过，正常 Bass Saw 区分及低音量设备播放完成；尚无本轮用户身份确认 |
+| Vital 原生 CLI、Serum 2、其他外部宿主 | 尚未适配此基准协议，明确提示未启用保护 | 不宣称已支持 |
+
+对已支持后端，首次需要生成新音色且缺少有效基准时，队列先自动建立基准。设置中的「渲染与基准」可查看状态、重新生成或独立试听，无需选文件和人工批准基准。基准包含实际 WAV、三音区映射、模板、插件 / 宿主指纹、实际版本及比对策略版本；对应身份改变、文件缺失、静音或校验失败时不能继续当作有效基准。支持的宿主若无法建立有效基准，会明确失败而非悄悄关闭保护。基准文件在预览目录的 `InitializationBaselines` 子目录，与普通音色映射分开。
+
+新渲染在最终音频提交前，按三个音区分别比较波形相关、包络、频谱和响度，所有严格门限同时满足才拒绝；不靠文件名、能否发声或单一频谱判断。拒绝时保存最近失败原因，已有完整预览不被覆盖。由于旧预览可能仍为 `Ready` / `NeedsReview`，可用「最近生成失败」查出本轮失败，不能只看旧预览状态。
+
+当前策略 `startup-audio-comparison-v2` 生成三份独立的真实启动参考，元数据 `References` 分别保存 WAV 路径、SHA256 和完整结果，主 WAV / Result 继续保留供试听。只有参考两两都落在不可突破的硬边界以内，才根据观测漂移作有界校准；否则失败，不盲目放宽。少于四分之一秒的片段只允许原严格比较。候选必须匹配至少两份参考，并且对每份命中的参考都须三个音区同时通过完整比对；受校准的分支还检查起音等硬门限。不允许把不同参考的单音命中拼票，也不允许单凭频谱放行。
+
+2026-10-16 的最终新序实测使用中 → 高 → 低（MIDI 60 / 84 / 36），每音 0.5 秒，普通输出均为 66150 帧、44100 Hz / 双声道 float32、总长 1.5 秒。两组基准各含三份独立参考：第一组建立校准 profile，第二组主音频作独立 holdout。Serum 1.334 x64 的启动 holdout 命中 3/3，`BA Analog Pluck [SN].fxp` 命中 0/3；Sylenth1 2.2.1.2 x86 的启动 holdout 命中 3/3，`Sylenth1 - Bass Saw.fxp` 命中 0/3。两份报告 `Success=true`、`InputsUnchanged=true`，FXP、DLL 及所检查宿主组件的 SHA256、大小、修改时间前后均不变，未进行批量。
+
+报告分别在 `artifacts/init-v2-middle-first-serum-20261016/summary.json` 与 `artifacts/init-v2-middle-first-sylenth-20261016/summary.json`。端到端验收工具耗时分别为 40.356 秒和 3.832 秒，包含两组三参考生成及一次普通 FXP，不能视为单个预制的常规渲染耗时。早期 Sylenth1 四次独立启动的固定严格比较受调制漂移影响而不稳定，历史保留为采用三参考受限校准的原因，不把旧失败改记为通过。
+
+两份本轮 `normal.wav` 已经由应用相同的 `WavePlayer` 以音量 0.12 顺序完整播放，均到达末尾且无超时。这证明实际播放路径已执行，不等于用户人工确认本轮音色身份；已有用户试听证据仍只适用于前述较早音频。此比较只表达“结果与当前默认启动声音严格近似”，不能独立证明预制加载失败或成功。非匹配结果仍须人工核对目标预制、外部资源与授权。已有有效预览仍按保存模板默认复用，不追溯宣称已通过新基准；显式重新生成才走新提交检查。两个已知样本的自动验证不覆盖其他插件版本、Sylenth1 x64、更多预制或批量，纯合成回归也不能替代真实验收。
+
 ## 快速预览策略
 
 `PreviewTemplate.QuickPreview` 默认开启。新建模板默认按键 0.5 秒、尾音 0.08 秒；快速模式使用固定的短试听策略，只有关闭此模式才使用用户自定义按键与尾音。已有长预览仍按自身保存的模板和映射验证并默认复用，不会因为新默认值而自动删除或批量重渲染。
+
+新模板 `NoteOrder=MiddleHighLow`，默认按中 → 高 → 低（MIDI 60 / 84 / 36）采集和拼接。`LowNote` / `MiddleNote` / `HighNote` 仍分别表示音区音高，不因顺序而改名。明确的 `LowMiddleHigh=0` 以及缺少 `NoteOrder` 的旧 JSON 保留低 → 中 → 高；旧预览继续用其保存的模板 / Notes，不自动重排或失效。外部协议未提供此字段时仍按旧序，调用者须明确 `MiddleHighLow=1` 才取得新序。两个新验收脚本只在本次内存请求中强制新序，记录有效模板与输出顺序，不写回原请求或旧报告。
 
 三种后端由 C# Worker 统一处理：先采集 0.5 秒按键和 0.08 秒尾音，按 20 ms 窗口计算两个声道的平方能量（不混合相位），要求 RMS 至少 0.001、峰值至少 0.003。没有足够有效声音或起音过晚时，按 1、2、4 秒重新采集；最多四轮。已足够的音区保留首轮片段，尚不够的才更换结果。Vital 原生因整数秒限制从 1 秒开始、力度固定 89、尾音固定 30%。采集时间受工作进程原有超时 / 停止约束。
 
@@ -98,7 +123,7 @@ DawDreamer 每次 `render()` 都从头处理，不能连续调用当成无损续
 SoundPreviewer.Worker.exe --request <绝对 request.json 路径> --result <绝对 result.json 路径>
 ```
 
-JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器只能将成功结果提交到请求的输出路径。
+JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。`PreviewNoteOrder` 为 LowMiddleHigh=0、MiddleHighLow=1，缺字段兼容旧低中高。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器须按模板 `Pitches` 的实际顺序返回三个 Notes，只能将成功结果提交到请求的输出路径。
 
 外部后端使用相同 `--request` / `--result` 参数，无命令行 shell。用户指定实际外部渲染器可执行文件及插件路径。外部程序须：
 
@@ -137,6 +162,12 @@ pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
 
 `scripts/Open-ValidatedSamples.ps1 -SummaryPath <summary.json>` 仅将通过校验的真实结果导入新建的隔离试听库并打开 WPF 应用；不覆盖原库，不添加扫描根目录，不自动生成批量预览。可加 `-NoLaunch` 只建立样本库，使用 `-DataDirectory` 指定新的 `artifacts` 子目录。
 
+`scripts/Validate-InitializationBaseline.ps1 -RequestPath <已核对的普通FXP请求.json> -ArtifactDirectory <新的artifacts子目录>` 单独验证新实例无预制加载的基准合同。可用 `-WorkerPath` / `-CorePath` 指定待验收版本，`-RendererPath` 只覆盖本次请求的宿主路径。输入必须是匹配音源身份的独立普通 FXP 请求，不接受银行或把基准请求再次作为普通预制。
+
+工具读取第一组元数据的三份原始参考，逐项核验 WAV / 指纹 / 音区映射后建立校准 profile，再用第二组独立生成的主 WAV 作 holdout，要求至少命中两份完整三音区参考；普通 FXP 也只与第一组同一 profile 比较。两组生成各三份参考，再加一次普通 FXP，共按最多七次三音区请求预留取消时限，每次快速请求仍有自身有界采集轮数。保存 `summary.json`、逐参考音频报告、普通请求与结果、两组基准元数据、WAV、分段指标、时序及源预制 / DLL / 宿主 / 桥接脚本等输入的前后指纹。目标目录必须尚不存在，且位于工作区 `artifacts` 下、不经过目录链接，不覆盖旧样本或写入原音色库数据库。
+
+此入口会实际执行用户配置的商业插件宿主，不是 `--probe` 空宿主测试，也不运行目录扫描或批量任务。指纹不变、基准可重复或普通音色非匹配，均不能独立证明预制身份及所有资源正确；仍须独立试听。当前新增基准的受限校准与真实验收结论保持单独跟踪，不能据工具存在或纯测试通过就标为真实验收成功。
+
 ## 可选 32 位 Sylenth1 宿主
 
 `src/SoundPreviewer.Vst2Host` 使用独立 x86 .NET 8 进程及固定的 [VST.NET2-Host 2.1.0](https://www.nuget.org/packages/VST.NET2-Host/2.1.0)，不需要 Python，也不把 32 位 DLL 加载进 WPF 主进程。目标电脑需安装 x86 .NET 8 Desktop Runtime。只处理 Sylenth1 的独立 `.fxp`，拒绝 `.fxb`、包内条目、其他音源和 x64 DLL。校验源 SHA256、PE 架构、FXP / 实际插件 ID；chunk 加载检查返回值与 program 状态变化，无法取得加载证据时拒绝生成。每个音高使用新插件实例，输出保留 float32 原始音量；结果始终先待确认。
@@ -149,6 +180,8 @@ dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -o ar
 ```
 
 主应用构建 / 发布时，将已构建的 `artifacts/vst2host-x86` 完整复制到 `Vst2Host-x86` 子目录。不能只复制宿主 EXE，须保留 Jacobi / Ijwhost DLL、配置、依赖与许可证。包含该宿主的版本在插件扫描后可自动关联 Sylenth1 x86 VST2；已有自定义外部渲染器不会被覆盖。无可选宿主时仍不自动启用 x86。工作进程只对这个内置宿主子进程清除可能误指向 x64 的通用 `DOTNET_ROOT`，不改系统或父进程环境。
+
+最终无插件自检包含 `UnchangedChunkRejected`：未能改变插件状态的测试 chunk 必须被拒绝。此自检不加载商业插件，不能替代实际 FXP 的加载和音色身份核对。
 
 VST.NET 为 LGPL-2.1，独立动态 DLL 保持可替换，许可证与源码 / 重建信息随宿主保留，见宿主目录 `THIRD-PARTY-NOTICES.md`。不分发 Steinberg SDK、商业插件、授权文件或私人音色。
 

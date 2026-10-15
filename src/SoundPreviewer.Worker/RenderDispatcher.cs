@@ -12,6 +12,10 @@ public static class RenderDispatcher
 
     public static Task<RenderResult> RenderAsync(RenderRequest request, CancellationToken cancellationToken)
     {
+        if (request.IsInitializationBaseline && (!Enum.IsDefined(request.Preset.Synth) ||
+            request.Preset.Synth != request.Plugin.Synth || request.Preset.SourcePath.Length > 0 ||
+            request.Preset.ContentHash.Length > 0 || request.Preset.InternalPath.Length > 0 || request.Preset.BankSlot is not null))
+            throw new InvalidDataException("默认启动基准请求必须使用已识别且匹配的音源身份，不得包含源预制。");
         if (request.Preset.Synth == SynthKind.Unknown || request.Plugin.Synth == SynthKind.Unknown ||
             request.Preset.Status == PresetStatus.Unidentified)
             return Task.FromResult(new RenderResult { Message = "无法识别此预制的音源，禁止生成预览。请先核对预制格式与插件身份。" });
@@ -50,6 +54,7 @@ public static class RenderDispatcher
                 var captureTemplate = new PreviewTemplate
                 {
                     QuickPreview = false,
+                    NoteOrder = request.Template.NoteOrder,
                     LowNote = request.Template.LowNote, MiddleNote = request.Template.MiddleNote, HighNote = request.Template.HighNote,
                     Velocity = vital ? 89 : request.Template.Velocity,
                     HoldSeconds = hold, TailSeconds = vital ? hold * 0.3 : QuickPreviewAudio.CaptureTailSeconds,
@@ -58,6 +63,7 @@ public static class RenderDispatcher
                 var captureRequest = new RenderRequest
                 {
                     Preset = request.Preset, Plugin = request.Plugin, Template = captureTemplate,
+                    IsInitializationBaseline = request.IsInitializationBaseline,
                     CacheKey = request.CacheKey, OutputPath = capturePath, MaxOutputBytes = maximumCaptureBytes
                 };
                 // The existing adapters capture all three pitches; keep satisfactory earlier clips unchanged.
@@ -143,6 +149,8 @@ public static class RenderDispatcher
 
     private static async Task<RenderResult> RenderVitalAsync(RenderRequest request, CancellationToken cancellationToken)
     {
+        if (request.IsInitializationBaseline)
+            throw new NotSupportedException("Vital 原生命令行尚不支持安全地生成无预制的默认启动基准；未使用自造 Init 预制代替。");
         if (request.Preset.Synth != SynthKind.Vital) throw new ArgumentException("Vital 原生适配器仅能处理 Vital 预制。");
         if (request.Preset.BankSlot is not null || !string.IsNullOrEmpty(request.Preset.InternalPath) ||
             !Path.GetExtension(request.Preset.SourcePath).Equals(".vital", StringComparison.OrdinalIgnoreCase))

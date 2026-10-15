@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SoundPreviewer.Core.Models;
 
 public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4 }
 public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
 public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer }
+public enum PreviewNoteOrder { LowMiddleHigh = 0, MiddleHighLow = 1 }
 
 public sealed class PresetRecord
 {
@@ -16,6 +18,7 @@ public sealed class PresetRecord
     public string DetectionReason { get; set; } = "";
     public bool SynthAssignedManually { get; set; }
     public List<string> Tags { get; set; } = [];
+    public List<string> CategoryTags { get; set; } = [];
     public string SourceId { get; set; } = "";
     public string SourcePath { get; set; } = "";
     public string ContentHash { get; set; } = "";
@@ -29,6 +32,8 @@ public sealed class PresetRecord
     public PresetStatus Status { get; set; } = PresetStatus.Pending;
     public int Attempts { get; set; }
     public string Message { get; set; } = "";
+    public string LastRenderOutcome { get; set; } = "";
+    public string LastRenderMessage { get; set; } = "";
     public string PreviewPath { get; set; } = "";
     public string CacheKey { get; set; } = "";
     public string AttemptedCacheKey { get; set; } = "";
@@ -61,11 +66,14 @@ public sealed class PluginConfiguration
     public string Version { get; set; } = "";
     public string ExecutableHash { get; set; } = "";
     public string PluginHash { get; set; } = "";
+    public string InitBaselinePath { get; set; } = "";
     public int TimeoutSeconds { get; set; } = 120;
 }
 
-public sealed class PreviewTemplate
+public sealed class PreviewTemplate : IJsonOnDeserialized
 {
+    private PreviewNoteOrder noteOrder = PreviewNoteOrder.MiddleHighLow;
+    private bool noteOrderSpecified;
     public int LowNote { get; set; } = 36;
     public int MiddleNote { get; set; } = 60;
     public int HighNote { get; set; } = 84;
@@ -75,10 +83,21 @@ public sealed class PreviewTemplate
     public double TailSeconds { get; set; } = 0.08;
     public int Bpm { get; set; } = 120;
     public int SampleRate { get; set; } = 44100;
-    public int[] Pitches => [LowNote, MiddleNote, HighNote];
+    public PreviewNoteOrder NoteOrder
+    {
+        get => noteOrder;
+        set { noteOrder = value; noteOrderSpecified = true; }
+    }
+    public int[] Pitches => NoteOrder == PreviewNoteOrder.MiddleHighLow ? [MiddleNote, HighNote, LowNote] : [LowNote, MiddleNote, HighNote];
+
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        if (!noteOrderSpecified) noteOrder = PreviewNoteOrder.LowMiddleHigh;
+    }
 
     public void Validate()
     {
+        if (!Enum.IsDefined(NoteOrder)) throw new ArgumentException("音区顺序无效。");
         if (Pitches.Any(n => n is < 0 or > 127)) throw new ArgumentException("MIDI 音高须为 0 到 127。");
         if (Velocity is < 1 or > 127) throw new ArgumentException("力度须为 1 到 127。");
         if (!double.IsFinite(HoldSeconds) || HoldSeconds is < 0.1 or > 30) throw new ArgumentException("按键时长须为 0.1 到 30 秒。");
@@ -131,6 +150,7 @@ public sealed class NotePreview
 
 public sealed class RenderRequest
 {
+    public bool IsInitializationBaseline { get; set; }
     public PresetRecord Preset { get; set; } = new();
     public PluginConfiguration Plugin { get; set; } = new();
     public PreviewTemplate Template { get; set; } = new();
@@ -159,6 +179,7 @@ public static class Fingerprints
 {
     public const string AdapterVersion = "soundpreviewer-render-v1";
     public const string QuickPreviewPolicy = "quick-preview-v1";
+    public const string InitializationComparisonPolicy = "startup-audio-comparison-v2";
     public static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     public static string HashFile(string path, CancellationToken cancellationToken = default)
     {
@@ -191,6 +212,9 @@ public static class Fingerprints
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>
         HashText($"{synth}|{System.IO.Path.GetFullPath(path).ToUpperInvariant()}|{internalPath}|{slot}");
     public static string CacheKey(PresetRecord preset, PluginConfiguration plugin, PreviewTemplate template) =>
-        HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth, plugin, template, AdapterVersion,
-            PreviewPolicy = template.QuickPreview ? QuickPreviewPolicy : "fixed-v1" }));
+        HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth,
+            Plugin = new { plugin.Synth, plugin.Backend, plugin.ExecutablePath, plugin.PluginPath, plugin.Version,
+                plugin.ExecutableHash, plugin.PluginHash, plugin.TimeoutSeconds }, template, AdapterVersion,
+            PreviewPolicy = template.QuickPreview ? QuickPreviewPolicy : "fixed-v1",
+            InitializationComparisonPolicy }));
 }

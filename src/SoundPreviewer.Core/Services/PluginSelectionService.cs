@@ -4,6 +4,31 @@ namespace SoundPreviewer.Core.Services;
 
 public static class PluginSelectionService
 {
+    public static int RefreshBundledHost(IList<PluginConfiguration> configurations, string? newHostPath)
+    {
+        ArgumentNullException.ThrowIfNull(configurations);
+        if (!File.Exists(newHostPath)) return 0;
+        string nextPath = Path.GetFullPath(newHostPath!);
+        int changed = 0;
+        foreach (var configuration in configurations)
+        {
+            if (configuration.Synth != SynthKind.Sylenth1 || configuration.Backend != RenderBackend.ExternalWorker ||
+                string.IsNullOrWhiteSpace(configuration.ExecutablePath)) continue;
+            string previousPath;
+            try { previousPath = Path.GetFullPath(configuration.ExecutablePath); }
+            catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
+            { continue; }
+            if (string.Equals(previousPath, nextPath, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetFileName(previousPath), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetFileName(Path.GetDirectoryName(previousPath)), "Vst2Host-x86", StringComparison.OrdinalIgnoreCase)) continue;
+            configuration.ExecutablePath = nextPath;
+            configuration.ExecutableHash = "";
+            configuration.InitBaselinePath = "";
+            changed++;
+        }
+        return changed;
+    }
+
     public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations, string? x86HostPath = null)
     {
         var changed = 0;

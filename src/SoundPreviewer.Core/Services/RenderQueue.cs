@@ -63,6 +63,7 @@ public sealed class RenderQueue(LibraryStore store)
         PresetRecord? current = null;
         long? occupiedBytes = null;
         PreviewReferences? previewReferences = null;
+        var baselines = new Dictionary<SynthKind, PreparedInitBaseline>();
         Report(QueueStages.Preparing, "正在准备生成队列...", indeterminate: true);
         try
         {
@@ -129,12 +130,14 @@ public sealed class RenderQueue(LibraryStore store)
                     string.IsNullOrWhiteSpace(plugin.Version) ? $"请先填写 {preset.Synth} 的实际版本。" : "";
                 if (configurationError.Length > 0)
                 {
+                    preset.LastRenderOutcome = "失败";
+                    preset.LastRenderMessage = configurationError;
                     if (!hasPreview)
                     {
                         preset.Status = PresetStatus.Failed;
                         preset.Message = configurationError;
-                        store.Upsert(preset);
                     }
+                    store.Upsert(preset);
                     summary.Failed++;
                     Report(QueueStages.Validating, configurationError, preset);
                     current = null;
@@ -148,6 +151,29 @@ public sealed class RenderQueue(LibraryStore store)
                 {
                     summary.RetryLimited++;
                     Report(QueueStages.Validating, "已达到重试上限。", preset);
+                    current = null;
+                    continue;
+                }
+                if (!baselines.TryGetValue(preset.Synth, out var baseline))
+                {
+                    Report(QueueStages.Validating, "正在检查或建立默认启动音色基准...", preset, true);
+                    string previousBaselinePath = plugin.InitBaselinePath;
+                    try { baseline = await InitBaselineService.PrepareAsync(settings, plugin, workerPath, cancellationToken); }
+                    finally
+                    {
+                        if (plugin.InitBaselinePath != previousBaselinePath) store.SaveSettings(settings);
+                    }
+                    baselines.Add(preset.Synth, baseline);
+                }
+                if (InitBaselineService.Supports(plugin) && !baseline.State.CanCompare)
+                {
+                    string reason = "默认启动音色保护未就绪：" + baseline.State.Detail;
+                    preset.LastRenderOutcome = "失败";
+                    preset.LastRenderMessage = reason;
+                    if (!hasPreview) { preset.Status = PresetStatus.Failed; preset.Message = reason; }
+                    store.Upsert(preset);
+                    summary.Failed++;
+                    Report(QueueStages.Validating, reason, preset);
                     current = null;
                     continue;
                 }
@@ -186,6 +212,8 @@ public sealed class RenderQueue(LibraryStore store)
                         preset.Attempts++;
                         attemptStarted = true;
                         preset.Message = $"第 {preset.Attempts} 次尝试";
+                        preset.LastRenderOutcome = "生成中";
+                        preset.LastRenderMessage = preset.Message;
                         store.Upsert(preset);
                         Report(QueueStages.Rendering, preset.Message, preset, true);
                         var request = new RenderRequest
@@ -194,7 +222,21 @@ public sealed class RenderQueue(LibraryStore store)
                             OutputPath = outputPath, CacheKey = key,
                             MaxOutputBytes = Math.Min(256L * 1024 * 1024, checked((long)(settings.StorageBudgetGb * 1024 * 1024 * 1024)) - occupiedBytes.Value + replacedBytes + reclaimableBytes)
                         };
-                        var result = await new WorkerProcessClient().RenderAsync(request, workerPath, cancellationToken);
+                        var result = await new WorkerProcessClient().RenderAsync(request, workerPath, cancellationToken,
+                            (candidate, audio, token) =>
+                            {
+                                if (baseline.Signature is not null)
+                                {
+                                    var comparison = InitAudioComparer.Compare(baseline.Signature, audio, candidate.Notes, token);
+                                    if (comparison.IsMatch) throw new InvalidDataException(InitBaselineService.RejectionPrefix + comparison.Detail);
+                                }
+                                else
+                                {
+                                    candidate.NeedsReview = true;
+                                    candidate.Message += " 默认音色保护未适配：" + baseline.State.Detail;
+                                }
+                                return Task.CompletedTask;
+                            });
                         if (!result.Success) throw new InvalidOperationException(result.Message);
                         preset.PreviewPath = result.OutputPath;
                         preset.CacheKey = key;
@@ -206,12 +248,16 @@ public sealed class RenderQueue(LibraryStore store)
                         preset.RenderedUtc = DateTime.UtcNow;
                         preset.Status = result.NeedsReview ? PresetStatus.NeedsReview : PresetStatus.Ready;
                         preset.Message = result.Message;
+                        preset.LastRenderOutcome = "成功";
+                        preset.LastRenderMessage = result.Message;
                         occupiedBytes = occupiedBytes.Value - replacedBytes + new FileInfo(result.OutputPath).Length;
                         generated = true;
                         break;
                     }
                     catch (OperationCanceledException)
                     {
+                        preset.LastRenderOutcome = "已停止";
+                        preset.LastRenderMessage = "已停止；已存在的有效预览保留，可继续生成。";
                         if (previous is not null) RestorePreview(preset, previous, "已停止，保留上次已生成的预览。");
                         else
                         {
@@ -226,8 +272,11 @@ public sealed class RenderQueue(LibraryStore store)
                     {
                         preset.Status = PresetStatus.Failed;
                         preset.Message = ex.Message;
+                        preset.LastRenderOutcome = "失败";
+                        preset.LastRenderMessage = ex.Message;
                         store.Upsert(preset);
                         Report(QueueStages.Rendering, ex.Message, preset);
+                        if (ex.Message.StartsWith(InitBaselineService.RejectionPrefix, StringComparison.Ordinal)) break;
                     }
                 }
                 if (!generated && previous is not null) RestorePreview(preset, previous, "重新生成失败，保留上次预览：" + preset.Message);
@@ -259,6 +308,12 @@ public sealed class RenderQueue(LibraryStore store)
         }
         catch (OperationCanceledException)
         {
+            if (current is not null)
+            {
+                current.LastRenderOutcome = "已停止";
+                current.LastRenderMessage = "已停止；已存在的有效预览保留，可继续生成。";
+                store.Upsert(current);
+            }
             Report(QueueStages.Stopped, $"已停止，可继续；剩余 {summary.Remaining} 项。" + summary.Summary, current);
             throw;
         }

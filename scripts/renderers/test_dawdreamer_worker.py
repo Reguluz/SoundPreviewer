@@ -241,5 +241,38 @@ class IsolatedProbeTests(unittest.TestCase):
         self.assert_probe_only(result)
 
 
+class NoteOrderTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="TEST-ONLY-note-order-")
+        self.addCleanup(self.temporary.cleanup)
+        binary = Path(self.temporary.name) / "TEST-ONLY-instrument.dll"
+        binary.write_bytes(b"TEST ONLY placeholder, never imported or loaded")
+        self.request = {
+            "IsInitializationBaseline": True,
+            "Preset": {"Synth": 1, "SourcePath": "", "ContentHash": ""},
+            "Plugin": {"Synth": 1, "PluginPath": str(binary)},
+            "Template": {"LowNote": 36, "MiddleNote": 60, "HighNote": 84, "Velocity": 89,
+                         "HoldSeconds": 0.5, "TailSeconds": 0.08, "SampleRate": 44100, "Bpm": 120},
+        }
+
+    def test_legacy_and_explicit_order_never_load_a_native_host(self):
+        for order, expected in ((None, [36, 60, 84]), (0, [36, 60, 84]), (1, [60, 84, 36])):
+            request = copy.deepcopy(self.request)
+            if order is not None:
+                request["Template"]["NoteOrder"] = order
+            with self.subTest(order=order), mock.patch.object(worker, "check_plugin_architecture"):
+                source, _, pitches, raw = worker.validate_request(request)
+                self.assertEqual(expected, pitches)
+                self.assertIsNone(source)
+                self.assertIsNone(raw)
+
+    def test_unknown_or_noninteger_order_is_rejected(self):
+        for order in (2, -1, True, "1", None):
+            request = copy.deepcopy(self.request)
+            request["Template"]["NoteOrder"] = order
+            with self.subTest(order=order), mock.patch.object(worker, "check_plugin_architecture"), self.assertRaisesRegex(ValueError, "NoteOrder"):
+                worker.validate_request(request)
+
+
 if __name__ == "__main__":
     unittest.main()

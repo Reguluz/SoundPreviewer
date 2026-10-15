@@ -209,16 +209,23 @@ def validate_request(request):
         raise ValueError("DawDreamer bridge currently supports Serum 1 and Sylenth1 VST2 FXP only.")
     if preset.get("BankSlot") is not None or preset.get("InternalPath"):
         raise ValueError("Bank slots and package entries require a verified bank adapter; export a standalone FXP first.")
-    source = Path(preset["SourcePath"]).resolve(strict=True)
     binary = Path(plugin["PluginPath"]).resolve(strict=True)
-    if source.suffix.lower() != ".fxp" or binary.suffix.lower() != ".dll":
+    baseline = request.get("IsInitializationBaseline") is True
+    if baseline and (preset.get("SourcePath") or preset.get("ContentHash")):
+        raise ValueError("Default-startup baseline must not contain a source preset identity.")
+    source = None if baseline else Path(preset["SourcePath"]).resolve(strict=True)
+    if (source is not None and source.suffix.lower() != ".fxp") or binary.suffix.lower() != ".dll":
         raise ValueError("FXP requires the VST2 instrument DLL. VST3, SerumPreset and FXB banks are not supported by this bridge.")
     if "serumfx" in binary.stem.lower():
         raise ValueError("SerumFX is an effect; select the Serum instrument DLL.")
-    if source.stat().st_size > 64 * 1024 * 1024:
+    if source is not None and source.stat().st_size > 64 * 1024 * 1024:
         raise ValueError("Preset exceeds the 64 MB limit.")
     check_plugin_architecture(binary)
-    pitches = [template["LowNote"], template["MiddleNote"], template["HighNote"]]
+    note_order = template.get("NoteOrder", 0)
+    if type(note_order) is not int or note_order not in (0, 1):
+        raise ValueError("NoteOrder must be LowMiddleHigh (0) or MiddleHighLow (1).")
+    pitches = ([template["MiddleNote"], template["HighNote"], template["LowNote"]] if note_order == 1 else
+               [template["LowNote"], template["MiddleNote"], template["HighNote"]])
     if any(not isinstance(pitch, int) or not 0 <= pitch <= 127 for pitch in pitches):
         raise ValueError("MIDI pitches must be integers in [0, 127].")
     if not isinstance(template["Velocity"], int) or not 1 <= template["Velocity"] <= 127:
@@ -228,6 +235,8 @@ def validate_request(request):
         raise ValueError("Hold / tail durations are outside the supported range.")
     if template["SampleRate"] not in (44100, 48000) or not 20 <= template["Bpm"] <= 300:
         raise ValueError("Sample rate or BPM is outside the supported range.")
+    if baseline:
+        return None, binary, pitches, None
     raw = source.read_bytes()
     if raw[:4] != b"CcnK" or raw[8:12] not in (b"FPCh", b"FxCk"):
         raise ValueError("Preset is not a standalone VST2 FXP program.")
@@ -251,8 +260,10 @@ def render(request, report_phase=lambda phase: None):
     start_frame = 0
     needs_review = False
     with tempfile.TemporaryDirectory(prefix="fxp-", dir=output.parent) as temporary:
-        snapshot = Path(temporary) / source.name
-        snapshot.write_bytes(raw)
+        snapshot = None
+        if source is not None:
+            snapshot = Path(temporary) / source.name
+            snapshot.write_bytes(raw)
         for pitch in pitches:
             report_phase(f"创建宿主，MIDI {pitch}")
             engine = daw.RenderEngine(sample_rate, 128)
@@ -261,9 +272,12 @@ def render(request, report_phase=lambda phase: None):
             synth = engine.make_plugin_processor("synth", str(binary))
             if synth.get_num_output_channels() not in (1, 2):
                 raise ValueError("Plugin must expose one or two output channels.")
-            report_phase(f"加载 FXP，MIDI {pitch}")
-            if not synth.load_preset(str(snapshot)):
-                raise ValueError("Host rejected the FXP; target preset was not loaded.")
+            if snapshot is not None:
+                report_phase(f"加载 FXP，MIDI {pitch}")
+                if not synth.load_preset(str(snapshot)):
+                    raise ValueError("Host rejected the FXP; target preset was not loaded.")
+            else:
+                report_phase(f"默认启动基准，未加载任何预制，MIDI {pitch}")
             synth.clear_midi()
             engine.load_graph([(synth, [])])
             time.sleep(0.15)
@@ -315,7 +329,8 @@ def render(request, report_phase=lambda phase: None):
     return {
         "Success": True,
         "OutputPath": str(output),
-        "Message": "真实 VST2 FXP 已由宿主加载并演奏；新宿主组合须人工确认预制与外部资源，保留原始 float32 输出。" +
+        "Message": ("默认启动基准：每音使用全新 VST2 实例，未调用 load_preset，保留原始 float32 输出。" if source is None else
+                    "真实 VST2 FXP 已由宿主加载并演奏；新宿主组合须人工确认预制与外部资源，保留原始 float32 输出。") +
                    (" 存在静音或接近削波的音区。" if needs_review else ""),
         "NeedsReview": True,
         "Notes": notes,

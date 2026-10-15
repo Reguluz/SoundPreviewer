@@ -45,7 +45,13 @@ internal static class HostSelfTest
             Require(plan.NoteOffOffset(4608) is null && plan.NoteOffOffset(5120) == 0 && plan.NoteOffOffset(5632) is null, "MIDI block boundary failed.");
             Require(plan.OutputBytes == 56L + 13940 * 3 * 8, "Float32 size bound failed.");
             Reject(() => RenderFramePlan.Create(template, plan.OutputBytes - 1));
-            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"PluginsLoaded\":0}");
+            Reject(() => VstRenderer.ValidateChunkLoaded(100, [1, 2], [1, 2], [3, 4]));
+            Reject(() => VstRenderer.ValidateChunkLoaded(0, [1, 2], [1, 2], [1, 2]));
+            Reject(() => VstRenderer.ValidateChunkLoaded(-1, [1], [2], [2]));
+            Reject(() => VstRenderer.ValidateChunkLoaded(0, [], [], [1]));
+            VstRenderer.ValidateChunkLoaded(100, [1, 2], [3, 4], [3, 4]);
+            VstRenderer.ValidateChunkLoaded(0, [1, 2], [3, 4], [3, 4]);
+            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"PluginsLoaded\":0}");
         }
         finally { File.Delete(path); }
     }
