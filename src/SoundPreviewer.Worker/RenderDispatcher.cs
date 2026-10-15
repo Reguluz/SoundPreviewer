@@ -139,8 +139,11 @@ public static class RenderDispatcher
                 arguments.Add(script);
             }
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
+            IReadOnlyDictionary<string, string?>? environmentOverrides = !dawdreamer &&
+                Path.GetFileName(executable).Equals("SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase)
+                ? new Dictionary<string, string?> { ["DOTNET_ROOT"] = null } : null;
             var outcome = await ProcessRunner.RunAsync(executable, arguments, scratch,
-                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken);
+                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken, environmentOverrides);
             if (!File.Exists(resultFile))
             {
                 string phaseFile = resultFile + ".phase";

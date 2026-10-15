@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <AssemblyName>SoundPreviewer</AssemblyName>
+    <X86HostDirectory Condition="'$(X86HostDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\vst2host-x86\</X86HostDirectory>
+    <NormalizedX86HostDirectory>$([MSBuild]::EnsureTrailingSlash('$(X86HostDirectory)'))</NormalizedX86HostDirectory>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
@@ -19,5 +21,13 @@
   <Target Name="PublishRenderWorker" AfterTargets="Publish">
     <MSBuild Projects="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" Targets="Publish"
              Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)" />
+  </Target>
+  <Target Name="CopyX86Host" AfterTargets="Build" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe')">
+    <ItemGroup><X86HostFiles Include="$(NormalizedX86HostDirectory)**\*" /></ItemGroup>
+    <Copy SourceFiles="@(X86HostFiles)" DestinationFiles="@(X86HostFiles->'$(OutDir)Vst2Host-x86\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+  <Target Name="PublishX86Host" AfterTargets="Publish" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe')">
+    <ItemGroup><PublishedX86HostFiles Include="$(NormalizedX86HostDirectory)**\*" /></ItemGroup>
+    <Copy SourceFiles="@(PublishedX86HostFiles)" DestinationFiles="@(PublishedX86HostFiles->'$(PublishDir)Vst2Host-x86\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>

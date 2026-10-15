@@ -83,6 +83,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public int ReviewPreviewCount => Presets.Count(p => p.Record.DuplicateOfId.Length == 0 && p.HasPreview && p.Record.Status == PresetStatus.NeedsReview);
     public Visibility GeneratedResultsVisibility => GeneratedPreviewCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     public string LibraryLocation => Path.GetFullPath(App.DataDirectory);
+    private static string X86HostPath => Path.Combine(AppContext.BaseDirectory, "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe");
     public string NowPlaying => _selected?.Name ?? "未选择预览";
     public string LibrarySummary => $"已生成 {GeneratedPreviewCount}（待确认 {ReviewPreviewCount}） · {Presets.Count} 条路径索引 · {Presets.Count(p => p.Record.DuplicateOfId.Length > 0)} 个重复副本";
     public string StatusMessage => _statusMessage;
@@ -923,7 +924,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var previous = _settings.DiscoveredPlugins.Where(p => result.UnavailableRoots.Any(root =>
             p.FilePath.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
         var merged = result.Plugins.Concat(previous).DistinctBy(p => p.Id).ToList();
-        var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins);
+        var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
         _settings.PluginDirectories = PluginDirectories.ToList();
         _settings.DiscoveredPlugins = merged;
         _settings.Plugins = ClonePlugins();
@@ -943,7 +944,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var configuration = Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth)
                 ?? throw new ArgumentException("此插件尚不属于支持的音源类型。");
-            PluginSelectionService.Assign(configuration, row.Record);
+            PluginSelectionService.Assign(configuration, row.Record, X86HostPath);
             _settings.Plugins = ClonePlugins();
             _store.SaveSettings(_settings);
             InvalidateChangedPreviews();

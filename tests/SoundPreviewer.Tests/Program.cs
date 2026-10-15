@@ -710,6 +710,37 @@ internal static class Program
         Equal(bundle, selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum2).PluginPath, "Serum 2 retains a VST3 bundle selection.");
         Equal("", selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Sylenth1).PluginPath, "An x86 discovery is never automatically enabled for the x64 host.");
         Equal(0, PluginSelectionService.ApplyAutomatic(candidates, selectedSettings.Plugins), "Repeated association leaves valid chosen binaries unchanged.");
+        var x86Configuration = new PluginConfiguration { Synth = SynthKind.Sylenth1, ExecutableHash = "stale-host-fingerprint" };
+        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], Path.Combine(directory, "missing-x86-host.exe")),
+            "An unavailable built-in host cannot enable an x86 plugin automatically.");
+        Equal("", x86Configuration.PluginPath, "Missing x86 host preserves the legacy unconfigured plugin selection.");
+        Equal(RenderBackend.Unconfigured, x86Configuration.Backend, "Missing x86 host cannot claim an executable backend.");
+        Equal(1, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], TestExecutable),
+            "Only an explicitly available x86 host enables known Sylenth1 x86 VST2 automatically.");
+        Equal(x86, x86Configuration.PluginPath, "The x86 host retains the actual discovered plugin path.");
+        Equal(RenderBackend.ExternalWorker, x86Configuration.Backend, "The built-in x86 host uses the external process protocol, not the x64 DawDreamer bridge.");
+        Equal(TestExecutable, x86Configuration.ExecutablePath, "The supplied host path is the configured executable; no plugin is run by this test.");
+        Equal("", x86Configuration.ExecutableHash, "Switching to the x86 host clears the stale executable fingerprint.");
+        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], TestExecutable), "Repeated x86 association is idempotent.");
+        var dawX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = x86, Backend = RenderBackend.DawDreamer, ExecutablePath = standalone };
+        Equal(1, PluginSelectionService.ApplyAutomatic([sylenth32], [dawX86], TestExecutable), "A previously selected x86 DLL can move off an incompatible DawDreamer backend.");
+        Equal(RenderBackend.ExternalWorker, dawX86.Backend, "An x86 DawDreamer selection is switched to the available matching host.");
+        Equal(TestExecutable, dawX86.ExecutablePath, "The incompatible host executable is replaced deliberately.");
+        var explicitX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1 };
+        PluginSelectionService.Assign(explicitX86, sylenth32, TestExecutable);
+        Equal(RenderBackend.ExternalWorker, explicitX86.Backend, "Explicit version selection can configure the same available x86 host.");
+        Equal(TestExecutable, explicitX86.ExecutablePath, "Explicit selection uses the supplied matching host.");
+        var customX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = x86, Backend = RenderBackend.ExternalWorker, ExecutablePath = standalone, Version = sylenth32.Version };
+        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [customX86], TestExecutable), "Automatic discovery cannot replace a user's custom external x86 renderer.");
+        Equal(standalone, customX86.ExecutablePath, "Custom external executable choice survives the presence of a built-in host.");
+        PluginSelectionService.Assign(customX86, sylenth32, TestExecutable);
+        Equal(standalone, customX86.ExecutablePath, "Explicit plugin association also preserves an existing custom external renderer.");
+        var wrongX86 = new PluginConfiguration { Synth = SynthKind.Serum1 };
+        var serum32 = Candidate(SynthKind.Serum1, x86, x86, "1.0.0", PluginBinaryFormat.Vst2, PluginArchitecture.X86);
+        Equal(0, PluginSelectionService.ApplyAutomatic([serum32], [wrongX86], TestExecutable), "The Sylenth1-only built-in host cannot automatically enable arbitrary x86 synths.");
+        var wrongFormatX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1 };
+        var sylenthVst3 = Candidate(SynthKind.Sylenth1, plainVst3, plainVst3, "2.0.0", PluginBinaryFormat.Vst3, PluginArchitecture.X86);
+        Equal(0, PluginSelectionService.ApplyAutomatic([sylenthVst3], [wrongFormatX86], TestExecutable), "The built-in VST2 host cannot automatically enable an x86 VST3 candidate.");
         PluginSelectionService.Assign(serumConfiguration, oldSerum);
         PluginSelectionService.ApplyAutomatic([newSerum], selectedSettings.Plugins);
         Equal(x64, serumConfiguration.PluginPath, "A valid manually chosen older DLL survives a later scan that omits it.");
@@ -851,6 +882,35 @@ internal static class Program
         await ThrowsAsync<TimeoutException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"], _fixtureRoot, TimeSpan.FromMilliseconds(150)));
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
         await ThrowsAsync<OperationCanceledException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"], _fixtureRoot, TimeSpan.FromSeconds(10), cancellation.Token));
+        string[] keys = ["SP_TEST_ENV_INHERIT", "SP_TEST_ENV_OVERRIDE", "SP_TEST_ENV_REMOVE", "SP_TEST_ENV_ADD"];
+        var previous = keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(keys[0], "parent-inherited");
+            Environment.SetEnvironmentVariable(keys[1], "parent-original");
+            Environment.SetEnvironmentVariable(keys[2], "parent-retained");
+            Environment.SetEnvironmentVariable(keys[3], null);
+            var inherited = await ProcessRunner.RunAsync(TestExecutable, ["--test-process", "environment"], _fixtureRoot, TimeSpan.FromSeconds(10));
+            Equal(0, inherited.ExitCode, "Environment fixture starts without an override dictionary.");
+            var inheritedValues = JsonSerializer.Deserialize<Dictionary<string, string?>>(inherited.StandardOutput)!;
+            Equal("parent-original", inheritedValues[keys[1]], "Default process execution preserves the inherited environment.");
+            var overrides = new Dictionary<string, string?> { [keys[1]] = "child-only", [keys[2]] = null, [keys[3]] = "child-added" };
+            var changed = await ProcessRunner.RunAsync(TestExecutable, ["--test-process", "environment"], _fixtureRoot,
+                TimeSpan.FromSeconds(10), environmentOverrides: overrides);
+            Equal(0, changed.ExitCode, "Child-only environment fixture exits normally.");
+            var values = JsonSerializer.Deserialize<Dictionary<string, string?>>(changed.StandardOutput)!;
+            Equal("parent-inherited", values[keys[0]], "Unmentioned parent environment entries are inherited by the child.");
+            Equal("child-only", values[keys[1]], "An explicit value overrides only the child environment.");
+            Equal(null, values[keys[2]], "A null override removes the entry rather than passing an empty replacement.");
+            Equal("child-added", values[keys[3]], "New entries are present in the child.");
+            Equal("parent-original", Environment.GetEnvironmentVariable(keys[1]), "Child overrides never alter the parent value.");
+            Equal("parent-retained", Environment.GetEnvironmentVariable(keys[2]), "Removing a child entry does not remove its parent counterpart.");
+            Equal(null, Environment.GetEnvironmentVariable(keys[3]), "Adding a child entry does not add it to the parent.");
+        }
+        finally
+        {
+            foreach (var key in keys) Environment.SetEnvironmentVariable(key, previous[key]);
+        }
     }
 
     private static async Task TestWorkerAsync()
@@ -1596,6 +1656,12 @@ internal static class Program
     private static async Task<int> TestProcessAsync(string mode)
     {
         if (mode == "wait") { await Task.Delay(TimeSpan.FromSeconds(30)); return 0; }
+        if (mode == "environment")
+        {
+            string[] keys = ["SP_TEST_ENV_INHERIT", "SP_TEST_ENV_OVERRIDE", "SP_TEST_ENV_REMOVE", "SP_TEST_ENV_ADD"];
+            Console.Out.Write(JsonSerializer.Serialize(keys.ToDictionary(key => key, Environment.GetEnvironmentVariable)));
+            return 0;
+        }
         Console.Out.Write(new string('o', 40000));
         Console.Error.Write(new string('e', 40000));
         return 17;

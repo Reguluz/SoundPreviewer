@@ -4,12 +4,13 @@ namespace SoundPreviewer.Core.Services;
 
 public static class PluginSelectionService
 {
-    public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations)
+    public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations, string? x86HostPath = null)
     {
         var changed = 0;
         foreach (var configuration in configurations.Where(p => p.Synth != SynthKind.Unknown))
         {
-            var candidates = discovered.Where(p => p.Synth == configuration.Synth && p.Architecture == PluginArchitecture.X64
+            var candidates = discovered.Where(p => p.Synth == configuration.Synth &&
+                    (p.Architecture == PluginArchitecture.X64 || CanUseX86Host(configuration, p, x86HostPath))
                     && (p.Format != PluginBinaryFormat.Standalone || configuration.Backend is RenderBackend.Unconfigured or RenderBackend.VitalCli))
                 .OrderBy(p => Preference(p, configuration.Synth)).ThenByDescending(p => ParseVersion(p.Version))
                 .ThenBy(p => p.FilePath, StringComparer.OrdinalIgnoreCase).ToList();
@@ -20,7 +21,7 @@ public static class PluginSelectionService
             selected ??= candidates.FirstOrDefault();
             if (selected is null) continue;
             var before = (configuration.PluginPath, configuration.ExecutablePath, configuration.Version, configuration.Backend);
-            Assign(configuration, selected);
+            Assign(configuration, selected, x86HostPath);
             if (before != (configuration.PluginPath, configuration.ExecutablePath, configuration.Version, configuration.Backend)) changed++;
         }
         return changed;
@@ -31,7 +32,7 @@ public static class PluginSelectionService
         && string.Equals(plugin.Format == PluginBinaryFormat.Standalone ? configuration.ExecutablePath : configuration.PluginPath,
             plugin.FilePath, StringComparison.OrdinalIgnoreCase);
 
-    public static void Assign(PluginConfiguration configuration, DiscoveredPlugin plugin)
+    public static void Assign(PluginConfiguration configuration, DiscoveredPlugin plugin, string? x86HostPath = null)
     {
         if (plugin.Synth == SynthKind.Unknown || configuration.Synth != plugin.Synth)
             throw new ArgumentException("扫描结果不能关联到此音源。");
@@ -53,9 +54,23 @@ public static class PluginSelectionService
                 configuration.ExecutablePath = "";
                 configuration.ExecutableHash = "";
             }
+            if (CanUseX86Host(configuration, plugin, x86HostPath) &&
+                configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer)
+            {
+                configuration.Backend = RenderBackend.ExternalWorker;
+                configuration.ExecutablePath = Path.GetFullPath(x86HostPath!);
+                configuration.ExecutableHash = "";
+            }
         }
         configuration.Version = plugin.Version;
     }
+
+    private static bool CanUseX86Host(PluginConfiguration configuration, DiscoveredPlugin plugin, string? hostPath) =>
+        plugin.Synth == SynthKind.Sylenth1 && plugin.Architecture == PluginArchitecture.X86 &&
+        plugin.Format == PluginBinaryFormat.Vst2 && !string.IsNullOrWhiteSpace(hostPath) && File.Exists(hostPath) &&
+        (configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer ||
+         configuration.Backend == RenderBackend.ExternalWorker &&
+         string.Equals(configuration.ExecutablePath, hostPath, StringComparison.OrdinalIgnoreCase));
 
     private static int Preference(DiscoveredPlugin plugin, SynthKind synth) => (synth, plugin.Format) switch
     {

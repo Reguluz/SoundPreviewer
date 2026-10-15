@@ -8,7 +8,8 @@ public sealed record ProcessOutcome(int ExitCode, string StandardOutput, string 
 public static class ProcessRunner
 {
     public static async Task<ProcessOutcome> RunAsync(string executable, IEnumerable<string> arguments,
-        string workingDirectory, TimeSpan timeout, CancellationToken cancellationToken = default)
+        string workingDirectory, TimeSpan timeout, CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string?>? environmentOverrides = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo
@@ -17,6 +18,10 @@ public static class ProcessRunner
             CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        if (environmentOverrides is not null)
+            foreach (var (name, value) in environmentOverrides)
+                if (value is null) start.Environment.Remove(name);
+                else start.Environment[name] = value;
         using var process = new Process { StartInfo = start };
         if (!process.Start()) throw new IOException("无法启动渲染工作进程。");
         ProcessJob job;

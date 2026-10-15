@@ -19,9 +19,9 @@ powershell -ExecutionPolicy Bypass -File .\Start-SoundPreviewer.ps1
 ## 配置与使用
 
 1. 在「音源与设置」中选择「自动识别（混合音色包）」并添加整个音色包目录，无需按音源拆分子目录。也可明确选择单一音源；已有目录保留原来的指定方式，可选中后点击「自动识别此目录」切换。
-2. 在共享的「VSTi 安装目录」中添加插件安装目录并扫描。「已发现音源」保留版本、格式、位数和实际二进制路径；无需逐音源填写 DLL 路径。已可靠识别的 x64 候选可自动关联，也可选中后点击「使用选中版本」。未知候选和 x86 插件不会自动启用。
+2. 在共享的「VSTi 安装目录」中添加插件安装目录并扫描。「已发现音源」保留版本、格式、位数和实际二进制路径；无需逐音源填写 DLL 路径。已可靠识别的 x64 候选可自动关联，也可选中后点击「使用选中版本」。包含可选独立 x86 宿主的版本也可自动关联 Sylenth1 x86 VST2，已有自定义外部渲染器会保留；未知候选和其他 x86 插件不会自动启用。
 3. 已关联的 Vital 独立程序可使用原生方式。点击「采用 Vital 原生参数」匹配其固定力度与尾音比例。已有的有效版本选择会保留，自动扫描不会擅自替换用户配置的外部渲染器。
-4. 「预览渲染器（高级）」中仍可独立设置外部渲染程序或具备宿主依赖的 Python，不等同于插件 DLL 路径。可选 DawDreamer 桥接为 x64，须匹配插件位数；本机宿主初始化失败，暂保留未配置状态。真实兼容结果和离线依赖说明见渲染记录。
+4. 「预览渲染器（高级）」中仍可独立设置外部渲染程序或具备宿主依赖的 Python，不等同于插件 DLL 路径。可选 DawDreamer 桥接为 x64，须匹配插件位数；本机旧运行库问题已修复，Serum 1.334 的一个实际 FXP 已生成并由用户确认三音区试听正常。依赖安装、自检与真实兼容边界见渲染记录，尚不代表批量验收。
 5. 保存三音区 MIDI 音高、BPM、时长和存储预算，然后扫描预制目录并生成预览。默认跳过已有完整、有效预览，即使随后修改模板或插件配置；需要重新生成时，先勾选「强制全量生成」。该选项只作用于本次操作，重复副本不单独渲染。
 6. 试听低、中、高三个音区。待确认预览须由用户核对对应关系后确认；静音与削波提示保留在详情中。
 
@@ -51,8 +51,11 @@ Vital 包仅索引内部条目；已识别但未实现渲染的银行显示「�
 dotnet restore SoundPreviewer.sln --configfile NuGet.Config
 dotnet build SoundPreviewer.sln -c Release --no-restore
 .\tests\SoundPreviewer.Tests\bin\Release\net8.0-windows\SoundPreviewer.Tests.exe
+python -m unittest discover -s scripts/renderers -p test_dawdreamer_worker.py
 dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release --no-restore -o artifacts/publish
 ```
+
+可选 32 位 Sylenth1 宿主须另行运行 `pwsh -File src/SoundPreviewer.Vst2Host/build.ps1` 后再发布主应用；此项目单独使用官方 NuGet 依赖，基础解决方案不受影响。目标电脑需 x86 .NET 8 Desktop Runtime。真实单 FXP 已生成并播放，尚未代表批量或 FXB 验收。详见渲染记录。
 
 测试覆盖实际 WAV 格式和异常值、SQLite 事务与 v1→v2 迁移、MD5 回填与重复代表提升、混合目录识别与冲突、手动分类和旧设置兼容、插件 PE / 导出 / 位数 / VST3 包与版本选择、扫描增量与反馈、音色包资源变化、未知音源禁止渲染、进程超时、停止后逐项恢复、默认复用与强制生成、原子提交和有限重试。测试中的声音、PE 文件和子进程仅用于基础设施验证，不能作为插件兼容性的证据。
 

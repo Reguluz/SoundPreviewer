@@ -37,7 +37,7 @@ public static class RenderReadinessService
             bool onlyX86 = candidates.Any(plugin => plugin.Architecture == PluginArchitecture.X86) &&
                 !candidates.Any(plugin => plugin.Architecture == PluginArchitecture.X64);
             if (selectedX86 || onlyX86)
-                return Result("需要32位宿主", "已识别到 32 位音源。内置 DawDreamer 桥接不能加载它；需要兼容 32 位插件的独立宿主或桥接，通过外部渲染器接入。本应用尚未提供或验证这样的宿主，不要求必须寻找 64 位音源包。");
+                return Result("需要32位宿主", "已识别到 32 位音源。DawDreamer 桥接不能加载它；Sylenth1 VST2 可在包含独立 x86 宿主的版本中重新扫描并关联，其他插件需配置兼容的外部宿主。不要求必须寻找 64 位音源包。");
             return Result("未配置", candidates.Count > 0 || !string.IsNullOrWhiteSpace(configuration.PluginPath)
                 ? "已发现或关联音源文件，但尚未配置可运行的渲染宿主；扫描识别不等于能够生成音频。"
                 : "尚未发现已支持的音源文件，也未配置渲染宿主；请先检查共享插件目录的扫描结果。");

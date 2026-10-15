@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -17,6 +18,166 @@ import time
 ADAPTER_VERSION = "dawdreamer-fxp-v1"
 HOST_VERSION = "0.8.3"
 NUMPY_VERSION = "1.26.4"
+MINIMUM_MSVC_VERSION = (14, 40)
+PROBE_TIMEOUT_SECONDS = 8
+
+
+def host_metadata():
+    return {
+        "PythonPath": sys.executable,
+        "PythonVersion": sys.version.split()[0],
+        "Architecture": "x64" if struct.calcsize("P") == 8 else "x86",
+        "HostVersion": importlib.metadata.version("dawdreamer"),
+        "NumpyVersion": importlib.metadata.version("numpy"),
+    }
+
+
+def loaded_runtime_info():
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    kernel.GetModuleHandleW.restype = wintypes.HMODULE
+    kernel.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
+    kernel.GetModuleFileNameW.restype = wintypes.DWORD
+    version_api = ctypes.WinDLL("version", use_last_error=True)
+    version_api.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+    version_api.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+    version_api.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+    version_api.GetFileVersionInfoW.restype = wintypes.BOOL
+    version_api.VerQueryValueW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR,
+                                          ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
+    version_api.VerQueryValueW.restype = wintypes.BOOL
+    runtimes = []
+    for name in ("MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll"):
+        module = kernel.GetModuleHandleW(name)
+        if not module:
+            continue
+        path = ctypes.create_unicode_buffer(32768)
+        length = kernel.GetModuleFileNameW(module, path, len(path))
+        if not length or length >= len(path):
+            raise OSError(f"Cannot inspect the loaded runtime path: {name}.")
+        ignored = wintypes.DWORD()
+        size = version_api.GetFileVersionInfoSizeW(path.value, ctypes.byref(ignored))
+        if not size or size > 1024 * 1024:
+            raise OSError(f"Cannot inspect the loaded runtime version: {path.value}.")
+        data = ctypes.create_string_buffer(size)
+        if not version_api.GetFileVersionInfoW(path.value, 0, size, data):
+            raise ctypes.WinError(ctypes.get_last_error())
+        fixed_pointer = ctypes.c_void_p()
+        fixed_length = wintypes.UINT()
+        if not version_api.VerQueryValueW(data, "\\", ctypes.byref(fixed_pointer), ctypes.byref(fixed_length)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if fixed_length.value < 52:
+            raise OSError(f"Runtime version resource is truncated: {path.value}.")
+        fixed = ctypes.cast(fixed_pointer, ctypes.POINTER(wintypes.DWORD))
+        if fixed[0] != 0xFEEF04BD:
+            raise OSError(f"Runtime version resource is invalid: {path.value}.")
+        version = (fixed[2] >> 16, fixed[2] & 0xFFFF, fixed[3] >> 16, fixed[3] & 0xFFFF)
+        runtimes.append({"Name": name, "Path": path.value, "Version": ".".join(map(str, version))})
+    return runtimes
+
+
+def validate_runtime_info(runtimes):
+    standard_library = next((item for item in runtimes if item["Name"].lower() == "msvcp140.dll"), None)
+    if standard_library is None:
+        raise RuntimeError("无法核对宿主实际加载的 MSVCP140.dll；未开始创建音源。请使用标准 x64 CPython 的独立环境。")
+    for runtime in runtimes:
+        version = tuple(int(part) for part in runtime["Version"].split("."))
+        if version[:2] < MINIMUM_MSVC_VERSION:
+            raise RuntimeError(
+                f"宿主实际加载了过旧的 C++ 运行库 {runtime['Name']} {runtime['Version']}（{runtime['Path']}），"
+                "可能导致宿主初始化崩溃。此桥接要求运行库至少 14.40；建议使用标准 x64 CPython 3.11/3.12 "
+                "重新创建独立环境，不要覆盖 Anaconda 或系统 DLL。")
+
+
+def load_host(report_phase, report_metadata=lambda metadata: None):
+    if sys.platform != "win32" or struct.calcsize("P") != 8 or sys.version_info[:2] not in ((3, 11), (3, 12)):
+        raise ValueError("Pinned DawDreamer bridge requires Windows and 64-bit Python 3.11 or 3.12.")
+    try:
+        metadata = host_metadata()
+    except importlib.metadata.PackageNotFoundError as error:
+        raise RuntimeError("Optional host is missing. Install scripts/renderers/requirements.txt into a local Python environment.") from error
+    report_metadata(metadata)
+    if metadata["HostVersion"] != HOST_VERSION or metadata["NumpyVersion"] != NUMPY_VERSION:
+        raise ValueError(f"Expected DawDreamer {HOST_VERSION} and NumPy {NUMPY_VERSION}; found "
+                         f"{metadata['HostVersion']} / {metadata['NumpyVersion']}.")
+    # DawDreamer loads LLVM; import it before NumPy or other numerical runtimes.
+    report_phase("导入本地宿主库")
+    import dawdreamer as daw
+
+    metadata["RuntimeDlls"] = loaded_runtime_info()
+    report_metadata(metadata)
+    validate_runtime_info(metadata["RuntimeDlls"])
+    import numpy as np
+    return daw, np, metadata
+
+
+def write_result(path, result):
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def probe_host(report_phase, report_metadata):
+    daw, np, metadata = load_host(report_phase, report_metadata)
+    report_phase("创建空宿主，不加载商业插件")
+    engine = daw.RenderEngine(44100, 128)
+    source = engine.make_playback_processor("__host_probe__", np.zeros((2, 256), dtype=np.float32))
+    engine.load_graph([(source, [])])
+    report_phase("检查内置零缓冲 DSP，不输出音频文件")
+    if not engine.render(0.05):
+        raise RuntimeError("Empty-host DSP rendering returned failure.")
+    audio = np.asarray(engine.get_audio())
+    if audio.shape != (2, 2205) or not np.isfinite(audio).all() or np.any(audio != 0):
+        raise RuntimeError("Empty-host DSP returned unexpected dimensions or sample values.")
+    return {
+        **metadata,
+        "Success": True,
+        "Message": "宿主基础检查通过；未加载商业音源或预制，此结果不代表插件兼容性已验证。",
+        "AdapterVersion": ADAPTER_VERSION,
+        "ProbeKind": "EmptyHostDsp",
+        "CommercialPluginsLoaded": False,
+        "AudioWritten": False,
+        "SampleRate": 44100,
+        "Channels": int(audio.shape[0]),
+        "Frames": int(audio.shape[1]),
+    }
+
+
+def isolated_probe(result_path, report_phase):
+    report_phase("准备宿主自检，不加载商业插件")
+    with tempfile.TemporaryDirectory(prefix="host-probe-", dir=result_path.parent) as temporary:
+        child_result = Path(temporary) / "probe.json"
+        command = [sys.executable, str(Path(__file__).resolve()), "--probe-internal", "--result", str(child_result)]
+        try:
+            process = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     timeout=PROBE_TIMEOUT_SECONDS, creationflags=subprocess.CREATE_NO_WINDOW)
+            exit_code = process.returncode
+        except subprocess.TimeoutExpired:
+            exit_code = None
+        result = {}
+        if child_result.is_file() and child_result.stat().st_size <= 1024 * 1024:
+            try:
+                result = json.loads(child_result.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                pass
+        if not isinstance(result, dict):
+            result = {}
+        phase_path = child_result.with_suffix(child_result.suffix + ".phase")
+        phase = phase_path.read_text(encoding="utf-8") if phase_path.is_file() else "启动自检进程"
+        if exit_code == 0 and result.get("Success") is True:
+            report_phase("宿主基础检查完成")
+            return result
+        if exit_code is None:
+            message = f"宿主自检超过 {PROBE_TIMEOUT_SECONDS} 秒，已结束子进程；最后阶段：{phase}。"
+        elif result.get("Message") and result.get("Success") is False and result.get("Finished") is True:
+            message = result["Message"]
+        else:
+            message = f"宿主自检异常退出 0x{exit_code & 0xFFFFFFFF:08X}；最后阶段：{phase}。请检查独立 Python 环境和 C++ 运行库。"
+        return {**result, "Success": False, "Message": message, "AdapterVersion": ADAPTER_VERSION,
+                "ProbeKind": "EmptyHostDsp", "CommercialPluginsLoaded": False, "AudioWritten": False}
 
 
 def check_plugin_architecture(plugin_path):
@@ -78,20 +239,7 @@ def validate_request(request):
 
 def render(request, report_phase=lambda phase: None):
     source, binary, pitches, raw = validate_request(request)
-    if struct.calcsize("P") != 8 or sys.version_info[:2] not in ((3, 11), (3, 12)):
-        raise ValueError("Pinned DawDreamer bridge requires 64-bit Python 3.11 or 3.12.")
-    try:
-        installed = importlib.metadata.version("dawdreamer")
-        numpy_installed = importlib.metadata.version("numpy")
-    except importlib.metadata.PackageNotFoundError as error:
-        raise RuntimeError("Optional host is missing. Install scripts/renderers/requirements.txt into a local Python environment.") from error
-    if installed != HOST_VERSION or numpy_installed != NUMPY_VERSION:
-        raise ValueError(f"Expected DawDreamer {HOST_VERSION} and NumPy {NUMPY_VERSION}; found {installed} / {numpy_installed}.")
-
-    # DawDreamer loads LLVM; import it before NumPy or other numerical runtimes.
-    report_phase("导入本地宿主库")
-    import dawdreamer as daw
-    import numpy as np
+    daw, np, _ = load_host(report_phase)
 
     template = request["Template"]
     sample_rate = template["SampleRate"]
@@ -177,25 +325,40 @@ def render(request, report_phase=lambda phase: None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--request", required=True, type=Path)
+    parser.add_argument("--request", type=Path)
     parser.add_argument("--result", required=True, type=Path)
+    parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--probe-internal", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args()
+    if bool(arguments.request) == bool(arguments.probe or arguments.probe_internal) or (arguments.probe and arguments.probe_internal):
+        parser.error("Use either --request <json> or --probe, together with --result <json>.")
     arguments.result.parent.mkdir(parents=True, exist_ok=True)
     phase_file = arguments.result.with_suffix(arguments.result.suffix + ".phase")
     sys.stderr.reconfigure(encoding="utf-8")
+    probe_metadata = {"Success": False, "ProbeKind": "EmptyHostDsp", "AdapterVersion": ADAPTER_VERSION,
+                      "CommercialPluginsLoaded": False, "AudioWritten": False}
     def report_phase(phase):
         phase_file.write_text(phase, encoding="utf-8")
         print(phase, file=sys.stderr, flush=True)
+    def report_metadata(metadata):
+        probe_metadata.update(metadata)
+        write_result(arguments.result, probe_metadata)
     try:
-        if arguments.request.stat().st_size > 1024 * 1024:
-            raise ValueError("Request exceeds the 1 MB limit.")
-        request = json.loads(arguments.request.read_text(encoding="utf-8-sig"))
-        result = render(request, report_phase)
+        if arguments.probe:
+            result = isolated_probe(arguments.result, report_phase)
+        elif arguments.probe_internal:
+            result = probe_host(report_phase, report_metadata)
+        else:
+            if arguments.request.stat().st_size > 1024 * 1024:
+                raise ValueError("Request exceeds the 1 MB limit.")
+            request = json.loads(arguments.request.read_text(encoding="utf-8-sig"))
+            result = render(request, report_phase)
     except Exception as error:
-        result = {"Success": False, "Message": str(error), "AdapterVersion": ADAPTER_VERSION}
-    temporary = arguments.result.with_suffix(arguments.result.suffix + ".tmp")
-    temporary.write_text(json.dumps(result, ensure_ascii=False, allow_nan=False), encoding="utf-8")
-    os.replace(temporary, arguments.result)
+        result = {**(probe_metadata if arguments.probe or arguments.probe_internal else {}),
+                  "Success": False, "Message": str(error), "AdapterVersion": ADAPTER_VERSION}
+    if arguments.probe or arguments.probe_internal:
+        result["Finished"] = True
+    write_result(arguments.result, result)
     return 0 if result["Success"] else 1
 
 
