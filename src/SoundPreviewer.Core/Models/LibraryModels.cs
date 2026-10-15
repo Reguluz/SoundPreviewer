@@ -156,19 +156,32 @@ public static class Fingerprints
 {
     public const string AdapterVersion = "soundpreviewer-render-v1";
     public static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
-    public static string HashFile(string path)
+    public static string HashFile(string path, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = new byte[65536];
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = stream.Read(buffer, 0, buffer.Length);
+            if (count == 0) break;
+            hash.AppendData(buffer, 0, count);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
-    public static string PluginBinaryHash(PluginConfiguration plugin, IReadOnlyList<DiscoveredPlugin> discovered)
+    public static string PluginBinaryHash(PluginConfiguration plugin, IReadOnlyList<DiscoveredPlugin> discovered, CancellationToken cancellationToken = default)
     {
-        if (File.Exists(plugin.PluginPath)) return HashFile(plugin.PluginPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (File.Exists(plugin.PluginPath)) return HashFile(plugin.PluginPath, cancellationToken);
         if (!Directory.Exists(plugin.PluginPath)) return "";
         var binaries = discovered.Where(p => string.Equals(p.FilePath, plugin.PluginPath, StringComparison.OrdinalIgnoreCase))
             .Select(p => p.BinaryPath).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .Select(p => new { Path = p.ToUpperInvariant(), Hash = HashFile(p) }).ToList();
+            .Select(p => new { Path = p.ToUpperInvariant(), Hash = HashFile(p, cancellationToken) }).ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         return binaries.Count == 0 ? "" : HashText(JsonSerializer.Serialize(binaries));
     }
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>

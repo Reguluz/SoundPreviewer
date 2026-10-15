@@ -53,9 +53,9 @@ public sealed class WorkerProcessClient
             if (new FileInfo(stagedAudio).Length > request.MaxOutputBytes)
                 throw new InvalidDataException("预览输出超出存储剩余额度，未提交音频。");
             cancellationToken.ThrowIfCancellationRequested();
-            var audio = WaveFile.Read(stagedAudio);
+            var audio = WaveFile.Read(stagedAudio, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            result.Metrics = WaveFile.Analyze(audio);
+            result.Metrics = WaveFile.Analyze(audio, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Metrics.HasNonFinite) throw new InvalidDataException("音频包含 NaN / Infinity，未提交预览。");
             if (result.Metrics.SampleRate != request.Template.SampleRate)
@@ -70,7 +70,7 @@ public sealed class WorkerProcessClient
                 {
                     SampleRate = audio.SampleRate, Channels = audio.Channels,
                     Samples = audio.Samples.AsSpan(first * audio.Channels, count * audio.Channels).ToArray()
-                });
+                }, cancellationToken);
                 result.NeedsReview |= note.Metrics.IsSilent || note.Metrics.HasClipping;
             }
             result.NeedsReview |= result.Metrics.IsSilent || result.Metrics.HasClipping;

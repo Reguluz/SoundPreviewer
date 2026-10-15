@@ -5,7 +5,7 @@
  Title="SoundPreviewer · 合成器音色库" Width="1380" Height="900" MinWidth="1040" MinHeight="700"
  Loaded="Window_Loaded" Closing="Window_Closing">
  <Grid Background="#F5F7F6">
-  <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="*"/><RowDefinition Height="120"/><RowDefinition Height="30"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="120"/><RowDefinition Height="30"/></Grid.RowDefinitions>
   <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,0">
    <Grid>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -20,17 +20,33 @@
     </StackPanel>
    </Grid>
   </Border>
-  <TabControl x:Name="Pages" Grid.Row="1" Margin="24,18,24,0" BorderThickness="0" Background="White">
+  <Border x:Name="TaskStatusBand" Grid.Row="1" Visibility="{Binding TaskStatusVisibility}" Background="#EAF0EC" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,10" AutomationProperties.Name="任务进度与结果">
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0"/>
+    <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+     <TextBlock Text="{Binding TaskProgressText}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0"/>
+     <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,12,0"/>
+     <Button x:Name="ViewGeneratedButton" Click="ViewGenerated_Click" Visibility="{Binding GeneratedResultsVisibility}" ToolTip="查看已生成的预览，包含待试听确认项" Margin="0,0,6,0" Padding="8,4" Height="30"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8D6;" FontFamily="Segoe Fluent Icons" Margin="0,0,6,0"/><TextBlock Text="查看已生成"/></StackPanel></Button>
+     <Button Style="{StaticResource IconButton}" Content="&#xE8A5;" Click="ViewTasks_Click" ToolTip="查看任务与运行记录" Width="30" Height="30" Margin="0,0,6,0"/>
+     <Button Style="{StaticResource IconButton}" Content="&#xE713;" Click="ViewTaskSettings_Click" ToolTip="打开音源与渲染器设置" Visibility="{Binding TaskSettingsVisibility}" Width="30" Height="30" Margin="0"/>
+    </StackPanel>
+    <TextBlock x:Name="TaskProgressDetails" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="48" LineHeight="16" LineStackingStrategy="BlockLineHeight" FontSize="12" Margin="0,4,0,8"/>
+    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="2" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
+   </Grid>
+  </Border>
+  <TabControl x:Name="Pages" Grid.Row="2" Margin="24,18,24,0" BorderThickness="0" Background="White">
    <TabItem Header="音色库">
     <Grid Background="White">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="290"/></Grid.ColumnDefinitions>
      <Grid Margin="0,0,18,0">
       <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
       <Grid Margin="0,16,0,16">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="270"/><ColumnDefinition Width="135"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="270"/><ColumnDefinition Width="180"/><ColumnDefinition Width="64"/></Grid.ColumnDefinitions>
        <Grid Margin="0,0,8,0" VerticalAlignment="Center">
         <TextBox x:Name="SearchBox" TextChanged="Filter_Changed" ToolTip="搜索音色名称、包或文件路径" AutomationProperties.Name="搜索音色"/>
-        <TextBlock Text="搜索音色、包或目录" Foreground="#88978E" Margin="10,0" VerticalAlignment="Center" IsHitTestVisible="False">
+        <TextBlock Text="搜索音色、包或目录" Foreground="#88978E" Margin="10,0" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis">
          <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
         </TextBlock>
        </Grid>
@@ -46,15 +62,16 @@
          <DataGridTextColumn Header="音色名称" Binding="{Binding Name}" Width="2*" MinWidth="160" ElementStyle="{StaticResource GridText}"/>
          <DataGridTextColumn Header="音源" Binding="{Binding SynthLabel}" Width="90"/>
          <DataGridTextColumn Header="音色包 / 目录" Binding="{Binding Package}" Width="*" MinWidth="100" ElementStyle="{StaticResource GridText}"/>
-         <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="86"/>
+         <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="112"/>
          <DataGridTextColumn Header="反馈" Binding="{Binding FeedbackLabel}" Width="72"/>
          <DataGridTextColumn Header="收藏" Binding="{Binding FavoriteLabel}" Width="50"/>
         </DataGrid.Columns>
        </DataGrid>
        <StackPanel Visibility="{Binding EmptyVisibility}" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28">
         <TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons" FontSize="38" Foreground="#A6B9AE" HorizontalAlignment="Center" Margin="0,0,0,16"/>
-        <TextBlock Text="暂无音色" FontSize="18" HorizontalAlignment="Center" Foreground="{StaticResource Muted}"/>
-        <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}"/>
+        <TextBlock Text="{Binding EmptyMessage}" FontSize="16" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+        <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}" Visibility="{Binding EmptyLibraryVisibility}"/>
+        <Button Content="清除筛选" Click="ClearFilters_Click" Margin="0,20,0,0" Visibility="{Binding EmptyFilterVisibility}"/>
        </StackPanel>
       </Grid>
       <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" Checked="Filter_Changed" Unchecked="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
@@ -92,7 +109,7 @@
      </Border>
     </Grid>
    </TabItem>
-   <TabItem Header="任务与记录">
+   <TabItem x:Name="TasksTab" Header="任务与记录">
     <Grid Background="White" Margin="0,16,0,0">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
@@ -103,7 +120,7 @@
      <DataGrid Grid.Row="1" ItemsSource="{Binding Presets}" IsReadOnly="True">
       <DataGrid.Columns>
        <DataGridTextColumn Header="音色" Binding="{Binding Name}" Width="220"/>
-       <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="100"/>
+       <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="112"/>
        <DataGridTextColumn Header="尝试" Binding="{Binding Record.Attempts}" Width="65"/>
        <DataGridTextColumn Header="详情" Binding="{Binding Message}" Width="*"/>
       </DataGrid.Columns>
@@ -151,7 +168,7 @@
        </DataGrid.Columns>
       </DataGrid>
       <TextBlock Text="{Binding SelectedItem.Record.Reason, ElementName=DiscoveredPluginGrid}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0"/>
-      <Expander Header="预览渲染器（高级）" Margin="0,24,0,0" IsExpanded="False">
+      <Expander x:Name="RendererSettings" Header="预览渲染器（高级）" Margin="0,24,0,0" IsExpanded="False">
       <StackPanel Margin="0,12,0,0">
       <DataGrid x:Name="PluginGrid" ItemsSource="{Binding Plugins}" Height="208" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}">
        <DataGrid.Columns>
@@ -178,6 +195,8 @@
       </WrapPanel>
       <StackPanel Orientation="Horizontal" Margin="0,12,0,0"><Button Content="采用 Vital 原生参数" Click="VitalDefaults_Click" IsEnabled="{Binding IsIdle}"/><TextBlock Text="力度 0.7 · 整秒按键 · 尾音 30%" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/></StackPanel>
       <TextBlock Text="本地存储" FontSize="17" FontWeight="SemiBold" Margin="0,24,0,10"/>
+      <TextBlock Text="当前音色库数据目录" Style="{StaticResource FieldLabel}"/>
+      <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" Margin="0,0,0,12" AutomationProperties.Name="当前音色库数据目录"/>
       <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="44"/><ColumnDefinition Width="150"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
        <StackPanel Margin="0,0,8,0"><TextBlock Text="预览目录" Style="{StaticResource FieldLabel}"/><TextBox x:Name="PreviewDirectoryBox"/></StackPanel>
        <Button Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE8B7;" Click="BrowsePreview_Click" ToolTip="选择预览目录" VerticalAlignment="Bottom"/>
@@ -185,13 +204,13 @@
        <StackPanel Grid.Column="3" Margin="12,0,0,0"><TextBlock Text="最大尝试次数" Style="{StaticResource FieldLabel}"/><TextBox x:Name="AttemptsBox"/></StackPanel>
       </Grid>
       <Button Content="保存设置" Click="SaveSettings_Click" Background="{StaticResource Accent}" Foreground="White" HorizontalAlignment="Left" Margin="0,20,0,20" IsEnabled="{Binding IsIdle}"/>
-      <TextBlock Text="兼容性记录" FontSize="17" FontWeight="SemiBold" Margin="0,8,0,10"/>
-      <DataGrid ItemsSource="{Binding Compatibility}" IsReadOnly="True" Height="200"><DataGrid.Columns><DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="110"/><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="140"/><DataGridTextColumn Header="验证结果" Binding="{Binding Detail}" Width="*"/></DataGrid.Columns></DataGrid>
+      <TextBlock Text="当前渲染状态" FontSize="17" FontWeight="SemiBold" Margin="0,8,0,10"/>
+      <DataGrid ItemsSource="{Binding Compatibility}" IsReadOnly="True" Height="220" RowHeight="NaN"><DataGrid.Columns><DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="100"/><DataGridTextColumn Header="配置检查" Binding="{Binding Status}" Width="140"/><DataGridTextColumn Header="原因与预览输出" Binding="{Binding Detail}" Width="*"><DataGridTextColumn.ElementStyle><Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="4,6"/></Style></DataGridTextColumn.ElementStyle></DataGridTextColumn></DataGrid.Columns></DataGrid>
      </StackPanel>
     </ScrollViewer>
    </TabItem>
   </TabControl>
-  <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="24,12">
+  <Border Grid.Row="3" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="24,12">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
     <StackPanel VerticalAlignment="Center">
@@ -214,8 +233,8 @@
     </StackPanel>
    </Grid>
   </Border>
-  <Border Grid.Row="3" Background="#EAF0EC" Padding="24,0">
-   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="200"/></Grid.ColumnDefinitions><TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/><ProgressBar Grid.Column="1" Value="{Binding ProgressValue, Mode=OneWay}" Maximum="100" Height="5" Foreground="{StaticResource Accent}" Background="#D5DFD8" VerticalAlignment="Center"/></Grid>
+  <Border Grid.Row="4" Background="#EAF0EC" Padding="24,0">
+   <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusMessage}"/>
   </Border>
  </Grid>
 </Window>

@@ -33,6 +33,7 @@ internal static class Program
         var tests = new List<(string Name, Func<Task> Run)>
         {
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),
+            ("Fingerprint and WAV operations honor cancellation without changing hashes", TestCancellationAsync),
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
             ("WAV 8/24/32 bit decoding and malformed chunk rejection", TestWaveFormatsAsync),
             ("Concatenation and rate conversion preserve shape and duration", TestAudioTransformsAsync),
@@ -45,11 +46,13 @@ internal static class Program
             ("Manual synth assignment preserves identity and invalidates only derived data", TestManualClassificationAsync),
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),
             ("Plugin discovery validates PE exports, architecture and VST3 bundle paths", TestPluginDiscoveryAsync),
+            ("Renderer readiness separates configuration, architecture and actual verification", TestRenderReadinessAsync),
             ("SQLite UTF8 round trip, transactions, settings and interrupted recovery", TestStorageAsync),
             ("Child process exit, bounded pipes, timeout and cancellation", TestProcessRunnerAsync),
             ("Worker protocol commits valid output and rejects bad results", TestWorkerAsync),
             ("Worker cancellation and timeout leave committed audio intact", TestWorkerInterruptionAsync),
             ("Queue default preview reuse, explicit force and bounded retry", TestQueueAsync),
+            ("Queue preparation, outcome summaries and persistent running progress", TestQueueFeedbackAsync),
             ("Stopped batches preserve committed results and resume incrementally", TestQueueStopResumeAsync)
         };
         if (args.Contains("--test-playback", StringComparer.Ordinal))
@@ -1004,6 +1007,291 @@ internal static class Program
         Equal(PresetStatus.Pending, store.LoadPresets().Single(p => p.Id == waiting.Id).Status, "Pause state is durable.");
     }
 
+    private static Task TestRenderReadinessAsync()
+    {
+        string directory = Fixture("render-readiness");
+        string host = Path.Combine(directory, "TEST-ONLY-host.exe");
+        File.WriteAllText(host, "TEST ONLY placeholder; this readiness test must never execute a renderer.");
+        string serum64 = Path.Combine(directory, "TEST-ONLY-Serum-x64.dll");
+        string sylenth32 = Path.Combine(directory, "TEST-ONLY-Sylenth-x86.dll");
+        string serumVst3 = Path.Combine(directory, "TEST-ONLY-Serum.vst3");
+        WritePeFixture(serum64, x64: true, "VSTPluginMain");
+        WritePeFixture(sylenth32, x64: false, "VSTPluginMain");
+        WritePeFixture(serumVst3, x64: true, "GetPluginFactory");
+        var discovery = new[]
+        {
+            new DiscoveredPlugin { Synth = SynthKind.Serum1, FilePath = serum64, BinaryPath = serum64, Version = "TEST ONLY 1", Architecture = PluginArchitecture.X64, Format = PluginBinaryFormat.Vst2 },
+            new DiscoveredPlugin { Synth = SynthKind.Sylenth1, FilePath = sylenth32, BinaryPath = sylenth32, Version = "TEST ONLY 2", Architecture = PluginArchitecture.X86, Format = PluginBinaryFormat.Vst2 },
+            new DiscoveredPlugin { Synth = SynthKind.Serum1, FilePath = serumVst3, BinaryPath = serumVst3, Version = "TEST ONLY 1", Architecture = PluginArchitecture.X64, Format = PluginBinaryFormat.Vst3 }
+        };
+        var absent = RenderReadinessService.Evaluate(new AppSettings { Plugins = [], DiscoveredPlugins = discovery.ToList() });
+        Equal(4, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
+        True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1 }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
+        True(absent.All(p => !p.CanAttemptRender && !p.IsVerified && !string.IsNullOrWhiteSpace(p.Status) && !string.IsNullOrWhiteSpace(p.Detail)), "Missing configuration is actionable and cannot be presented as successful verification.");
+
+        var sylenth = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = sylenth32, Version = "TEST ONLY 2" };
+        var unconfigured32 = RenderReadinessService.Evaluate(sylenth, discovery);
+        True(!unconfigured32.CanAttemptRender && !unconfigured32.IsVerified, "Finding a 32-bit plugin does not configure an actual renderer.");
+        True(unconfigured32.Detail.Contains("32", StringComparison.Ordinal) || unconfigured32.Detail.Contains("x86", StringComparison.OrdinalIgnoreCase), "An unconfigured x86 plugin exposes its real architecture instead of requiring a nonexistent 64-bit package.");
+
+        var serum = new PluginConfiguration { Synth = SynthKind.Serum1, PluginPath = serum64, ExecutablePath = host, Version = "TEST ONLY 1", Backend = RenderBackend.DawDreamer };
+        var ready = RenderReadinessService.Evaluate(serum, discovery);
+        True(ready.CanAttemptRender && !ready.IsVerified, "Structurally configured x64 VST2 can be attempted, but file discovery cannot verify real synthesis.");
+        True(!string.IsNullOrWhiteSpace(ready.Status) && !string.IsNullOrWhiteSpace(ready.Detail), "Readiness includes a visible explanation rather than an unexplained success flag.");
+        sylenth.Backend = RenderBackend.DawDreamer; sylenth.ExecutablePath = host;
+        True(!RenderReadinessService.Evaluate(sylenth, discovery).CanAttemptRender, "The built-in x64 DawDreamer bridge cannot attempt an x86 DLL.");
+        serum.PluginPath = serumVst3;
+        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Discovering a VST3 is not evidence that this VST2 FXP bridge can render it.");
+        serum.PluginPath = Path.Combine(directory, "missing.dll");
+        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Missing configured plugin files block an attempt.");
+        serum.PluginPath = serum64; serum.ExecutablePath = Path.Combine(directory, "missing-host.exe");
+        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Missing host executables block an attempt.");
+        serum.ExecutablePath = host; serum.Version = "";
+        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "A blank actual version remains an incomplete renderer configuration.");
+        serum.Version = "TEST ONLY 1";
+        foreach (var (synth, architecture) in new[]
+        {
+            (SynthKind.Serum1, PluginArchitecture.Unknown),
+            (SynthKind.Sylenth1, PluginArchitecture.X64),
+            (SynthKind.Unknown, PluginArchitecture.X64)
+        })
+        {
+            var uncertain = new[] { new DiscoveredPlugin { Synth = synth, FilePath = serum64, BinaryPath = serum64, Architecture = architecture, Format = PluginBinaryFormat.Vst2 } };
+            True(!RenderReadinessService.Evaluate(serum, uncertain).CanAttemptRender, "Unknown architecture or a different/unknown product at the configured path cannot establish DawDreamer readiness.");
+        }
+
+        sylenth.Backend = RenderBackend.ExternalWorker;
+        var external32 = RenderReadinessService.Evaluate(sylenth, discovery);
+        True(external32.CanAttemptRender && !external32.IsVerified, "A custom matching external worker is not globally denied merely because its plugin is x86.");
+        True(external32.Detail.Contains("32", StringComparison.Ordinal) || external32.Detail.Contains("x86", StringComparison.OrdinalIgnoreCase), "The external-worker result still identifies the x86 host-matching responsibility.");
+        var externalOnly = new PluginConfiguration { Synth = SynthKind.Sylenth1, Backend = RenderBackend.ExternalWorker, ExecutablePath = host, Version = "TEST ONLY external adapter" };
+        True(RenderReadinessService.Evaluate(externalOnly, []).CanAttemptRender, "A custom external protocol renderer can manage its own plugin and does not require DawDreamer discovery fields.");
+        var vital = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.VitalCli, ExecutablePath = host, Version = "TEST ONLY" };
+        var vitalReadiness = RenderReadinessService.Evaluate(vital, discovery);
+        True(vitalReadiness.CanAttemptRender && !vitalReadiness.IsVerified, "Vital CLI configuration is attemptable but cannot verify preset loading in a read-only status check.");
+        var vitalSettings = new AppSettings { Plugins = [vital], Template = new PreviewTemplate { Velocity = 89, HoldSeconds = 1, TailSeconds = 0.3 } };
+        string beforeReadiness = JsonSerializer.Serialize(vitalSettings, LibraryJson.Options);
+        True(RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness accepts the native adapter's actual fixed parameters.");
+        Equal(beforeReadiness, JsonSerializer.Serialize(vitalSettings, LibraryJson.Options), "Readiness evaluation does not change the user's settings, source paths or template.");
+        vitalSettings.Template.HoldSeconds = 1.5; vitalSettings.Template.TailSeconds = 0.45;
+        True(!RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness explains unsupported fractional native hold time before a render is attempted.");
+        serum.Backend = RenderBackend.VitalCli; serum.Version = "TEST ONLY";
+        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "A Vital-only backend cannot be marked ready for Serum.");
+        return Task.CompletedTask;
+    }
+
+    private static async Task TestCancellationAsync()
+    {
+        string directory = Fixture("cancelable-io");
+        string largePath = Path.Combine(directory, "test-only-64MiB.bin");
+        using (var file = new FileStream(largePath, FileMode.CreateNew, FileAccess.Write)) file.SetLength(64L * 1024 * 1024);
+        string expected;
+        using (var file = File.OpenRead(largePath)) expected = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
+        Equal(expected, Fingerprints.HashFile(largePath), "Cancelable file hashing preserves the previous SHA256 algorithm.");
+        Equal(expected, Fingerprints.HashFile(largePath, CancellationToken.None), "An explicit uncanceled token cannot change fingerprints.");
+        string bundle = Path.Combine(directory, "test-only.vst3");
+        string binary = Path.Combine(bundle, "Contents", "x86_64-win", "test-only.vst3");
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.WriteAllBytes(binary, "TEST ONLY binary fixture"u8.ToArray());
+        var plugin = new PluginConfiguration { Synth = SynthKind.Vital, PluginPath = bundle };
+        var discovered = new[] { new DiscoveredPlugin { FilePath = bundle, BinaryPath = binary, Synth = SynthKind.Vital, Format = PluginBinaryFormat.Vst3, Architecture = PluginArchitecture.X64 } };
+        Equal(Fingerprints.PluginBinaryHash(plugin, discovered), Fingerprints.PluginBinaryHash(plugin, discovered, CancellationToken.None), "An uncanceled token preserves VST3 bundle fingerprint ordering and encoding.");
+        string wavePath = Path.Combine(directory, "test-only-audio.wav");
+        WaveFile.WritePcm16(wavePath, Tone(44100, 1, 0.2));
+        var audio = WaveFile.Read(wavePath);
+        using (var canceled = new CancellationTokenSource())
+        {
+            canceled.Cancel();
+            Throws<OperationCanceledException>(() => Fingerprints.HashFile(largePath, canceled.Token));
+            Throws<OperationCanceledException>(() => Fingerprints.PluginBinaryHash(plugin, discovered, canceled.Token));
+            Throws<OperationCanceledException>(() => WaveFile.Read(wavePath, canceled.Token));
+            Throws<OperationCanceledException>(() => WaveFile.Validate(wavePath, canceled.Token));
+            Throws<OperationCanceledException>(() => WaveFile.Analyze(audio, canceled.Token));
+        }
+
+        var largeAudio = new WaveData { SampleRate = 44100, Channels = 2, Samples = new float[44100 * 2 * 180] };
+        var operations = new (string Name, Func<CancellationToken, object> Run)[]
+        {
+            ("64 MiB file fingerprint", token => Fingerprints.HashFile(largePath, token)),
+            ("large WAV analysis", token => WaveFile.Analyze(largeAudio, token))
+        };
+        foreach (var operation in operations)
+        {
+            using var cancellation = new CancellationTokenSource();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var run = Task.Run(() => { started.SetResult(); return operation.Run(cancellation.Token); });
+            try
+            {
+                await started.Task;
+                await Task.Delay(1);
+                var elapsed = Stopwatch.StartNew();
+                cancellation.Cancel();
+                await ThrowsAsync<OperationCanceledException>(() => run);
+                True(elapsed.Elapsed < TimeSpan.FromSeconds(3), operation.Name + " observes cancellation promptly while processing real input.");
+            }
+            finally
+            {
+                cancellation.Cancel();
+                try { await run; } catch (OperationCanceledException) { }
+            }
+        }
+    }
+
+    private static async Task TestQueueFeedbackAsync()
+    {
+        string directory = Fixture("queue-feedback");
+        var store = new LibraryStore(Path.Combine(directory, "library.db"));
+        store.Initialize();
+        var settings = new AppSettings
+        {
+            PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
+            Template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 },
+            Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, ExecutablePath = TestExecutable, Version = "test-only", TimeoutSeconds = 30 }]
+        };
+        var queue = new RenderQueue(store);
+
+        static void CheckFinished(RecordingProgress progress, QueueResult result)
+        {
+            var events = progress.Snapshots;
+            True(events.Length >= 2, "Even a queue with no work must report preparation and completion.");
+            Equal(QueueStages.Preparing, events[0].Stage, "The first queue event identifies preparation before expensive per-item checks.");
+            Equal(QueueStages.Completed, events[^1].Stage, "The terminal event identifies a finished queue.");
+            True(!events[^1].IsIndeterminate, "A completed queue cannot leave an indeterminate progress indicator running.");
+            Equal(result.Eligible, events[^1].Completed, "Terminal progress counts evaluated eligible records, not excluded paths.");
+            Equal(result.Eligible, events[^1].Total, "Terminal progress total agrees with the outcome summary.");
+            True(!string.IsNullOrWhiteSpace(result.Summary) && !string.IsNullOrWhiteSpace(events[^1].Message), "No-op and completed queues expose an actionable outcome summary.");
+            True(events.All(p => p.Completed >= 0 && p.Total >= p.Completed && !string.IsNullOrWhiteSpace(p.Stage)), "Progress counters and stage names remain valid throughout the operation.");
+            True(events.Zip(events.Skip(1)).All(pair => pair.First.Completed <= pair.Second.Completed), "Completed-item progress cannot move backwards.");
+        }
+
+        var emptyProgress = new RecordingProgress();
+        var empty = await queue.RunAsync(settings, [], TestExecutable, emptyProgress, CancellationToken.None);
+        Equal(0, empty.Requested, "An empty queue reports no requested records.");
+        Equal(0, empty.Eligible, "An empty queue reports no eligible records.");
+        Equal(0, empty.Generated, "An empty queue cannot claim generated audio.");
+        CheckFinished(emptyProgress, empty);
+
+        var excluded = new[] { Preset("unknown"), Preset("unidentified"), Preset("duplicate"), Preset("unsupported"), Preset("missing") };
+        excluded[0].Synth = SynthKind.Unknown;
+        excluded[1].Status = PresetStatus.Unidentified;
+        excluded[2].DuplicateOfId = "test-only-canonical";
+        excluded[3].Status = PresetStatus.Unsupported;
+        excluded[4].Status = PresetStatus.Missing;
+        var excludedProgress = new RecordingProgress();
+        var excludedResult = await queue.RunAsync(settings, excluded, TestExecutable, excludedProgress, CancellationToken.None);
+        Equal(5, excludedResult.Requested, "All original paths are represented in requested counts.");
+        Equal(5, excludedResult.Excluded, "Unknown, unidentified, duplicate, unsupported and missing records are counted as excluded.");
+        Equal(0, excludedResult.Eligible, "An entirely excluded list has no eligible work.");
+        True(excluded.All(p => p.Attempts == 0), "Excluded records never consume render attempts.");
+        CheckFinished(excludedProgress, excludedResult);
+
+        var unconfiguredSettings = new AppSettings { PreviewDirectory = Path.Combine(directory, "unconfigured-outputs"), Plugins = [] };
+        const int unconfiguredCount = 6000;
+        var unconfiguredPresets = Enumerable.Range(0, unconfiguredCount).Select(index => Preset("unconfigured-" + index)).ToArray();
+        var unconfiguredProgress = new RecordingProgress();
+        var unconfigured = await queue.RunAsync(unconfiguredSettings, unconfiguredPresets, TestExecutable, unconfiguredProgress, CancellationToken.None);
+        Equal(unconfiguredCount, unconfigured.Requested, "A fully unconfigured queue still accounts for every input.");
+        Equal(unconfiguredCount, unconfigured.Eligible, "Unconfigured records remain eligible once a renderer is supplied.");
+        Equal(unconfiguredCount, unconfigured.Unconfigured, "Unconfigured backends are summarized separately from rendering failures.");
+        Equal(unconfiguredCount, unconfigured.UnconfiguredSynths[SynthKind.Vital], "Unconfigured summary groups disclose the affected synth and item count.");
+        Equal(0, unconfigured.Generated, "A fully unconfigured queue cannot claim generated previews.");
+        Equal(0, unconfigured.Failed, "A missing backend is not a failed child render.");
+        True(unconfiguredPresets.All(p => p.Status == PresetStatus.Pending && p.Attempts == 0), "Unconfigured outcomes preserve pending state and retry history.");
+        True(!Directory.Exists(unconfiguredSettings.PreviewDirectory), "Unconfigured outcomes do not create output directories or start a worker.");
+        True(unconfiguredProgress.Snapshots.Length <= 6, "Thousands of metadata-free unconfigured records must be summarized in a bounded number of events, not flood the UI once per path.");
+        CheckFinished(unconfiguredProgress, unconfigured);
+
+        var success = Preset("success"); success.ContentHash = Fingerprints.HashText("TEST ONLY progress success");
+        var reused = Preset("reused"); reused.ContentHash = Fingerprints.HashText("TEST ONLY progress reused");
+        CompletePreview(reused, Path.Combine(directory, "test-only-reused.wav"));
+        var failure = Preset("failure"); failure.ContentHash = Fingerprints.HashText("TEST ONLY progress failure");
+        var retryLimited = Preset("failure"); retryLimited.ContentHash = Fingerprints.HashText("TEST ONLY progress retry limit");
+        retryLimited.Status = PresetStatus.Failed;
+        retryLimited.Attempts = settings.MaxAttempts;
+        retryLimited.AttemptedCacheKey = Fingerprints.CacheKey(retryLimited, settings.Plugins.Single(), settings.Template);
+        var noBackend = Preset("no-backend"); noBackend.Synth = SynthKind.Serum1;
+        var mixedProgress = new RecordingProgress();
+        var mixed = await queue.RunAsync(settings, [success, reused, failure, retryLimited, noBackend, .. excluded], TestExecutable, mixedProgress, CancellationToken.None);
+        Equal(10, mixed.Requested, "A mixed result includes every requested physical record.");
+        Equal(5, mixed.Eligible, "Only eligible records contribute to work progress.");
+        Equal(1, mixed.Generated, "Committed audio is counted as generated.");
+        Equal(1, mixed.Reused, "An existing complete preview is counted as reused.");
+        Equal(1, mixed.Failed, "A final child failure is counted exactly once.");
+        Equal(1, mixed.RetryLimited, "A record already at its retry limit is reported separately.");
+        Equal(1, mixed.Unconfigured, "A record without a backend remains visible in the summary.");
+        Equal(1, mixed.UnconfiguredSynths[SynthKind.Serum1], "A mixed result names the unconfigured synth rather than implying a successful render.");
+        Equal(5, mixed.Excluded, "Excluded records are not silently lost from the summary.");
+        Equal(mixed.Eligible, mixed.Generated + mixed.Reused + mixed.Failed + mixed.RetryLimited + mixed.Unconfigured, "Every eligible item has exactly one final outcome.");
+        CheckFinished(mixedProgress, mixed);
+        foreach (var preset in new[] { success, reused, failure, retryLimited })
+        {
+            var events = mixedProgress.Snapshots.Where(p => p.PresetId == preset.Id).ToArray();
+            True(events.Length > 0 && events[0].Stage == QueueStages.Validating, "Every eligible item reports validation before preview checks and cache/config work.");
+        }
+        True(mixedProgress.Snapshots.Any(p => p.PresetId == success.Id && p.Stage == QueueStages.Rendering && p.IsIndeterminate), "A running external renderer is represented as indeterminate work, not a completed item.");
+
+        var cachedProgress = new RecordingProgress();
+        var cachedWithoutBackend = await queue.RunAsync(unconfiguredSettings, [reused], TestExecutable, cachedProgress, CancellationToken.None);
+        Equal(1, cachedWithoutBackend.Reused, "A valid saved preview is still validated and reused when its backend is now unconfigured.");
+        Equal(0, cachedWithoutBackend.Unconfigured, "Bulk unconfigured classification must not hide a complete reusable preview.");
+        True(cachedProgress.Snapshots.Any(p => p.PresetId == reused.Id && p.Stage == QueueStages.Validating), "Records with saved preview metadata still enter real validation before backend checks.");
+        CheckFinished(cachedProgress, cachedWithoutBackend);
+
+        var needsReview = Preset("review");
+        needsReview.ContentHash = Fingerprints.HashText("TEST ONLY generated but not yet confirmed");
+        var reviewResult = await queue.RunAsync(settings, [needsReview], TestExecutable, new RecordingProgress(), CancellationToken.None);
+        Equal(1, reviewResult.Generated, "A committed preview requiring confirmation still counts as generated audio.");
+        Equal(PresetStatus.NeedsReview, needsReview.Status, "A successful but unverified render retains its confirmation requirement.");
+        True(File.Exists(needsReview.PreviewPath), "Awaiting confirmation does not mean audio is absent.");
+        var persistedReview = store.LoadPresets().Single(p => p.Id == needsReview.Id);
+        Equal(PresetStatus.NeedsReview, persistedReview.Status, "Generated-but-unconfirmed status survives persisted indexing.");
+        Equal(needsReview.PreviewPath, persistedReview.PreviewPath, "The generated-but-unconfirmed record keeps its committed audio mapping.");
+        var reuseReview = await queue.RunAsync(unconfiguredSettings, [persistedReview], TestExecutable, new RecordingProgress(), CancellationToken.None);
+        Equal(1, reuseReview.Reused, "Default generation reuses complete NeedsReview audio even with no current renderer.");
+        Equal(0, reuseReview.Generated, "Reusing unconfirmed audio must not claim it was rendered again.");
+        Equal(PresetStatus.NeedsReview, persistedReview.Status, "Reuse cannot silently mark an unverified preset as confirmed.");
+
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var preparation = new RecordingProgress(p => { if (p.Stage == QueueStages.Preparing) cancellation.Cancel(); });
+            var notStarted = Preset("gate");
+            await ThrowsAsync<OperationCanceledException>(() => queue.RunAsync(settings, [notStarted], TestExecutable, preparation, cancellation.Token));
+            Equal(0, notStarted.Attempts, "Cancellation from the first preparation event occurs before attempts or child launch.");
+            Equal(QueueStages.Stopped, preparation.Snapshots[^1].Stage, "Cancellation has a terminal stopped event rather than a silent disappearance.");
+            True(!preparation.Snapshots[^1].IsIndeterminate, "Stopped preparation clears its active progress indicator.");
+        }
+
+        var waiting = Preset("gate");
+        waiting.SourcePath = Path.Combine(directory, "waiting-test-only.vital");
+        waiting.ContentHash = Fingerprints.HashText("TEST ONLY progress waiting");
+        var runningProgress = new RecordingProgress();
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var run = queue.RunAsync(settings, [waiting], TestExecutable, runningProgress, cancellation.Token);
+            try
+            {
+                int childPid = await WaitForStartedAsync(waiting.SourcePath + ".started", run);
+                await Task.Delay(150);
+                var current = runningProgress.Snapshots[^1];
+                Equal(QueueStages.Rendering, current.Stage, "While a child is still working, the last progress state remains rendering.");
+                True(current.IsIndeterminate && !run.IsCompleted, "A pending child keeps active indeterminate progress until there is an actual result.");
+                Equal(0, current.Completed, "Starting a child must not prematurely increment completed work.");
+                cancellation.Cancel();
+                await ThrowsAsync<OperationCanceledException>(() => run);
+                True(!IsRunning(childPid), "Stopping progress also terminates the actual waiting child.");
+                var stopped = runningProgress.Snapshots[^1];
+                Equal(QueueStages.Stopped, stopped.Stage, "A stopped render has a distinct terminal progress state.");
+                True(!stopped.IsIndeterminate && !string.IsNullOrWhiteSpace(stopped.Message), "Stopped rendering clears active progress and leaves a visible summary.");
+                Equal(0, stopped.Completed, "Canceled uncommitted work cannot be reported as completed.");
+            }
+            finally
+            {
+                cancellation.Cancel();
+                try { await run; } catch (OperationCanceledException) { }
+            }
+        }
+    }
+
     private static async Task TestQueueStopResumeAsync()
     {
         string directory = Fixture("stopped-batch");
@@ -1161,6 +1449,7 @@ internal static class Program
         var result = new RenderResult
         {
             Success = true,
+            NeedsReview = mode == "review",
             OutputPath = mode == "wrongpath" ? Path.Combine(Path.GetDirectoryName(request.OutputPath)!, "other.wav") : request.OutputPath,
             AdapterVersion = "test-fixture-v1",
             Message = "Test-only PCM fixture; no synthesizer was loaded.",
@@ -1493,5 +1782,19 @@ internal static class Program
     {
         public int RenderingCalls { get; private set; }
         public void Report(QueueProgress value) { if (value.Preset?.Status == PresetStatus.Rendering) RenderingCalls++; }
+    }
+
+    private sealed record ProgressSnapshot(int Completed, int Total, string Stage, bool IsIndeterminate, string Message, string? PresetId);
+
+    private sealed class RecordingProgress(Action<QueueProgress>? onReport = null) : IProgress<QueueProgress>
+    {
+        private readonly object gate = new();
+        private readonly List<ProgressSnapshot> snapshots = [];
+        public ProgressSnapshot[] Snapshots { get { lock (gate) return snapshots.ToArray(); } }
+        public void Report(QueueProgress value)
+        {
+            lock (gate) snapshots.Add(new(value.Completed, value.Total, value.Stage, value.IsIndeterminate, value.Message, value.Preset?.Id));
+            onReport?.Invoke(value);
+        }
     }
 }

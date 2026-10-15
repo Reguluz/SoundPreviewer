@@ -1,11 +1,14 @@
 using System.ComponentModel;
+using System.IO;
 using SoundPreviewer.Core.Models;
 
 namespace SoundPreviewer.App;
 
 public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
 {
+    private bool _hasPreview = File.Exists(record.PreviewPath);
     public PresetRecord Record { get; } = record;
+    public bool HasPreview => _hasPreview;
     public string Name => Record.Name;
     public string SynthLabel => Labels.Synth(Record.Synth);
     public string Package => Record.Package;
@@ -19,10 +22,15 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
     public string QualityLabel => Record.Metrics is { } m
         ? string.Join(" · ", new[] { m.IsSilent ? "静音待查" : "", m.HasClipping ? "削波风险" : "", m.HasNonFinite ? "异常采样" : "" }.Where(s => s.Length > 0)) : "";
     public event PropertyChangedEventHandler? PropertyChanged;
-    public void Refresh() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(""));
+    public void Refresh()
+    {
+        _hasPreview = File.Exists(Record.PreviewPath);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(""));
+    }
 }
 
 public sealed record Choice<T>(string Label, T Value);
+public sealed record StatusFilterChoice(string Label, PresetStatus? Value = null, bool GeneratedOnly = false);
 public sealed record CompatibilityRow(string Synth, string Status, string Detail);
 
 public static class Labels
@@ -40,7 +48,7 @@ public static class Labels
     public static string Status(PresetStatus s) => s switch
     {
         PresetStatus.Pending => "待生成", PresetStatus.Rendering => "生成中", PresetStatus.Ready => "已就绪",
-        PresetStatus.Failed => "失败", PresetStatus.NeedsReview => "待确认", PresetStatus.Unsupported => "待适配",
+        PresetStatus.Failed => "失败", PresetStatus.NeedsReview => "已生成待确认", PresetStatus.Unsupported => "待适配",
         PresetStatus.Missing => "来源缺失", PresetStatus.Unidentified => "待识别", _ => s.ToString()
     };
 }

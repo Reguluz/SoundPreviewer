@@ -16,8 +16,9 @@ public static class WaveFile
 {
     private const long MaximumFileBytes = 256L * 1024 * 1024;
 
-    public static WaveData Read(string path)
+    public static WaveData Read(string path, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream, Encoding.ASCII);
         if (stream.Length is < 44 or > MaximumFileBytes) throw new InvalidDataException("WAV 大小无效或超过 256 MB 限制。");
@@ -31,6 +32,7 @@ public static class WaveFile
         long dataPosition = -1, dataSize = 0;
         while (stream.Position + 8 <= riffEnd)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var tag = ReadTag(reader);
             long size = reader.ReadUInt32();
             long next = stream.Position + size + (size & 1);
@@ -77,6 +79,7 @@ public static class WaveFile
         stream.Position = dataPosition;
         for (int i = 0; i < samples.Length; i++)
         {
+            if ((i & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
             samples[i] = format == 3 ? bits == 32 ? reader.ReadSingle() : (float)reader.ReadDouble() : bits switch
             {
                 8 => (reader.ReadByte() - 128) / 128f,
@@ -89,15 +92,16 @@ public static class WaveFile
         return new WaveData { SampleRate = rate, Channels = channels, Samples = samples };
     }
 
-    public static AudioMetrics Validate(string path)
+    public static AudioMetrics Validate(string path, CancellationToken cancellationToken = default)
     {
-        var metrics = Analyze(Read(path));
+        var metrics = Analyze(Read(path, cancellationToken), cancellationToken);
         if (metrics.HasNonFinite) throw new InvalidDataException("音频包含 NaN / Infinity，未提交预览。");
         return metrics;
     }
 
-    public static AudioMetrics Analyze(WaveData audio)
+    public static AudioMetrics Analyze(WaveData audio, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureShape(audio);
         double peak = 0, squareSum = 0;
         long finiteCount = 0, crossings = 0;
@@ -105,6 +109,7 @@ public static class WaveFile
         double previous = 0;
         for (int frame = 0; frame < audio.Frames; frame++)
         {
+            if ((frame & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
             double mono = 0;
             for (int channel = 0; channel < audio.Channels; channel++)
             {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -25,6 +26,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly LibraryStore _store;
     private readonly WavePlayer _player = new();
     private readonly DispatcherTimer _playbackTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private readonly DispatcherTimer _taskTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    private readonly Stopwatch _taskWatch = new();
+    private Action? _flushTaskProgress;
     private AppSettings _settings;
     private CancellationTokenSource? _taskCancellation;
     private bool _isBusy;
@@ -40,6 +44,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private PresetRow? _selected;
     private string _statusMessage = "就绪";
     private double _progressValue;
+    private bool _hasTaskFeedback;
+    private bool _progressIndeterminate;
+    private bool _needsRendererSetup;
+    private string _taskTitle = "";
+    private string _taskProgressText = "";
 
     public ObservableCollection<PresetRow> Presets { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
@@ -51,15 +60,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
     public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
-    public List<Choice<PresetStatus?>> StatusFilters { get; } = [new("全部状态", null), .. Enum.GetValues<PresetStatus>().Select(s => new Choice<PresetStatus?>(Labels.Status(s), s))];
+    public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer)];
-    public List<CompatibilityRow> Compatibility { get; } =
-    [
-        new("Vital", "待实机验证", "原生 CLI 适配器已实现；本机未安装。加载结果需试听确认。"),
-        new("Serum 1", "待实机验证", "支持 FXP 扫描；可选 DawDreamer 宿主尚未验证插件渲染。"),
-        new("Serum 2", "宿主待接入", "支持 SerumPreset 与 FXP 扫描；未开展插件验证。"),
-        new("Sylenth1", "待实机验证", "支持 FXP 扫描与 FXB 识别；宿主须匹配插件位数，银行槽位未验证。")
-    ];
+    public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
     public bool IsBusy => _isBusy;
     public bool IsIdle => !_isBusy;
@@ -72,11 +75,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public bool CanRenderSelection => IsIdle && _selected is not null && _selected.Record.DuplicateOfId.Length == 0 && _selected.Record.Synth != SynthKind.Unknown && _selected.Record.Status is not (PresetStatus.Unsupported or PresetStatus.Missing or PresetStatus.Unidentified);
     public bool CanViewCanonical => _selected is not null && Presets.Any(p => p.Record.Id == _selected.Record.DuplicateOfId);
     public Visibility CanonicalVisibility => CanViewCanonical ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility EmptyVisibility => Presets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EmptyVisibility => PresetsView.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EmptyLibraryVisibility => Presets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EmptyFilterVisibility => Presets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string EmptyMessage => Presets.Count == 0 ? "暂无音色" : "当前筛选没有匹配音色";
+    public int GeneratedPreviewCount => Presets.Count(p => p.Record.DuplicateOfId.Length == 0 && p.HasPreview);
+    public int ReviewPreviewCount => Presets.Count(p => p.Record.DuplicateOfId.Length == 0 && p.HasPreview && p.Record.Status == PresetStatus.NeedsReview);
+    public Visibility GeneratedResultsVisibility => GeneratedPreviewCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string LibraryLocation => Path.GetFullPath(App.DataDirectory);
     public string NowPlaying => _selected?.Name ?? "未选择预览";
-    public string LibrarySummary => $"{Presets.Count} 条路径索引 · {Presets.Count(p => p.Record.DuplicateOfId.Length == 0)} 个保留项 · {Presets.Count(p => p.Record.DuplicateOfId.Length > 0)} 个重复副本 · {Presets.Count(p => p.Record.DuplicateOfId.Length == 0 && p.Record.Status == PresetStatus.Ready)} 已就绪";
+    public string LibrarySummary => $"已生成 {GeneratedPreviewCount}（待确认 {ReviewPreviewCount}） · {Presets.Count} 条路径索引 · {Presets.Count(p => p.Record.DuplicateOfId.Length > 0)} 个重复副本";
     public string StatusMessage => _statusMessage;
     public double ProgressValue => _progressValue;
+    public Visibility TaskStatusVisibility => _hasTaskFeedback ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TaskSettingsVisibility => _needsRendererSetup && IsIdle ? Visibility.Visible : Visibility.Collapsed;
+    public string TaskTitle => _taskTitle;
+    public string TaskProgressText => _taskProgressText;
+    public string TaskElapsed => $"用时 {(_taskWatch.Elapsed.TotalHours >= 1 ? _taskWatch.Elapsed.ToString(@"h\:mm\:ss") : _taskWatch.Elapsed.ToString(@"m\:ss"))}";
+    public bool IsProgressIndeterminate => IsBusy && _progressIndeterminate;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public MainWindow()
@@ -94,6 +110,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _player.Volume = _settings.PlaybackVolume;
         _playbackTimer.Tick += (_, _) => UpdatePlayback();
         _playbackTimer.Start();
+        _taskTimer.Tick += (_, _) =>
+        {
+            _flushTaskProgress?.Invoke();
+            NotifyTaskProgress();
+        };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -103,6 +124,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var restored = await Task.Run(() => _store.RecoverInterrupted());
             var records = await Task.Run(_store.LoadPresets);
             SetPresets(records);
+            if (GeneratedPreviewCount > 0)
+            {
+                _hasTaskFeedback = true;
+                _taskTitle = $"已保存 {GeneratedPreviewCount} 个预览";
+                _statusMessage = $"{ReviewPreviewCount} 项待试听确认。";
+                _progressValue = 100;
+                NotifyAll();
+            }
             Log($"打开本地音色库，恢复 {restored} 个未完成任务。");
             if (App.ScanOnStart) await Scan();
             if (App.SmokeTest)
@@ -161,6 +190,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
                         if (!PresetFormatHint.Text.Contains(suffix, StringComparison.Ordinal))
                             throw new InvalidOperationException($"文件后缀说明缺少 {suffix}。");
+                    if (TaskStatusBand.IsVisible && (Bounds(TaskProgressTitle).IntersectsWith(Bounds(TaskProgressMetadata))
+                        || Bounds(TaskProgressDetails).Bottom > Bounds(GenerationProgressBar).Top
+                        || Bounds(TaskStatusBand).Bottom > Bounds(Pages).Top
+                        || !new Rect(new Point(), visual.RenderSize).Contains(Bounds(TaskStatusBand))))
+                        throw new InvalidOperationException("任务进度区域内容重叠或超出窗口。");
                 }
                 void Capture(string name)
                 {
@@ -205,7 +239,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 await RunTask(async token =>
                 {
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-                    if (!CanStopTask || !StopTaskButton.IsEnabled) throw new InvalidOperationException("任务运行时停止按钮未启用。");
+                    if (!CanStopTask || !StopTaskButton.IsEnabled || !TaskStatusBand.IsVisible
+                        || !GenerationProgressBar.IsIndeterminate)
+                        throw new InvalidOperationException("任务准备阶段未立即显示进度或停止按钮。");
+                    var initialElapsed = TaskElapsed;
+                    await Task.Delay(1100, token);
+                    if (TaskElapsed == initialElapsed) throw new InvalidOperationException("等待任务时用时未更新。");
+                    Capture("ui-generation-preparing.png");
                     StopTask_Click(StopTaskButton, new RoutedEventArgs());
                     if (CanStopTask) throw new InvalidOperationException("停止请求未及时更新状态。");
                     stopChecked = true;
@@ -213,8 +253,62 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 });
                 if (!stopChecked || !IsIdle || CanStopTask || !StatusMessage.StartsWith("已停止", StringComparison.Ordinal))
                     throw new InvalidOperationException("停止后任务状态没有恢复。");
-                _statusMessage = "就绪";
-                NotifyAll();
+                var generatedViewChecked = false;
+                var previewFixture = Presets.FirstOrDefault(p => p.Record.DuplicateOfId.Length == 0 && p.HasPreview && p.Record.Tags.Contains("TEST ONLY"));
+                if (previewFixture is not null)
+                {
+                    previewFixture.Record.Status = PresetStatus.NeedsReview;
+                    previewFixture.Refresh();
+                    _store.Upsert(previewFixture.Record);
+                    SearchBox.Text = "TEST ONLY: no search match";
+                    SynthFilter.SelectedItem = serumFilter;
+                    FavoritesOnly.IsChecked = true;
+                    StatusFilter.SelectedItem = StatusFilters.Single(filter => filter.Value == PresetStatus.Pending);
+                    await Generate([previewFixture.Record]);
+                    if (StatusFilter.SelectedItem is not StatusFilterChoice { GeneratedOnly: true }
+                        || SearchBox.Text.Length > 0 || SynthFilter.SelectedItem is not Choice<SynthKind?> { Value: null } || FavoritesOnly.IsChecked == true
+                        || !PresetsView.Cast<PresetRow>().Contains(previewFixture) || !CanPlay
+                        || GeneratedPreviewCount == 0 || ReviewPreviewCount == 0 || previewFixture.StatusLabel != "已生成待确认")
+                        throw new InvalidOperationException("已生成的待确认预览未能从旧筛选中恢复并显示。");
+                    var reopened = _store.LoadPresets().Single(p => p.Id == previewFixture.Record.Id);
+                    if (reopened.Status != PresetStatus.NeedsReview || !File.Exists(reopened.PreviewPath))
+                        throw new InvalidOperationException("待确认预览未持久保留。");
+                    var generatedCount = GeneratedPreviewCount;
+                    Confirm_Click(this, new RoutedEventArgs());
+                    if (GeneratedPreviewCount != generatedCount || !PresetsView.Cast<PresetRow>().Contains(previewFixture))
+                        throw new InvalidOperationException("确认音色后不应从已生成视图消失。");
+                    previewFixture.Record.Status = PresetStatus.NeedsReview;
+                    previewFixture.Refresh();
+                    _store.Upsert(previewFixture.Record);
+                    var savedPreviewPath = previewFixture.Record.PreviewPath;
+                    previewFixture.Record.PreviewPath = Path.Combine(App.DataDirectory, "TEST-ONLY-missing-preview.wav");
+                    previewFixture.Refresh();
+                    PresetsView.Refresh();
+                    if (previewFixture.HasPreview || PresetsView.Cast<PresetRow>().Contains(previewFixture))
+                        throw new InvalidOperationException("丢失的预览文件不应出现在已生成视图。");
+                    previewFixture.Record.PreviewPath = savedPreviewPath;
+                    previewFixture.Refresh();
+                    ClearFilters_Click(this, new RoutedEventArgs());
+                    generatedViewChecked = true;
+                }
+                var noRenderer = _settings.Plugins.FirstOrDefault(p => p.Backend == RenderBackend.Unconfigured);
+                var generationFeedbackChecked = false;
+                if (noRenderer is not null)
+                {
+                    var pending = Enumerable.Range(0, 10000).Select(index => new PresetRecord
+                    {
+                        Id = $"TEST-ONLY-progress-{index}", Name = $"TEST ONLY progress {index}",
+                        Synth = noRenderer.Synth, Status = PresetStatus.Pending
+                    }).ToList();
+                    await Generate(pending);
+                    await Task.Delay(250);
+                    if (!IsIdle || !TaskStatusBand.IsVisible || GenerationProgressBar.IsIndeterminate
+                        || ProgressValue != 100 || TaskTitle != "本次没有生成预览"
+                        || !StatusMessage.Contains("未配置", StringComparison.Ordinal)
+                        || TaskSettingsVisibility != Visibility.Visible)
+                        throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果与设置入口。");
+                    generationFeedbackChecked = true;
+                }
                 var smokeSelection = PresetGrid.SelectedItem;
                 var unidentified = Presets.FirstOrDefault(p => p.Record.Status == PresetStatus.Unidentified);
                 if (unidentified is not null)
@@ -243,6 +337,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     UpdateLayout();
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     CheckFormatLayout();
+                    var feedback = _statusMessage;
+                    _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail, no synthesizer was loaded.\n", 250));
+                    NotifyTaskProgress();
+                    UpdateLayout();
+                    CheckFormatLayout();
+                    if (TaskProgressDetails.ActualHeight > 48 || TaskStatusBand.ActualHeight > 125)
+                        throw new InvalidOperationException("长渲染错误挤占了音色库内容区域。");
+                    Capture($"ui-long-feedback-{name}.png");
+                    _statusMessage = feedback;
+                    NotifyTaskProgress();
+                    UpdateLayout();
                     if (SynthFilter.SelectedItem is not Choice<SynthKind?> { Value: SynthKind.Serum2 }
                         || PresetsView.Cast<PresetRow>().Any(row => row.Record.Synth != SynthKind.Serum2))
                         throw new InvalidOperationException("Serum 2 音源筛选类型检查失败。");
@@ -268,12 +373,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                         Capture($"ui-{name}-{page}.png");
                     }
+                    ShowGeneratedPreviews();
+                    UpdateLayout();
+                    await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    CheckFormatLayout();
+                    Capture($"ui-generated-{name}.png");
+                    ClearFilters_Click(this, new RoutedEventArgs());
                     DiscoveredPluginGrid.BringIntoView();
                     UpdateLayout();
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     Capture($"ui-plugins-{name}.png");
                 }
-                await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2, MixedDirectoryChecked = true, UnidentifiedChecked = unidentified is not null, PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked, DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(p => p.Record.DuplicateOfId.Length > 0), ForceDefaultOff = ForceGeneration.IsChecked != true, Width = ActualWidth, Height = ActualHeight }));
+                await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2, MixedDirectoryChecked = true, UnidentifiedChecked = unidentified is not null, PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked, GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked, DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(p => p.Record.DuplicateOfId.Length > 0), ForceDefaultOff = ForceGeneration.IsChecked != true, Width = ActualWidth, Height = ActualHeight }));
                 Application.Current.Shutdown();
             }
         }
@@ -287,11 +398,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var search = SearchBox?.Text?.Trim() ?? "";
         if (search.Length > 0 && !new[] { row.Name, row.Package, row.Record.SourcePath, row.Record.InternalPath, row.SynthLabel, row.Record.ContentMd5 }.Concat(row.Record.Tags).Any(s => s.Contains(search, StringComparison.CurrentCultureIgnoreCase))) return false;
         if (SynthFilter?.SelectedItem is Choice<SynthKind?> { Value: { } synth } && row.Record.Synth != synth) return false;
-        if (StatusFilter?.SelectedItem is Choice<PresetStatus?> { Value: { } status } && row.Record.Status != status) return false;
+        if (StatusFilter?.SelectedItem is StatusFilterChoice statusFilter &&
+            (statusFilter.GeneratedOnly ? !row.HasPreview : statusFilter.Value is { } status && row.Record.Status != status)) return false;
         return FavoritesOnly?.IsChecked != true || row.Record.Favorite;
     }
 
-    private void Filter_Changed(object sender, RoutedEventArgs e) => PresetsView?.Refresh();
+    private void Filter_Changed(object sender, RoutedEventArgs e)
+    {
+        PresetsView?.Refresh();
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EmptyVisibility)));
+    }
 
     private void SetPresets(IEnumerable<PresetRecord> records)
     {
@@ -300,6 +416,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var record in records) Presets.Add(new PresetRow(record));
         PresetsView.Refresh();
         PresetGrid.SelectedItem = Presets.FirstOrDefault(p => p.Record.Id == selectedId);
+        RefreshCompatibility();
         NotifyAll();
     }
 
@@ -322,7 +439,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await Task.Run(() => _store.UpsertMany(result.Presets), token);
         SetPresets(result.Presets);
         foreach (var warning in result.Warnings) Log(warning);
-        Log($"索引扫描完成：新增 {result.Added}，内容变更 {result.Changed}，MD5 重复副本 {result.Presets.Count(p => p.DuplicateOfId.Length > 0)}，读取警告 {result.Warnings.Count}，耗时 {scanWatch.Elapsed.TotalSeconds:0.0} 秒。");
+        _taskTitle = "目录扫描完成";
+        _statusMessage = $"新增 {result.Added}，内容变更 {result.Changed}，MD5 重复副本 {result.Presets.Count(p => p.DuplicateOfId.Length > 0)}，读取警告 {result.Warnings.Count}，耗时 {scanWatch.Elapsed.TotalSeconds:0.0} 秒。";
+        Log(_statusMessage);
     });
 
     private async void Render_Click(object sender, RoutedEventArgs e)
@@ -347,6 +466,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task Generate(IReadOnlyList<PresetRecord> records, bool forceRegenerate = false) => await RunTask(async token =>
     {
         if (records.Count == 0) throw new InvalidOperationException("尚无可生成的音色，请先扫描目录。");
+        _taskTitle = "正在准备生成预览";
+        _statusMessage = "正在检查音源与渲染程序…";
+        NotifyTaskProgress();
         Log(forceRegenerate ? "开始全量重生成，逐项保留旧预览直到新结果完成。" : "继续生成，默认跳过已有完整预览与 MD5 重复副本。");
         if (_selected is not null && records.Any(p => p.Id == _selected.Record.Id))
         {
@@ -356,23 +478,66 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _loadedPreviewPath = "";
         }
         var settings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
-        await Task.Run(() => RefreshBinaryHashes(settings), token);
-        _settings.Plugins = settings.Plugins;
-        _store.SaveSettings(_settings);
-        var rows = Presets.ToDictionary(p => p.Record.Id);
-        var progress = new Progress<QueueProgress>(p =>
+        var preparation = new Progress<string>(message =>
         {
-            _progressValue = p.Total == 0 ? 100 : p.Completed * 100d / p.Total;
-            var message = $"{p.Completed}/{p.Total} · {p.PresetName} · {p.Message}";
-            if (!_stopRequested) _statusMessage = message;
-            if (p.Preset is not null && rows.TryGetValue(p.Preset.Id, out var row)) row.Refresh();
-            PresetsView.Refresh();
-            NotifyAll();
-            Log(message);
+            if (!_isBusy || _stopRequested || _taskTitle != "正在准备生成预览") return;
+            _statusMessage = message;
+            NotifyTaskProgress();
         });
+        await Task.Run(() => RefreshBinaryHashes(settings, token, preparation), token);
+        _settings.Plugins = settings.Plugins;
+        await Task.Run(() => _store.SaveSettings(_settings), token);
+        var rows = Presets.ToDictionary(p => p.Record.Id);
+        var changedRows = new ConcurrentDictionary<string, byte>();
+        QueueProgress? pendingProgress = null;
+        var lastViewRefresh = TimeSpan.Zero;
+        var lastLog = TimeSpan.Zero;
+        var progress = new QueueReporter(p =>
+        {
+            if (p.Preset is not null) changedRows.TryAdd(p.Preset.Id, 0);
+            Interlocked.Exchange(ref pendingProgress, p);
+        });
+        _flushTaskProgress = () =>
+        {
+            var p = Interlocked.Exchange(ref pendingProgress, null);
+            if (p is null) return;
+            _progressValue = p.Total == 0 ? 0 : p.Completed * 100d / p.Total;
+            _progressIndeterminate = p.IsIndeterminate;
+            _taskProgressText = p.Total > 0 ? $"已处理 {p.Completed} / {p.Total} ({_progressValue:0}%)" : "";
+            if (!_stopRequested)
+            {
+                _taskTitle = p.Stage == "完成" ? "预览任务已结束" : $"正在{p.Stage}";
+                _statusMessage = string.IsNullOrWhiteSpace(p.PresetName) ? p.Message : $"{p.PresetName} · {p.Message}";
+            }
+            foreach (var id in changedRows.Keys)
+                if (changedRows.TryRemove(id, out _) && rows.TryGetValue(id, out var row)) row.Refresh();
+            if (_taskWatch.Elapsed - lastViewRefresh >= TimeSpan.FromSeconds(1))
+            {
+                PresetsView.Refresh();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GeneratedResultsVisibility)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EmptyVisibility)));
+                lastViewRefresh = _taskWatch.Elapsed;
+            }
+            if (_taskWatch.Elapsed - lastLog >= TimeSpan.FromSeconds(2))
+            {
+                Log($"{p.Completed}/{p.Total} · {_statusMessage}");
+                lastLog = _taskWatch.Elapsed;
+            }
+        };
         var workerPath = Path.Combine(AppContext.BaseDirectory, "SoundPreviewer.Worker.exe");
-        await Task.Run(() => new RenderQueue(_store).RunAsync(settings, records, workerPath, progress, token, forceRegenerate), token);
-        Log("本轮预览任务已结束。");
+        var result = await Task.Run(() => new RenderQueue(_store).RunAsync(settings, records, workerPath, progress, token, forceRegenerate), token);
+        _flushTaskProgress();
+        _flushTaskProgress = null;
+        _needsRendererSetup = result.Unconfigured > 0 || result.Failed > 0;
+        _taskTitle = result.Generated > 0
+            ? result.Failed + result.Unconfigured + result.RetryLimited > 0 ? "预览任务结束，部分项目未生成" : "预览生成完成"
+            : result.Reused > 0 ? "已有预览已保留" : "本次没有生成预览";
+        _statusMessage = result.Summary;
+        _taskProgressText = $"已处理 {result.Eligible} / {result.Eligible}";
+        RefreshCompatibility();
+        if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
+        Log(result.Summary);
     });
 
     private async Task RunTask(Func<CancellationToken, Task> action)
@@ -381,18 +546,56 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _isBusy = true;
         _stopRequested = false;
         _progressValue = 0;
+        _hasTaskFeedback = true;
+        _progressIndeterminate = true;
+        _needsRendererSetup = false;
+        _taskTitle = "任务进行中";
+        _statusMessage = "正在准备任务…";
+        _taskProgressText = "准备中";
+        _taskWatch.Restart();
+        _taskTimer.Start();
         _taskCancellation = new CancellationTokenSource();
         NotifyAll();
-        try { await action(_taskCancellation.Token); _statusMessage = "就绪"; }
-        catch (OperationCanceledException) { _statusMessage = "已停止，已完成的预览已保留，可继续生成。"; Log(_statusMessage); }
-        catch (Exception ex) { ShowError(ex); }
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.Background);
+            _taskCancellation.Token.ThrowIfCancellationRequested();
+            await action(_taskCancellation.Token);
+            if (_taskTitle == "任务进行中") _taskTitle = "任务完成";
+            if (_statusMessage == "正在准备任务…") _statusMessage = "任务已完成。";
+            _progressValue = 100;
+            _taskProgressText = _taskProgressText == "准备中" ? "" : _taskProgressText;
+        }
+        catch (OperationCanceledException)
+        {
+            _flushTaskProgress?.Invoke();
+            _taskTitle = "任务已停止";
+            _statusMessage = "已停止，已完成的预览已保留，可继续生成。";
+            Log(_statusMessage);
+        }
+        catch (Exception ex)
+        {
+            _flushTaskProgress?.Invoke();
+            _flushTaskProgress = null;
+            _taskTimer.Stop();
+            _progressIndeterminate = false;
+            _taskTitle = "任务未完成";
+            ShowError(ex);
+        }
         finally
         {
+            _flushTaskProgress = null;
+            _taskTimer.Stop();
+            _taskWatch.Stop();
+            _progressIndeterminate = false;
+            if (_taskProgressText == "准备中") _taskProgressText = "";
             _isBusy = false;
             _stopRequested = false;
             _taskCancellation.Dispose();
             _taskCancellation = null;
             foreach (var row in Presets) row.Refresh();
+            PresetsView.Refresh();
+            RefreshCompatibility();
             NotifyAll();
             if (_selected is not null && _selected.Record.PreviewPath != _loadedPreviewPath) await LoadSelectedPreview();
             if (_closeWhenDone) Close();
@@ -403,9 +606,64 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (!CanStopTask) return;
         _stopRequested = true;
+        _taskTitle = "正在停止任务";
         _statusMessage = "正在停止当前任务…";
         _taskCancellation?.Cancel();
         NotifyAll();
+    }
+
+    private void ViewTasks_Click(object sender, RoutedEventArgs e) => Pages.SelectedItem = TasksTab;
+    private void ViewGenerated_Click(object sender, RoutedEventArgs e) => ShowGeneratedPreviews();
+    private void ShowGeneratedPreviews()
+    {
+        SearchBox.Clear();
+        SynthFilter.SelectedIndex = 0;
+        FavoritesOnly.IsChecked = false;
+        ShowDuplicates.IsChecked = false;
+        StatusFilter.SelectedItem = StatusFilters.Single(filter => filter.GeneratedOnly);
+        Pages.SelectedIndex = 0;
+        PresetsView.Refresh();
+        PresetGrid.SelectedItem = PresetsView.Cast<PresetRow>().FirstOrDefault();
+        NotifyAll();
+    }
+
+    private void ClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        SearchBox.Clear();
+        SynthFilter.SelectedIndex = 0;
+        StatusFilter.SelectedIndex = 0;
+        FavoritesOnly.IsChecked = false;
+        PresetsView.Refresh();
+        NotifyAll();
+    }
+
+    private void RefreshCompatibility()
+    {
+        Compatibility.Clear();
+        foreach (var readiness in RenderReadinessService.Evaluate(_settings))
+        {
+            var generated = Presets.Count(p => p.Record.Synth == readiness.Synth && p.Record.DuplicateOfId.Length == 0 && p.HasPreview);
+            var review = Presets.Count(p => p.Record.Synth == readiness.Synth && p.Record.DuplicateOfId.Length == 0 && p.HasPreview && p.Record.Status == PresetStatus.NeedsReview);
+            var output = generated == 0 ? "尚无已生成预览。" : $"已生成 {generated} 项，其中 {review} 项待试听确认。";
+            Compatibility.Add(new(Labels.Synth(readiness.Synth), readiness.Status, readiness.Detail + " " + output));
+        }
+    }
+    private void ViewTaskSettings_Click(object sender, RoutedEventArgs e)
+    {
+        Pages.SelectedItem = SettingsTab;
+        RendererSettings.IsExpanded = true;
+        RendererSettings.BringIntoView();
+    }
+
+    private sealed class QueueReporter(Action<QueueProgress> report) : IProgress<QueueProgress>
+    {
+        public void Report(QueueProgress value) => report(value);
+    }
+
+    private void NotifyTaskProgress()
+    {
+        foreach (var name in new[] { nameof(TaskTitle), nameof(StatusMessage), nameof(TaskProgressText), nameof(TaskElapsed), nameof(ProgressValue), nameof(IsProgressIndeterminate) })
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
     private async void Preset_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -524,6 +782,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _selected.Record.Status = PresetStatus.Ready;
         _selected.Record.Message = "已由用户试听确认音色对应关系。";
         SaveFeedback();
+        RefreshCompatibility();
     }
     private async void AssignSynth_Click(object sender, RoutedEventArgs e)
     {
@@ -538,6 +797,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _store.UpsertMany(Presets.Select(p => p.Record));
             foreach (var preset in Presets) preset.Refresh();
             PresetsView.Refresh();
+            RefreshCompatibility();
             NotifyAll();
             await LoadSelectedPreview();
             Log($"已确认音源标签：{row.Name} → {Labels.Synth(choice.Value)}。");
@@ -672,7 +932,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshDiscoveredPlugins();
         PluginGrid.Items.Refresh();
         foreach (var warning in result.Warnings) Log(warning);
-        Log($"音源扫描完成：发现 {result.Plugins.Count} 个插件 / 独立程序，自动关联 {associated} 个音源。渲染兼容性仍需验证。");
+        _taskTitle = "音源扫描完成";
+        _statusMessage = $"发现 {result.Plugins.Count} 个插件 / 独立程序，自动关联 {associated} 个音源。渲染兼容性仍需验证。";
+        Log(_statusMessage);
     });
     private void UseDiscoveredPlugin_Click(object sender, RoutedEventArgs e)
     {
@@ -698,6 +960,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var plugin in _settings.DiscoveredPlugins.OrderBy(p => p.Synth == SynthKind.Unknown).ThenBy(p => p.Synth)
             .ThenBy(p => p.FilePath, StringComparer.OrdinalIgnoreCase)) DiscoveredPlugins.Add(new DiscoveredPluginRow(plugin, Plugins));
         if (DiscoveredPluginGrid is not null) DiscoveredPluginGrid.SelectedItem = DiscoveredPlugins.FirstOrDefault(p => p.Record.Id == selectedId);
+        RefreshCompatibility();
     }
     private List<PluginConfiguration> ClonePlugins() => JsonSerializer.Deserialize<List<PluginConfiguration>>(
         JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
@@ -747,6 +1010,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _store.SaveSettings(candidate);
             _settings = candidate;
             InvalidateChangedPreviews();
+            RefreshCompatibility();
             Log("设置已保存。");
         }
         catch (Exception ex) { ShowError(ex); }
@@ -777,13 +1041,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         NotifyAll();
     }
     private static int ParseInt(string value, string label) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : throw new ArgumentException(label + "须为整数。");
-    private static void RefreshBinaryHashes(AppSettings settings)
+    private static void RefreshBinaryHashes(AppSettings settings, CancellationToken cancellationToken = default, IProgress<string>? progress = null)
     {
-        foreach (var plugin in settings.Plugins)
+        foreach (var plugin in settings.Plugins.Where(p => p.Backend != RenderBackend.Unconfigured))
         {
-            plugin.ExecutableHash = File.Exists(plugin.ExecutablePath) ? Fingerprints.HashFile(plugin.ExecutablePath) : "";
-            plugin.PluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins);
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 渲染程序…");
+            plugin.ExecutableHash = File.Exists(plugin.ExecutablePath) ? Fingerprints.HashFile(plugin.ExecutablePath, cancellationToken) : "";
+            progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 插件文件…");
+            plugin.PluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, cancellationToken);
         }
+        cancellationToken.ThrowIfCancellationRequested();
     }
     private static double ParseDouble(string value, string label) => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result) ? result : throw new ArgumentException(label + "须为数字。");
 
@@ -824,6 +1092,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_isBusy) { e.Cancel = true; _closeWhenDone = true; _taskCancellation?.Cancel(); return; }
         _playbackTimer.Stop();
+        _taskTimer.Stop();
         _player.Dispose();
         _store.SaveSettings(_settings);
     }
