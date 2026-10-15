@@ -151,6 +151,37 @@ public static class WaveFile
         stream.Flush(true);
     }
 
+    public static void WriteFloat32(string path, WaveData audio, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureShape(audio);
+        long byteCount = audio.Samples.LongLength * sizeof(float);
+        if (byteCount + 56 > MaximumFileBytes || audio.DurationSeconds > 300)
+            throw new InvalidDataException("预览 WAV 超出大小或时长限制。");
+        int bytes = (int)byteCount;
+        for (int index = 0; index < audio.Samples.Length; index++)
+        {
+            if ((index & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+            if (!float.IsFinite(audio.Samples[index])) throw new InvalidDataException("无法写入非有限音频数值。");
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var writer = new BinaryWriter(stream, Encoding.ASCII);
+        writer.Write("RIFF"u8); writer.Write(checked(bytes + 48)); writer.Write("WAVEfmt "u8);
+        writer.Write(16); writer.Write((ushort)3); writer.Write((ushort)audio.Channels);
+        writer.Write(audio.SampleRate); writer.Write(audio.SampleRate * audio.Channels * sizeof(float));
+        writer.Write((ushort)(audio.Channels * sizeof(float))); writer.Write((ushort)32);
+        writer.Write("fact"u8); writer.Write(4); writer.Write(audio.Frames);
+        writer.Write("data"u8); writer.Write(bytes);
+        for (int index = 0; index < audio.Samples.Length; index++)
+        {
+            if ((index & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+            writer.Write(audio.Samples[index]);
+        }
+        writer.Flush();
+        stream.Flush(true);
+    }
+
     public static WaveData Concatenate(IEnumerable<WaveData> source)
     {
         var segments = source.ToArray();

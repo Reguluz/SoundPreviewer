@@ -34,8 +34,9 @@ public sealed class WorkerProcessClient
                 executable = "dotnet";
             }
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
+            int maximumCaptures = request.Template.QuickPreview ? (request.Plugin.Backend == RenderBackend.VitalCli ? 3 : 4) : 1;
             var outcome = await ProcessRunner.RunAsync(executable, arguments, staging,
-                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken);
+                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600) * maximumCaptures), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (!File.Exists(resultFile))
                 throw new IOException($"渲染进程未返回结果（退出码 {outcome.ExitCode}）：{outcome.StandardError}");
@@ -97,22 +98,35 @@ public sealed class WorkerProcessClient
     {
         if (result.Metrics is null || result.Notes is null || result.Notes.Count != 3 || result.Notes.Any(note => note is null))
             throw new InvalidDataException("结果须包含音频指标及三个音区的来源映射。");
+        if (string.IsNullOrWhiteSpace(result.AdapterVersion)) throw new InvalidDataException("工作进程未标明适配器版本。");
         double previousEnd = 0;
+        bool quickPolicy = result.AdapterVersion.StartsWith(Fingerprints.QuickPreviewPolicy + "/", StringComparison.Ordinal);
+        bool compact = quickPolicy || result.Notes.Any(note => note.TrimmedLeadingSeconds != 0 || note.TrimmedTrailingSeconds != 0);
+        if (compact && (!template.QuickPreview || !quickPolicy))
+            throw new InvalidDataException("裁剪预览须标明快速预览策略，不能修改旧式来源映射。");
+        double frameTolerance = 1.5 / template.SampleRate;
         for (int i = 0; i < 3; i++)
         {
             var note = result.Notes[i];
             if (note.MidiNote != template.Pitches[i] || !double.IsFinite(note.StartSeconds) ||
                 !double.IsFinite(note.DurationSeconds) || !double.IsFinite(note.ActualHoldSeconds) ||
-                !double.IsFinite(note.ActualTailSeconds) || note.StartSeconds < 0 || note.StartSeconds < previousEnd - 0.01 ||
+                !double.IsFinite(note.ActualTailSeconds) || !double.IsFinite(note.TrimmedLeadingSeconds) ||
+                !double.IsFinite(note.TrimmedTrailingSeconds) || note.TrimmedLeadingSeconds < 0 || note.TrimmedTrailingSeconds < 0 ||
+                note.StartSeconds < 0 || note.StartSeconds < previousEnd - 0.01 ||
                 note.DurationSeconds <= 0 || note.ActualHoldSeconds <= 0 || note.ActualTailSeconds < 0 ||
                 note.ActualVelocity is < 1 or > 127 ||
                 note.StartSeconds + note.DurationSeconds > result.Metrics.DurationSeconds + 0.01 ||
-                Math.Abs(note.DurationSeconds - note.ActualHoldSeconds - note.ActualTailSeconds) > 0.02)
+                Math.Abs(note.DurationSeconds + note.TrimmedLeadingSeconds + note.TrimmedTrailingSeconds -
+                    note.ActualHoldSeconds - note.ActualTailSeconds) > (compact ? frameTolerance : 0.02))
                 throw new InvalidDataException("工作进程的音符映射无效或超出音频范围。");
+            if (compact && (Math.Abs(note.StartSeconds - previousEnd) > frameTolerance || note.DurationSeconds > 0.5 + frameTolerance ||
+                note.ActualHoldSeconds > 4 + 64.0 / 44100 + frameTolerance || note.ActualTailSeconds > 1.2 + 64.0 / 44100 + frameTolerance))
+                throw new InvalidDataException("快速预览存在空白间隔或超出半秒试听 / 四秒捕获上限。");
             if (note.ActualNormalizedVelocity is double normalized && (!double.IsFinite(normalized) || normalized is <= 0 or > 1))
                 throw new InvalidDataException("工作进程的 normalized 力度无效。");
             previousEnd = note.StartSeconds + note.DurationSeconds;
         }
-        if (string.IsNullOrWhiteSpace(result.AdapterVersion)) throw new InvalidDataException("工作进程未标明适配器版本。");
+        if (compact && Math.Abs(previousEnd - result.Metrics.DurationSeconds) > frameTolerance)
+            throw new InvalidDataException("快速预览音区映射没有覆盖完整音频。");
     }
 }

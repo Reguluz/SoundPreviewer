@@ -15,13 +15,130 @@ public static class RenderDispatcher
         if (request.Preset.Synth == SynthKind.Unknown || request.Plugin.Synth == SynthKind.Unknown ||
             request.Preset.Status == PresetStatus.Unidentified)
             return Task.FromResult(new RenderResult { Message = "无法识别此预制的音源，禁止生成预览。请先核对预制格式与插件身份。" });
-        return request.Plugin.Backend switch
+        return request.Template.QuickPreview ? RenderQuickAsync(request, cancellationToken) : RenderFixedAsync(request, cancellationToken);
+    }
+
+    private static Task<RenderResult> RenderFixedAsync(RenderRequest request, CancellationToken cancellationToken) =>
+        request.Plugin.Backend switch
         {
             RenderBackend.VitalCli => RenderVitalAsync(request, cancellationToken),
             RenderBackend.ExternalWorker => RenderExternalAsync(request, cancellationToken),
             RenderBackend.DawDreamer => RenderExternalAsync(request, cancellationToken, dawdreamer: true),
             _ => Task.FromResult(new RenderResult { Message = "尚未配置音源渲染后端。" })
         };
+
+    private static async Task<RenderResult> RenderQuickAsync(RenderRequest request, CancellationToken cancellationToken)
+    {
+        const long maximumCaptureBytes = 256L * 1024 * 1024;
+        bool vital = request.Plugin.Backend == RenderBackend.VitalCli;
+        double[] holds = vital ? [1, 2, 4] : [0.5, 1, 2, 4];
+        var segments = new WaveData?[3];
+        var notes = new NotePreview?[3];
+        var complete = new bool[3];
+        bool needsReview = false;
+        string adapterVersion = "", nativeMessage = "";
+        string output = Path.GetFullPath(request.OutputPath);
+        string scratch = Path.Combine(Path.GetDirectoryName(output)!, "quick-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        int captures = 0;
+        try
+        {
+            foreach (double hold in holds)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string capturePath = Path.Combine(scratch, $"capture-{captures++}.wav");
+                var captureTemplate = new PreviewTemplate
+                {
+                    QuickPreview = false,
+                    LowNote = request.Template.LowNote, MiddleNote = request.Template.MiddleNote, HighNote = request.Template.HighNote,
+                    Velocity = vital ? 89 : request.Template.Velocity,
+                    HoldSeconds = hold, TailSeconds = vital ? hold * 0.3 : QuickPreviewAudio.CaptureTailSeconds,
+                    Bpm = request.Template.Bpm, SampleRate = request.Template.SampleRate
+                };
+                var captureRequest = new RenderRequest
+                {
+                    Preset = request.Preset, Plugin = request.Plugin, Template = captureTemplate,
+                    CacheKey = request.CacheKey, OutputPath = capturePath, MaxOutputBytes = maximumCaptureBytes
+                };
+                // The existing adapters capture all three pitches; keep satisfactory earlier clips unchanged.
+                var capture = await RenderFixedAsync(captureRequest, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!capture.Success)
+                {
+                    capture.Message = "快速预览采集未完成：" + capture.Message;
+                    return capture;
+                }
+                WorkerProcessClient.ValidateNotes(capture, captureTemplate);
+                var audio = WaveFile.Read(capturePath, cancellationToken);
+                if (adapterVersion.Length > 0 && adapterVersion != capture.AdapterVersion)
+                    throw new InvalidDataException("自动延长时宿主适配器版本发生变化，未提交混合来源预览。");
+                adapterVersion = capture.AdapterVersion;
+                nativeMessage = capture.Message;
+                needsReview |= capture.NeedsReview;
+                for (int index = 0; index < 3; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (complete[index]) continue;
+                    var nativeNote = capture.Notes[index];
+                    int first = checked((int)Math.Round(nativeNote.StartSeconds * audio.SampleRate));
+                    int frames = checked((int)Math.Round(nativeNote.DurationSeconds * audio.SampleRate));
+                    if (first < 0 || frames <= 0 || first > audio.Frames - frames)
+                        throw new InvalidDataException("原始采集音区超出音频范围。");
+                    var source = new WaveData
+                    {
+                        SampleRate = audio.SampleRate, Channels = audio.Channels,
+                        Samples = audio.Samples.AsSpan(first * audio.Channels, frames * audio.Channels).ToArray()
+                    };
+                    var analysis = QuickPreviewAudio.Analyze(source, cancellationToken);
+                    var clip = QuickPreviewAudio.Crop(source, analysis, cancellationToken);
+                    var metrics = WaveFile.Analyze(clip, cancellationToken);
+                    if (metrics.HasNonFinite) throw new InvalidDataException("快速预览含非有限数值。");
+                    segments[index] = clip;
+                    notes[index] = new NotePreview
+                    {
+                        MidiNote = nativeNote.MidiNote, DurationSeconds = clip.DurationSeconds,
+                        ActualHoldSeconds = nativeNote.ActualHoldSeconds, ActualTailSeconds = nativeNote.ActualTailSeconds,
+                        ActualVelocity = nativeNote.ActualVelocity, ActualNormalizedVelocity = nativeNote.ActualNormalizedVelocity,
+                        TrimmedLeadingSeconds = analysis.StartFrame / (double)source.SampleRate,
+                        TrimmedTrailingSeconds = (source.Frames - analysis.ClipEndFrame) / (double)source.SampleRate,
+                        Metrics = metrics
+                    };
+                    complete[index] = !analysis.NeedsMoreAudio;
+                    needsReview |= metrics.IsSilent || metrics.HasClipping;
+                }
+                if (complete.All(value => value)) break;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            var finalSegments = segments.Select(segment => segment ?? throw new InvalidDataException("快速预览缺少音区。")).ToArray();
+            var finalNotes = notes.Select(note => note ?? throw new InvalidDataException("快速预览缺少来源映射。")).ToList();
+            long startFrame = 0;
+            for (int index = 0; index < 3; index++)
+            {
+                finalNotes[index].StartSeconds = startFrame / (double)request.Template.SampleRate;
+                startFrame += finalSegments[index].Frames;
+            }
+            var combined = WaveFile.Concatenate(finalSegments);
+            if (checked(combined.Samples.LongLength * sizeof(float) + 56) > request.MaxOutputBytes)
+                throw new InvalidDataException("快速预览输出超出存储剩余额度，未提交音频。");
+            WaveFile.WriteFloat32(output, combined, cancellationToken);
+            var result = new RenderResult
+            {
+                Success = true, OutputPath = output, Metrics = WaveFile.Analyze(combined, cancellationToken), Notes = finalNotes,
+                AdapterVersion = Fingerprints.QuickPreviewPolicy + "/" + adapterVersion,
+                NeedsReview = needsReview || complete.Any(value => !value),
+                Message = $"已生成三个紧凑的真实试听片段，完成 {captures} 轮采集。" +
+                    (complete.Any(value => !value) ? " 部分音区延长到 4 秒后仍较弱或有效声音不足半秒，已保留真实片段待确认。" : "") +
+                    " " + nativeMessage
+            };
+            WorkerProcessClient.ValidateNotes(result, request.Template);
+            return result;
+        }
+        finally
+        {
+            try { Directory.Delete(scratch, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     private static async Task<RenderResult> RenderVitalAsync(RenderRequest request, CancellationToken cancellationToken)

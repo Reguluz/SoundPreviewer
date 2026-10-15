@@ -69,7 +69,7 @@ public static class RenderReadinessService
         if (configuration.TimeoutSeconds is < 5 or > 3600) return Result("未配置", "进程超时必须为 5 到 3600 秒，请修正渲染设置。");
         if (configuration.Backend == RenderBackend.VitalCli)
         {
-            if (template is not null)
+            if (template is not null && !template.QuickPreview)
             {
                 try { template.Validate(); }
                 catch (ArgumentException error) { return Result("模板不匹配", error.Message); }
@@ -77,7 +77,9 @@ public static class RenderReadinessService
                     template.Velocity != 89 || Math.Abs(template.TailSeconds - template.HoldSeconds * 0.3) > 0.000001)
                     return Result("模板不匹配", "Vital 原生渲染要求整数秒按键时长、力度 89、尾音为按键时长的 30%；请采用 Vital 原生参数。");
             }
-            return Result("可尝试", "Vital 独立程序和版本已配置；原生 CLI 不报告目标预制加载成功，输出仍须人工确认音色与资源。", true);
+            return Result("可尝试", template?.QuickPreview == true
+                ? "快速预览将从真实原生输出截取每音最多半秒，弱音捕获最多延长到四秒；Vital 实际按整数秒演奏，力度固定 89。仍须人工确认音色与资源。"
+                : "Vital 独立程序和版本已配置；原生 CLI 不报告目标预制加载成功，输出仍须人工确认音色与资源。", true);
         }
         if (configuration.Backend == RenderBackend.DawDreamer)
             return Result("可尝试", "x64 VST2 插件、Python 程序及版本已配置。尚未检查 x64 Python 3.11 / 3.12、DawDreamer 0.8.3、NumPy 1.26.4 的依赖安装和宿主初始化是否成功；须先完成独立宿主预检及单个预制试渲染，不代表已验证可用。", true);

@@ -10,11 +10,11 @@
    <Grid>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
      <TextBlock Text="&#xE8D6;" FontFamily="Segoe Fluent Icons" FontSize="27" Foreground="{StaticResource Accent}" Margin="0,0,12,0" VerticalAlignment="Center"/>
-     <StackPanel><TextBlock Text="SoundPreviewer" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="合成器音色库" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/></StackPanel>
+     <StackPanel><TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="合成器音色库" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/></StackPanel>
     </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
      <Button Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip="扫描已配置的预制目录"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="扫描目录"/></StackPanel></Button>
-     <CheckBox x:Name="ForceGeneration" Content="强制全量生成" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" AutomationProperties.Name="强制全量生成"/>
+     <CheckBox x:Name="ForceGeneration" Content="全量重渲染（覆盖）" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" ToolTip="重新生成全库可用音色，包括已有预览；新结果验证成功后覆盖，停止或失败时保留旧预览" AutomationProperties.Name="强制全量重新渲染并覆盖"/>
      <Button Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
      <Button x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71A;" FontFamily="Segoe Fluent Icons" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
     </StackPanel>
@@ -183,13 +183,14 @@
       </StackPanel>
       </Expander>
       <TextBlock Text="三音区试听模板" FontSize="17" FontWeight="SemiBold" Margin="0,24,0,10"/>
+      <CheckBox x:Name="QuickPreviewMode" Content="快速预览（每音 0.5 秒）" IsChecked="True" IsEnabled="{Binding IsIdle}" Margin="0,0,0,12" ToolTip="弱音或慢起音自动延长捕获，最多四秒；压缩两端静音，不提高原始音量"/>
       <WrapPanel IsEnabled="{Binding IsIdle}">
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="低音 MIDI" Style="{StaticResource FieldLabel}"/><TextBox x:Name="LowNoteBox"/></StackPanel>
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="中音 MIDI" Style="{StaticResource FieldLabel}"/><TextBox x:Name="MiddleNoteBox"/></StackPanel>
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="高音 MIDI" Style="{StaticResource FieldLabel}"/><TextBox x:Name="HighNoteBox"/></StackPanel>
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="力度" Style="{StaticResource FieldLabel}"/><TextBox x:Name="VelocityBox"/></StackPanel>
-       <StackPanel Width="110" Margin="0,0,12,0"><TextBlock Text="按键时长 (秒)" Style="{StaticResource FieldLabel}"/><TextBox x:Name="HoldBox"/></StackPanel>
-       <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="尾音 (秒)" Style="{StaticResource FieldLabel}"/><TextBox x:Name="TailBox"/></StackPanel>
+       <StackPanel Width="110" Margin="0,0,12,0"><StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding IsChecked, ElementName=QuickPreviewMode}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers></Style></StackPanel.Style><TextBlock Text="按键时长 (秒)" Style="{StaticResource FieldLabel}"/><TextBox x:Name="HoldBox"/></StackPanel>
+       <StackPanel Width="100" Margin="0,0,12,0"><StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding IsChecked, ElementName=QuickPreviewMode}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers></Style></StackPanel.Style><TextBlock Text="尾音 (秒)" Style="{StaticResource FieldLabel}"/><TextBox x:Name="TailBox"/></StackPanel>
        <StackPanel Width="100" Margin="0,0,12,0"><TextBlock Text="BPM" Style="{StaticResource FieldLabel}"/><TextBox x:Name="BpmBox"/></StackPanel>
        <StackPanel Width="120"><TextBlock Text="采样率 (Hz)" Style="{StaticResource FieldLabel}"/><ComboBox x:Name="SampleRateBox"><ComboBoxItem Content="44100"/><ComboBoxItem Content="48000"/></ComboBox></StackPanel>
       </WrapPanel>

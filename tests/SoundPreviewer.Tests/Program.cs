@@ -37,6 +37,9 @@ internal static class Program
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
             ("WAV 8/24/32 bit decoding and malformed chunk rejection", TestWaveFormatsAsync),
             ("Concatenation and rate conversion preserve shape and duration", TestAudioTransformsAsync),
+            ("Quick preview detects real onset, preserves internal pauses and bounds crops", TestQuickPreviewAudioAsync),
+            ("Compact note maps preserve capture provenance and legacy previews", TestQuickPreviewNotesAsync),
+            ("Quick dispatcher extends delayed notes and concatenates actual compact audio", TestQuickDispatcherAsync),
             ("Recursive scanning, duplicate identities and explicit source synth", TestScanIdentityAsync),
             ("Content hashing, feedback preservation and missing-source protection", TestIncrementalScanAsync),
             ("Persisted MD5 duplicates, canonical promotion and legacy index migration", TestMd5IndexAsync),
@@ -53,7 +56,8 @@ internal static class Program
             ("Worker cancellation and timeout leave committed audio intact", TestWorkerInterruptionAsync),
             ("Queue default preview reuse, explicit force and bounded retry", TestQueueAsync),
             ("Queue preparation, outcome summaries and persistent running progress", TestQueueFeedbackAsync),
-            ("Stopped batches preserve committed results and resume incrementally", TestQueueStopResumeAsync)
+            ("Stopped batches preserve committed results and resume incrementally", TestQueueStopResumeAsync),
+            ("Forced cache replacement reclaims only unshared owned files after commit", TestQueueForceStorageAsync)
         };
         if (args.Contains("--test-playback", StringComparer.Ordinal))
             tests.Add(("Muted native playback, pause/seek/resume/reload and completion", TestNativePlaybackAsync));
@@ -90,6 +94,9 @@ internal static class Program
         var preset = Preset("cache");
         var plugin = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.VitalCli, Version = "1.5.5" };
         var template = new PreviewTemplate();
+        True(template.QuickPreview, "New templates default to compact adaptive previews.");
+        Near(0.5, template.HoldSeconds, 0, "New templates start with a half-second capture.");
+        Near(0.08, template.TailSeconds, 0, "New templates use the bounded capture tail.");
         string original = Fingerprints.CacheKey(preset, plugin, template);
         Equal(original, Fingerprints.CacheKey(preset, plugin, template), "Cache key must be deterministic.");
         preset.Favorite = true;
@@ -106,6 +113,9 @@ internal static class Program
         template.Velocity--;
         template.TailSeconds++;
         NotEqual(original, Fingerprints.CacheKey(preset, plugin, template), "Release duration must invalidate rendering.");
+        template.TailSeconds = 0.08;
+        template.QuickPreview = false;
+        NotEqual(original, Fingerprints.CacheKey(preset, plugin, template), "Compact rendering policy participates in new output fingerprints.");
         Throws<ArgumentException>(() => new PreviewTemplate { HoldSeconds = double.NaN }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { LowNote = -1 }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { SampleRate = 22050 }.Validate());
@@ -143,6 +153,22 @@ internal static class Program
         True(float.IsNaN(WaveFile.Read(nonfinitePath).Samples[0]), "IEEE decoding preserves NaN for validation.");
         Throws<InvalidDataException>(() => WaveFile.Validate(nonfinitePath));
         Throws<IOException>(() => WaveFile.WritePcm16(path, tone));
+        string floatPath = Path.Combine(directory, "unclamped-float32.wav");
+        var overRange = new WaveData { SampleRate = 44100, Channels = 2, Samples = [1.5f, -1.25f, 0.125f, 0] };
+        WaveFile.WriteFloat32(floatPath, overRange);
+        True(WaveFile.Read(floatPath).Samples.SequenceEqual(overRange.Samples), "Float output preserves original finite samples above full scale for clipping review.");
+        byte[] floatFile = File.ReadAllBytes(floatPath);
+        Equal("fact", Encoding.ASCII.GetString(floatFile, 36, 4), "Float output contains the non-PCM fact chunk.");
+        Equal(overRange.Frames, BinaryPrimitives.ReadInt32LittleEndian(floatFile.AsSpan(44, 4)), "The fact chunk stores frames rather than interleaved sample count.");
+        True(WaveFile.Validate(floatPath).HasClipping, "Unclamped float samples remain visibly flagged as clipping.");
+        Throws<IOException>(() => WaveFile.WriteFloat32(floatPath, overRange));
+        string invalidFloatPath = Path.Combine(directory, "invalid-float32.wav");
+        Throws<InvalidDataException>(() => WaveFile.WriteFloat32(invalidFloatPath, invalid));
+        True(!File.Exists(invalidFloatPath), "Nonfinite float input is rejected before creating an output artifact.");
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        Throws<OperationCanceledException>(() => WaveFile.WriteFloat32(invalidFloatPath, overRange, canceled.Token));
+        True(!File.Exists(invalidFloatPath), "Canceled float output cannot create an empty preview.");
         return Task.CompletedTask;
     }
 
@@ -195,6 +221,179 @@ internal static class Program
         Throws<InvalidDataException>(() => WaveFile.Concatenate([a, Tone(48000, 2, 0.1)]));
         Throws<InvalidDataException>(() => WaveFile.Analyze(new WaveData { SampleRate = 44100, Channels = 2, Samples = [0] }));
         return Task.CompletedTask;
+    }
+
+    private static Task TestQuickPreviewAudioAsync()
+    {
+        const int rate = 48000;
+        WaveData Signal(double seconds, Func<double, int, float> sample) => new()
+        {
+            SampleRate = rate, Channels = 2,
+            Samples = Enumerable.Range(0, (int)Math.Round(seconds * rate) * 2)
+                .Select(index => sample((index / 2) / (double)rate, index % 2)).ToArray()
+        };
+        float Sine(double time, double amplitude = 0.2) => (float)(amplitude * Math.Sin(time * 440 * 2 * Math.PI));
+
+        var inverted = Signal(0.8, (time, channel) => Sine(time) * (channel == 0 ? 1 : -1));
+        var invertedAnalysis = QuickPreviewAudio.Analyze(inverted);
+        True(invertedAnalysis.Audible && !invertedAnalysis.NeedsMoreAudio, "Opposite-phase stereo must not cancel during onset detection.");
+        var invertedClip = QuickPreviewAudio.Crop(inverted, invertedAnalysis);
+        Equal(rate / 2, invertedClip.Frames, "A normal audible clip is exactly half a second.");
+        True(WaveFile.Analyze(invertedClip).Rms > 0.1, "Quick preview preserves real stereo energy without normalization.");
+        var oneChannel = Signal(0.8, (time, channel) => channel == 0 ? Sine(time) : 0);
+        True(QuickPreviewAudio.Analyze(oneChannel).Audible, "A silent right channel cannot hide an audible left channel.");
+
+        var earlyCapture = Signal(0.58, (time, _) => time >= 0.35 ? Sine(time) : 0);
+        var early = QuickPreviewAudio.Analyze(earlyCapture);
+        True(early.Audible && early.NeedsMoreAudio, "A late onset with less than half a second remaining requests another capture.");
+        var extended = Signal(1.08, (time, _) => time >= 0.35 ? Sine(time) : 0);
+        var delayed = QuickPreviewAudio.Analyze(extended);
+        True(delayed.Audible && !delayed.NeedsMoreAudio && delayed.StartFrame > rate * 0.3, "A longer capture finds the delayed attack and supplies a full preview.");
+        var delayedClip = QuickPreviewAudio.Crop(extended, delayed);
+        Equal(rate / 2, delayedClip.Frames, "Delayed attacks produce the same bounded output duration.");
+        Near(0, delayedClip.Samples[0], 0, "A trimmed leading boundary is faded in.");
+        Near(0, delayedClip.Samples[^1], 0, "The final boundary is faded out.");
+        True(extended.Samples.SequenceEqual(Signal(1.08, (time, _) => time >= 0.35 ? Sine(time) : 0).Samples), "Cropping never mutates the captured source.");
+
+        var silence = Signal(4.08, (_, _) => 0);
+        var quiet = QuickPreviewAudio.Analyze(silence);
+        True(!quiet.Audible && quiet.NeedsMoreAudio && quiet.StartFrame == 0, "All-silent captures remain explicitly unresolved rather than inventing an onset.");
+        Equal(rate / 2, QuickPreviewAudio.Crop(silence, quiet).Frames, "Even maximum-length silent captures retain only a half-second fallback.");
+        var weak = Signal(1.08, (time, _) => time >= 0.1 ? Sine(time, 0.0002) : 0);
+        var weakAnalysis = QuickPreviewAudio.Analyze(weak);
+        True(!weakAnalysis.Audible && weakAnalysis.NeedsMoreAudio && weakAnalysis.StartFrame > 0, "Very quiet audio retains its real fallback onset and requests extension.");
+        True(WaveFile.Analyze(QuickPreviewAudio.Crop(weak, weakAnalysis)).Peak < 0.00021, "Quiet fallback audio is not boosted into an artificial successful preview.");
+        var transient = Signal(0.8, (_, _) => 0);
+        transient.Samples[(int)(0.11 * rate) * 2] = 0.02f;
+        var transientAnalysis = QuickPreviewAudio.Analyze(transient);
+        var transientClip = QuickPreviewAudio.Crop(transient, transientAnalysis);
+        True(transientClip.Samples.Any(sample => sample > 0.019f), "Peak-based quiet detection preserves a sparse transient.");
+        True(transientClip.DurationSeconds >= 0.1 && transientClip.DurationSeconds <= 0.5, "Transient tails are compact but retain the minimum inspection window.");
+
+        var rhythm = Signal(1, (time, _) => time is >= 0.1 and < 0.18 or >= 0.4 and < 0.55 ? Sine(time) : 0);
+        var rhythmAnalysis = QuickPreviewAudio.Analyze(rhythm);
+        var rhythmClip = QuickPreviewAudio.Crop(rhythm, rhythmAnalysis);
+        int gapStart = (int)Math.Round(0.25 * rate) - rhythmAnalysis.StartFrame;
+        int gapEnd = (int)Math.Round(0.35 * rate) - rhythmAnalysis.StartFrame;
+        True(rhythmClip.Samples.AsSpan(gapStart * 2, (gapEnd - gapStart) * 2).ToArray().All(sample => sample == 0), "Interior rhythmic silence stays at its original position instead of being spliced out.");
+        True(rhythmClip.Samples.AsSpan((int)(0.34 * rate) * 2).ToArray().Any(sample => Math.Abs(sample) > 0.1), "Audio after an internal pause remains in the same crop.");
+        var combined = WaveFile.Concatenate([invertedClip, delayedClip, rhythmClip]);
+        Equal(invertedClip.Frames + delayedClip.Frames + rhythmClip.Frames, combined.Frames, "Compact concatenation contains exactly the three cropped frame ranges.");
+        True(combined.Samples.AsSpan(invertedClip.Samples.Length, delayedClip.Samples.Length).SequenceEqual(delayedClip.Samples), "Concatenation inserts no silence or replacement samples between crops.");
+
+        Throws<InvalidDataException>(() => QuickPreviewAudio.Analyze(new WaveData { SampleRate = rate, Channels = 2, Samples = [0] }));
+        Throws<InvalidDataException>(() => QuickPreviewAudio.Analyze(new WaveData { SampleRate = rate, Channels = 1, Samples = [float.NaN] }));
+        Throws<InvalidDataException>(() => QuickPreviewAudio.Crop(inverted, invertedAnalysis with { StartFrame = -1 }));
+        Throws<InvalidDataException>(() => QuickPreviewAudio.Crop(inverted, invertedAnalysis with { ClipEndFrame = rate }));
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        Throws<OperationCanceledException>(() => QuickPreviewAudio.Analyze(inverted, canceled.Token));
+        Throws<OperationCanceledException>(() => QuickPreviewAudio.Crop(inverted, invertedAnalysis, canceled.Token));
+        return Task.CompletedTask;
+    }
+
+    private static Task TestQuickPreviewNotesAsync()
+    {
+        var template = new PreviewTemplate { QuickPreview = true, HoldSeconds = 0.5, TailSeconds = 0.08 };
+        var valid = new RenderResult
+        {
+            Success = true, AdapterVersion = Fingerprints.QuickPreviewPolicy + "/TEST-ONLY-mapping",
+            Metrics = new AudioMetrics { SampleRate = template.SampleRate, Channels = 2, DurationSeconds = 1.5 },
+            Notes = template.Pitches.Select((pitch, index) => new NotePreview
+            {
+                MidiNote = pitch, StartSeconds = index * 0.5, DurationSeconds = 0.5,
+                ActualHoldSeconds = 1, ActualTailSeconds = 0.08, ActualVelocity = template.Velocity,
+                TrimmedLeadingSeconds = 0.3, TrimmedTrailingSeconds = 0.28
+            }).ToList()
+        };
+        WorkerProcessClient.ValidateNotes(valid, template);
+        void Rejected(Action<RenderResult> change, string reason)
+        {
+            var changed = JsonSerializer.Deserialize<RenderResult>(JsonSerializer.Serialize(valid, LibraryJson.Options), LibraryJson.Options)!;
+            change(changed);
+            Throws<InvalidDataException>(() => WorkerProcessClient.ValidateNotes(changed, template), reason);
+        }
+        Rejected(result => result.Notes[0].TrimmedLeadingSeconds = -0.1, "Negative leading trim must be rejected.");
+        Rejected(result => result.Notes[0].TrimmedTrailingSeconds = double.NaN, "Nonfinite trim must be rejected.");
+        Rejected(result => result.Notes[0].TrimmedTrailingSeconds += 0.02, "Trim plus duration must match the actual capture to frame precision.");
+        Rejected(result => { result.Notes[0].DurationSeconds = 0.51; result.Notes[0].TrimmedTrailingSeconds -= 0.01; }, "An internally consistent clip longer than half a second is still invalid.");
+        Rejected(result => result.Notes[1].StartSeconds += 0.005, "Compact note maps cannot insert inter-note gaps.");
+        Rejected(result => result.Metrics!.DurationSeconds += 0.005, "The compact map must cover the complete WAV.");
+        Rejected(result => { result.Notes[0].ActualHoldSeconds = 4.5; result.Notes[0].TrimmedTrailingSeconds += 3.5; }, "A large trim cannot disguise a capture beyond the bounded extension policy.");
+        Rejected(result => result.AdapterVersion = "TEST-ONLY-without-quick-policy", "Compact provenance requires the explicit policy version.");
+        var fixedTemplate = new PreviewTemplate { QuickPreview = false, HoldSeconds = 1, TailSeconds = 0.08 };
+        Throws<InvalidDataException>(() => WorkerProcessClient.ValidateNotes(valid, fixedTemplate));
+
+        var oldTemplate = JsonSerializer.Deserialize<PreviewTemplate>("{\"HoldSeconds\":2,\"TailSeconds\":2,\"Velocity\":100}", LibraryJson.Options)!;
+        var old = new RenderResult
+        {
+            Success = true, AdapterVersion = "TEST-ONLY-legacy-12-seconds",
+            Metrics = new AudioMetrics { SampleRate = oldTemplate.SampleRate, Channels = 2, DurationSeconds = 12 },
+            Notes = oldTemplate.Pitches.Select((pitch, index) => new NotePreview
+            {
+                MidiNote = pitch, StartSeconds = index * 4, DurationSeconds = 4,
+                ActualHoldSeconds = 2, ActualTailSeconds = 2, ActualVelocity = 100
+            }).ToList()
+        };
+        WorkerProcessClient.ValidateNotes(old, oldTemplate);
+        var mislabeledOld = JsonSerializer.Deserialize<RenderResult>(JsonSerializer.Serialize(old, LibraryJson.Options), LibraryJson.Options)!;
+        mislabeledOld.AdapterVersion = Fingerprints.QuickPreviewPolicy + "/TEST-ONLY-invalid-zero-trim";
+        Throws<InvalidDataException>(() => WorkerProcessClient.ValidateNotes(mislabeledOld, template), "The quick policy marker enforces compact bounds even when every trim field is zero.");
+        var roundedVital = JsonSerializer.Deserialize<RenderResult>(JsonSerializer.Serialize(valid, LibraryJson.Options), LibraryJson.Options)!;
+        double hold = Math.Ceiling(4 * 44100 / 64.0) * 64 / 44100;
+        double total = Math.Ceiling(5.2 * 44100 / 64.0) * 64 / 44100;
+        foreach (var note in roundedVital.Notes)
+        {
+            note.ActualHoldSeconds = hold;
+            note.ActualTailSeconds = total - hold;
+            note.TrimmedLeadingSeconds = 0;
+            note.TrimmedTrailingSeconds = total - note.DurationSeconds;
+        }
+        WorkerProcessClient.ValidateNotes(roundedVital, template);
+        return Task.CompletedTask;
+    }
+
+    private static async Task TestQuickDispatcherAsync()
+    {
+        string directory = Fixture("quick-dispatcher");
+        var request = Request("quick-delayed", Path.Combine(directory, "compact.wav"));
+        request.Template = new PreviewTemplate { QuickPreview = true, HoldSeconds = 0.5, TailSeconds = 0.08 };
+        request.Plugin.ExecutablePath = TestExecutable;
+        request.Preset.SourcePath = Path.Combine(directory, "TEST-ONLY-capture-log");
+        request.MaxOutputBytes = 280000;
+        string worker = Path.ChangeExtension(typeof(RenderDispatcher).Assembly.Location, ".exe");
+        var result = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
+        True(result.Success && result.NeedsReview, $"Bounded silent pitch remains a real reviewable preview: {result.Message}");
+        WorkerProcessClient.ValidateNotes(result, request.Template);
+        var captured = File.ReadAllLines(request.Preset.SourcePath + ".captures").Select(line => JsonNode.Parse(line)!).ToList();
+        True(captured.Select(item => item["Hold"]!.GetValue<double>()).SequenceEqual(new[] { 0.5, 1, 2, 4 }), "The synthetic delayed backend is captured only at the four bounded hold stages.");
+        True(captured.All(item => item["Quick"]!.GetValue<bool>() == false && item["Tail"]!.GetValue<double>() == 0.08), "Raw captures use fixed mode and the real capture tail, not recursive quick rendering.");
+        True(captured.All(item => item["Budget"]!.GetValue<long>() > request.MaxOutputBytes), "The final compact storage budget does not wrongly reject larger temporary captures.");
+        Near(0.5, result.Notes[0].ActualHoldSeconds, 0, "The first satisfactory pitch retains its original half-second capture.");
+        Near(2, result.Notes[1].ActualHoldSeconds, 0, "The delayed pitch retains the first capture supplying a full half-second after onset.");
+        Near(4, result.Notes[2].ActualHoldSeconds, 0, "The permanently silent pitch stops after the maximum four-second capture.");
+        var audio = WaveFile.Read(request.OutputPath);
+        Equal(3 * request.Template.SampleRate / 2, audio.Frames, "The three actual half-second clips concatenate without inter-note silence.");
+        for (int index = 0; index < result.Notes.Count; index++)
+        {
+            var note = result.Notes[index];
+            Near(index * 0.5, note.StartSeconds, 1 / (double)audio.SampleRate, "Each mapped compact note starts immediately after the previous one.");
+            Near(note.ActualHoldSeconds + note.ActualTailSeconds,
+                note.DurationSeconds + note.TrimmedLeadingSeconds + note.TrimmedTrailingSeconds,
+                1.5 / audio.SampleRate, "Every compact frame retains truthful capture and trim provenance.");
+        }
+        True(result.Notes[1].TrimmedLeadingSeconds > 0.7, "Delayed onset silence is removed from the middle preview.");
+        True(audio.Samples.AsSpan(0, audio.SampleRate / 2).ToArray().Max(sample => Math.Abs(sample)) < 0.061f, "Later captures cannot replace the first already-complete clip with their louder synthetic tone.");
+        True(audio.Samples.AsSpan(audio.SampleRate, audio.SampleRate / 2).ToArray().All(sample => sample == 0), "The quiet fallback remains original silence, not fabricated demo audio.");
+        True(!Directory.EnumerateDirectories(directory, "quick-*").Any() && !Directory.EnumerateDirectories(directory, "external-*").Any(), "All temporary raw captures are removed after compact output is complete.");
+        request.Preset.Name = "quick-delayed-slow";
+        request.Preset.SourcePath += "-slow";
+        request.OutputPath = Path.Combine(directory, "compact-slow.wav");
+        var elapsed = Stopwatch.StartNew();
+        var slow = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
+        True(slow.Success, $"Each bounded capture gets its configured timeout without the outer client stopping the combined quick run too early: {slow.Message}");
+        True(elapsed.Elapsed.TotalSeconds > request.Plugin.TimeoutSeconds, "The slow synthetic capture genuinely crosses a single-round timeout budget.");
+        Equal(4, File.ReadAllLines(request.Preset.SourcePath + ".captures").Length, "The outer client leaves enough bounded time for all four short captures.");
     }
 
     private static async Task TestScanIdentityAsync()
@@ -981,7 +1180,7 @@ internal static class Program
         {
             PreviewDirectory = Path.Combine(directory, "previews"),
             MaxAttempts = 1,
-            Template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 },
+            Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
             Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, ExecutablePath = TestExecutable, Version = "test-only", TimeoutSeconds = 5 }]
         };
         var preset = Preset("success");
@@ -1005,6 +1204,26 @@ internal static class Program
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
         Equal(written, File.GetLastWriteTimeUtc(firstPath), "Valid cache must not be rewritten.");
         Equal(1, preset.Attempts, "Valid cache must not consume attempts.");
+        var legacy = Preset("TEST-ONLY-legacy-12-second-preview");
+        legacy.ContentHash = Fingerprints.HashText("TEST ONLY unique legacy preview source");
+        CompletePreview(legacy, Path.Combine(directory, "TEST-ONLY-legacy-12-seconds.wav"),
+            new PreviewTemplate { QuickPreview = false, HoldSeconds = 2, TailSeconds = 2, Velocity = 100 });
+        var savedLegacyTemplate = JsonNode.Parse(legacy.TemplateJson)!.AsObject();
+        savedLegacyTemplate.Remove(nameof(PreviewTemplate.QuickPreview));
+        legacy.TemplateJson = savedLegacyTemplate.ToJsonString();
+        legacy.Attempts = 5;
+        byte[] legacyBytes = File.ReadAllBytes(legacy.PreviewPath);
+        string legacyTemplateJson = legacy.TemplateJson;
+        var fixedTemplate = settings.Template;
+        settings.Template = new PreviewTemplate();
+        int beforeLegacyReuse = progress.RenderingCalls;
+        var legacySummary = await queue.RunAsync(settings, [legacy], TestExecutable, progress, CancellationToken.None);
+        Equal(1, legacySummary.Reused, "New quick defaults reuse an existing complete twelve-second preview through its own legacy template.");
+        Equal(beforeLegacyReuse, progress.RenderingCalls, "A legacy twelve-second preview cannot invoke a new quick render by default.");
+        Equal(5, legacy.Attempts, "Legacy reuse remains independent of retry limits.");
+        Equal(legacyTemplateJson, legacy.TemplateJson, "Default reuse does not rewrite an old template to the new quick defaults.");
+        True(File.ReadAllBytes(legacy.PreviewPath).SequenceEqual(legacyBytes), "Old twelve-second audio remains byte-identical during default generation.");
+        settings.Template = fixedTemplate;
         File.Delete(firstPath);
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
         True(File.Exists(preset.PreviewPath), "Deleted cache file is regenerated during the current session.");
@@ -1033,12 +1252,20 @@ internal static class Program
         string committedKey = preset.CacheKey;
         string committedPath = preset.PreviewPath;
         byte[] committedBytes = File.ReadAllBytes(committedPath);
+        preset.Name = "alternate";
+        var sameKeyForce = await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None, forceRegenerate: true);
+        Equal(1, sameKeyForce.Generated, "Force executes a complete record even when its current cache key is unchanged.");
+        Equal(committedKey, preset.CacheKey, "Unchanged settings preserve the cache key during an explicitly forced replacement.");
+        Equal(committedPath, preset.PreviewPath, "Same-key force replaces the existing final cache path atomically.");
+        True(!File.ReadAllBytes(committedPath).SequenceEqual(committedBytes), "Same-key force commits the new actual waveform instead of merely reporting cache reuse.");
+        committedBytes = File.ReadAllBytes(committedPath);
+        int committedAttempts = preset.Attempts;
         preset.Name = "failure";
-        settings.Template.Velocity++;
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None, forceRegenerate: true);
         Equal(PresetStatus.Ready, preset.Status, "A failed forced regeneration preserves the previously complete record.");
         Equal(committedKey, preset.CacheKey, "Failed force preserves the old cache mapping.");
         Equal(committedPath, preset.PreviewPath, "Failed force preserves the old audio path.");
+        Equal(committedAttempts, preset.Attempts, "A failed same-key replacement restores the old completed attempt history.");
         True(File.ReadAllBytes(committedPath).SequenceEqual(committedBytes), "Failed force cannot overwrite prior committed audio.");
         int renderedAfterFailure = progress.RenderingCalls;
         await queue.RunAsync(settings, [preset], TestExecutable, progress, CancellationToken.None);
@@ -1129,12 +1356,14 @@ internal static class Program
         var vital = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.VitalCli, ExecutablePath = host, Version = "TEST ONLY" };
         var vitalReadiness = RenderReadinessService.Evaluate(vital, discovery);
         True(vitalReadiness.CanAttemptRender && !vitalReadiness.IsVerified, "Vital CLI configuration is attemptable but cannot verify preset loading in a read-only status check.");
-        var vitalSettings = new AppSettings { Plugins = [vital], Template = new PreviewTemplate { Velocity = 89, HoldSeconds = 1, TailSeconds = 0.3 } };
+        var vitalSettings = new AppSettings { Plugins = [vital], Template = new PreviewTemplate { QuickPreview = false, Velocity = 89, HoldSeconds = 1, TailSeconds = 0.3 } };
         string beforeReadiness = JsonSerializer.Serialize(vitalSettings, LibraryJson.Options);
         True(RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness accepts the native adapter's actual fixed parameters.");
         Equal(beforeReadiness, JsonSerializer.Serialize(vitalSettings, LibraryJson.Options), "Readiness evaluation does not change the user's settings, source paths or template.");
         vitalSettings.Template.HoldSeconds = 1.5; vitalSettings.Template.TailSeconds = 0.45;
         True(!RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness explains unsupported fractional native hold time before a render is attempted.");
+        vitalSettings.Template = new PreviewTemplate();
+        True(RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Quick defaults are ready for Vital because the dispatcher selects valid native capture stages itself.");
         serum.Backend = RenderBackend.VitalCli; serum.Version = "TEST ONLY";
         True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "A Vital-only backend cannot be marked ready for Serum.");
         return Task.CompletedTask;
@@ -1205,7 +1434,7 @@ internal static class Program
         var settings = new AppSettings
         {
             PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
-            Template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 },
+            Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
             Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, ExecutablePath = TestExecutable, Version = "test-only", TimeoutSeconds = 30 }]
         };
         var queue = new RenderQueue(store);
@@ -1360,7 +1589,7 @@ internal static class Program
         var settings = new AppSettings
         {
             PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
-            Template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 },
+            Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
             Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, ExecutablePath = TestExecutable, Version = "test-only", TimeoutSeconds = 30 }]
         };
         var first = Preset("success"); first.ContentHash = Fingerprints.HashText("TEST ONLY first source");
@@ -1448,12 +1677,97 @@ internal static class Program
         True(File.ReadAllBytes(second.PreviewPath).SequenceEqual(secondBytes), "Stopping force leaves the old committed current-item bytes intact.");
         Equal(oldThird.CacheKey, third.CacheKey, "An unreached forced item retains its old cache mapping.");
         Equal(oldThird.RenderedUtc, third.RenderedUtc, "An unreached forced item retains its old completed timestamp.");
-        True(File.ReadAllBytes(firstPath).SequenceEqual(firstBytes), "A new forced cache entry does not remove the previous first-item output.");
+        True(!File.Exists(firstPath), "A successfully committed changed-key force reclaims its previous unshared owned cache.");
         int beforeResume = progress.RenderingCalls;
         second.Name = "success";
         await queue.RunAsync(settings, presets, TestExecutable, progress, CancellationToken.None);
         Equal(beforeResume, progress.RenderingCalls, "A default resume skips all complete outputs, including old-template outputs preserved after force was stopped.");
         Equal(oldSecond.CacheKey, second.CacheKey, "Default resume does not implicitly force a restored old-template preview.");
+    }
+
+    private static async Task TestQueueForceStorageAsync()
+    {
+        AppSettings Settings(string directory) => new()
+        {
+            PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
+            Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
+            Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker,
+                ExecutablePath = TestExecutable, Version = "TEST ONLY cache replacement", TimeoutSeconds = 5 }]
+        };
+
+        string directory = Fixture("force-cache-budget");
+        var store = new LibraryStore(Path.Combine(directory, "library.sqlite"));
+        store.Initialize();
+        var queue = new RenderQueue(store);
+        var settings = Settings(directory);
+        double estimated = (settings.Template.HoldSeconds + settings.Template.TailSeconds) * 3 * settings.Template.SampleRate * 8 + 4096;
+        settings.StorageBudgetGb = (estimated + 1024) / (1024 * 1024 * 1024.0);
+        var preset = Preset("success");
+        await queue.RunAsync(settings, [preset], TestExecutable, new InlineProgress(), CancellationToken.None);
+        string oldPath = preset.PreviewPath;
+        string oldKey = preset.CacheKey;
+        True(new FileInfo(oldPath).Length + estimated > settings.StorageBudgetGb * 1024 * 1024 * 1024, "The tight-budget fixture cannot fit both the previous file and a conservatively estimated new preview.");
+        settings.Template.Velocity++;
+        var replacement = await queue.RunAsync(settings, [preset], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+        Equal(1, replacement.Generated, "A uniquely owned replaceable old cache grants enough budget for changed-key force.");
+        NotEqual(oldKey, preset.CacheKey, "Changed settings commit a distinct replacement key.");
+        True(File.Exists(preset.PreviewPath) && !File.Exists(oldPath), "Only after the new preview is committed is the old owned file reclaimed.");
+        Equal(preset.PreviewPath, store.LoadPresets().Single(p => p.Id == preset.Id).PreviewPath, "The replacement cache mapping is durable after reclamation.");
+        Equal(1, Directory.EnumerateFiles(settings.PreviewDirectory, "*.wav").Count(), "Changed-key force leaves one current owned file instead of accumulating every old generation.");
+        string preservedPath = preset.PreviewPath;
+        byte[] preserved = File.ReadAllBytes(preservedPath);
+        settings.Template.Velocity++;
+        preset.Name = "failure";
+        var failure = await queue.RunAsync(settings, [preset], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+        Equal(1, failure.Failed, "A failed forced replacement remains an explicit failed attempt in the batch summary.");
+        Equal(preservedPath, preset.PreviewPath, "Failed replacement restores the old cache mapping even with budget credit.");
+        True(File.ReadAllBytes(preservedPath).SequenceEqual(preserved), "Budget credit never deletes the previous audio before successful commit.");
+
+        string sharedDirectory = Fixture("force-cache-shared");
+        var sharedStore = new LibraryStore(Path.Combine(sharedDirectory, "library.sqlite"));
+        sharedStore.Initialize();
+        var sharedQueue = new RenderQueue(sharedStore);
+        var sharedSettings = Settings(sharedDirectory);
+        var first = Preset("success");
+        await sharedQueue.RunAsync(sharedSettings, [first], TestExecutable, new InlineProgress(), CancellationToken.None);
+        string sharedPath = first.PreviewPath;
+        var second = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(first, LibraryJson.Options), LibraryJson.Options)!;
+        second.Id = Guid.NewGuid().ToString("N");
+        second.SourcePath = Path.Combine(sharedDirectory, "TEST-ONLY-shared-copy.vital");
+        sharedStore.Upsert(second);
+        sharedSettings.Template.Velocity++;
+        await sharedQueue.RunAsync(sharedSettings, [first], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+        True(File.Exists(sharedPath), "A reference retained by another persisted record protects the shared previous cache.");
+        Equal(sharedPath, sharedStore.LoadPresets().Single(p => p.Id == second.Id).PreviewPath, "A partial forced batch leaves the other record's cache mapping unchanged.");
+        await sharedQueue.RunAsync(sharedSettings, [second], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+        True(!File.Exists(sharedPath), "Moving the last persisted reference allows the old owned cache to be reclaimed.");
+        True(File.Exists(first.PreviewPath) && first.PreviewPath == second.PreviewPath, "The new shared cache remains available to both current mappings.");
+
+        string protectedDirectory = Fixture("force-cache-protected");
+        var protectedStore = new LibraryStore(Path.Combine(protectedDirectory, "library.sqlite"));
+        protectedStore.Initialize();
+        var protectedQueue = new RenderQueue(protectedStore);
+        var protectedSettings = Settings(protectedDirectory);
+        Directory.CreateDirectory(protectedSettings.PreviewDirectory);
+        var external = Preset("success");
+        external.ContentHash = Fingerprints.HashText("TEST ONLY external protected source");
+        string externalPath = Path.Combine(protectedDirectory, "TEST-ONLY-external-preview.wav");
+        CompletePreview(external, externalPath);
+        var custom = Preset("success");
+        custom.ContentHash = Fingerprints.HashText("TEST ONLY custom-name protected source");
+        string customPath = Path.Combine(protectedSettings.PreviewDirectory, "TEST-ONLY-custom-name.wav");
+        CompletePreview(custom, customPath);
+        var sourceGuard = Preset("success");
+        sourceGuard.ContentHash = Fingerprints.HashText("TEST ONLY source-path protected fixture");
+        string guardedSourcePath = Path.Combine(protectedSettings.PreviewDirectory, Fingerprints.HashText("TEST ONLY preview " + sourceGuard.Id) + ".wav");
+        CompletePreview(sourceGuard, guardedSourcePath);
+        sourceGuard.SourcePath = guardedSourcePath;
+        protectedStore.UpsertMany([external, custom, sourceGuard]);
+        await protectedQueue.RunAsync(protectedSettings, [external, custom, sourceGuard], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+        True(File.Exists(externalPath), "Forced replacement cannot delete a valid preview outside the current cache directory.");
+        True(File.Exists(customPath), "Being inside the cache directory alone does not authorize deleting a custom-named WAV.");
+        True(File.Exists(guardedSourcePath), "A known source path can never be deleted even when its name resembles an owned cache key.");
+        True(external.PreviewPath != externalPath && custom.PreviewPath != customPath, "Protected old files do not prevent committing new owned cache paths.");
     }
 
     private static async Task<int> WaitForStartedAsync(string marker, Task run)
@@ -1501,6 +1815,26 @@ internal static class Program
         double duration = request.Template.HoldSeconds + request.Template.TailSeconds;
         int frames = (int)Math.Round(request.Template.SampleRate * duration);
         var audio = Tone(request.Template.SampleRate, 1, frames * 3 / (double)request.Template.SampleRate);
+        if (mode == "alternate")
+            for (int index = 0; index < audio.Samples.Length; index++) audio.Samples[index] *= 0.5f;
+        if (mode.StartsWith("quick-delayed", StringComparison.Ordinal))
+        {
+            if (request.Template.QuickPreview) throw new InvalidOperationException("TEST ONLY raw capture must not recurse into quick mode.");
+            if (mode == "quick-delayed-slow") await Task.Delay(1500);
+            await File.AppendAllTextAsync(request.Preset.SourcePath + ".captures", JsonSerializer.Serialize(new
+            {
+                Hold = request.Template.HoldSeconds, Tail = request.Template.TailSeconds,
+                Quick = request.Template.QuickPreview, Budget = request.MaxOutputBytes
+            }) + Environment.NewLine);
+            for (int index = 0; index < audio.Samples.Length; index++)
+            {
+                int pitchIndex = index / frames;
+                double time = (index % frames) / (double)request.Template.SampleRate;
+                double amplitude = pitchIndex == 0 && request.Template.HoldSeconds == 0.5 ? 0.06 : 0.25;
+                audio.Samples[index] = pitchIndex == 2 || pitchIndex == 1 && time < 0.8
+                    ? 0 : (float)(amplitude * Math.Sin(time * 440 * 2 * Math.PI));
+            }
+        }
         if (mode == "silence") Array.Clear(audio.Samples);
         if (mode == "clipping") Array.Fill(audio.Samples, 1f);
         if (mode == "one-silent-note") Array.Clear(audio.Samples, frames, frames);
@@ -1590,7 +1924,7 @@ internal static class Program
         Directory.CreateDirectory(directory);
         string source = Path.Combine(directory, "TEST-ONLY-440Hz.vital");
         string preview = Path.Combine(directory, "TEST-ONLY-440Hz-float32.wav");
-        var template = new PreviewTemplate { HoldSeconds = 1, TailSeconds = 0.3 };
+        var template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 1, TailSeconds = 0.3 };
         var audio = Tone(44100, 1, (template.HoldSeconds + template.TailSeconds) * 3);
         WriteRawWave(preview, 3, 32, FloatBytes(audio.Samples));
         await File.WriteAllTextAsync(source, "{\"testOnly\":true,\"preset_name\":\"TEST AUDIO: 440Hz\",\"settings\":{}}");
@@ -1671,7 +2005,7 @@ internal static class Program
     {
         Preset = Preset(mode),
         Plugin = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, Version = "test-only", TimeoutSeconds = 5 },
-        Template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 },
+        Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
         OutputPath = output,
         CacheKey = "test-only-cache"
     };
@@ -1682,9 +2016,9 @@ internal static class Program
         ContentHash = "fixture", SourcePath = Path.Combine(_fixtureRoot, name + ".vital")
     };
 
-    private static void CompletePreview(PresetRecord preset, string path)
+    private static void CompletePreview(PresetRecord preset, string path, PreviewTemplate? template = null)
     {
-        var template = new PreviewTemplate { HoldSeconds = 0.1, TailSeconds = 0.02 };
+        template ??= new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 };
         int frames = (int)Math.Round(template.SampleRate * (template.HoldSeconds + template.TailSeconds));
         double duration = frames / (double)template.SampleRate;
         WaveFile.WritePcm16(path, Tone(template.SampleRate, 1, duration * 3));
@@ -1834,10 +2168,10 @@ internal static class Program
     private static void Equal<T>(T expected, T actual, string message) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{message} Expected {expected}, actual {actual}."); }
     private static void NotEqual<T>(T unexpected, T actual, string message) { if (EqualityComparer<T>.Default.Equals(unexpected, actual)) throw new InvalidOperationException(message); }
     private static void Near(double expected, double actual, double tolerance, string message) { if (!double.IsFinite(actual) || Math.Abs(expected - actual) > tolerance) throw new InvalidOperationException($"{message} Expected {expected} +/- {tolerance}, actual {actual}."); }
-    private static void Throws<T>(Action action) where T : Exception
+    private static void Throws<T>(Action action, string? message = null) where T : Exception
     {
         try { action(); } catch (T) { return; }
-        throw new InvalidOperationException($"Expected exception {typeof(T).Name}.");
+        throw new InvalidOperationException(message ?? $"Expected exception {typeof(T).Name}.");
     }
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
     {

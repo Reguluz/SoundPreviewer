@@ -62,12 +62,15 @@ public sealed class RenderQueue(LibraryStore store)
         bool prepared = false;
         PresetRecord? current = null;
         long? occupiedBytes = null;
+        PreviewReferences? previewReferences = null;
         Report(QueueStages.Preparing, "正在准备生成队列...", indeterminate: true);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (settings.MaxAttempts is < 1 or > 5) throw new ArgumentException("重试上限须为 1 到 5。");
             if (!double.IsFinite(settings.StorageBudgetGb) || settings.StorageBudgetGb <= 0) throw new ArgumentException("存储预算须大于 0。");
+            if (forceRegenerate)
+                previewReferences = new PreviewReferences(store.LoadPresets(), presets, settings.PreviewDirectory, cancellationToken);
             var candidates = new List<PresetRecord>();
             foreach (var preset in presets)
             {
@@ -149,7 +152,8 @@ public sealed class RenderQueue(LibraryStore store)
                     continue;
                 }
                 Directory.CreateDirectory(settings.PreviewDirectory);
-                var estimatedBytes = (settings.Template.HoldSeconds + settings.Template.TailSeconds) * 3 * settings.Template.SampleRate * 8 + 4096;
+                var estimatedBytes = (settings.Template.QuickPreview ? 0.5 : settings.Template.HoldSeconds + settings.Template.TailSeconds)
+                    * 3 * settings.Template.SampleRate * 8 + 4096;
                 if (occupiedBytes is null)
                 {
                     Report(QueueStages.Preparing, "正在统计预览目录占用...", preset, true);
@@ -162,7 +166,9 @@ public sealed class RenderQueue(LibraryStore store)
                 }
                 var outputPath = Path.Combine(settings.PreviewDirectory, key + ".wav");
                 var replacedBytes = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
-                if (occupiedBytes.Value - replacedBytes + estimatedBytes > settings.StorageBudgetGb * 1024 * 1024 * 1024)
+                var oldCache = hasPreview ? previewReferences?.Reclaimable(preset.PreviewPath, preset.CacheKey, outputPath, 1) : null;
+                long reclaimableBytes = oldCache?.Bytes ?? 0;
+                if (occupiedBytes.Value - replacedBytes - reclaimableBytes + estimatedBytes > settings.StorageBudgetGb * 1024 * 1024 * 1024)
                     throw new IOException("预览目录已达到存储预算，请调整预算或预览目录。");
                 PresetRecord? previous = hasPreview ? JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(preset, LibraryJson.Options), LibraryJson.Options) : null;
                 if (resetAttempts) preset.Attempts = 0;
@@ -186,7 +192,7 @@ public sealed class RenderQueue(LibraryStore store)
                         {
                             Preset = preset, Plugin = plugin, Template = settings.Template,
                             OutputPath = outputPath, CacheKey = key,
-                            MaxOutputBytes = Math.Min(256L * 1024 * 1024, checked((long)(settings.StorageBudgetGb * 1024 * 1024 * 1024)) - occupiedBytes.Value + replacedBytes)
+                            MaxOutputBytes = Math.Min(256L * 1024 * 1024, checked((long)(settings.StorageBudgetGb * 1024 * 1024 * 1024)) - occupiedBytes.Value + replacedBytes + reclaimableBytes)
                         };
                         var result = await new WorkerProcessClient().RenderAsync(request, workerPath, cancellationToken);
                         if (!result.Success) throw new InvalidOperationException(result.Message);
@@ -226,7 +232,24 @@ public sealed class RenderQueue(LibraryStore store)
                 }
                 if (!generated && previous is not null) RestorePreview(preset, previous, "重新生成失败，保留上次预览：" + preset.Message);
                 store.Upsert(preset);
-                if (generated) summary.Generated++;
+                if (generated)
+                {
+                    previewReferences?.Move(preset.Id, preset.PreviewPath);
+                    if (oldCache is not null && previewReferences is not null)
+                    {
+                        // The new record is committed before releasing an unshared, application-owned old cache.
+                        var cleanup = previewReferences.DeleteCommitted(oldCache, preset.PreviewPath);
+                        occupiedBytes -= cleanup.FreedBytes;
+                        if (cleanup.Warning.Length > 0)
+                        {
+                            preset.Message += " " + cleanup.Warning;
+                            try { store.Upsert(preset); }
+                            catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or JsonException)
+                            { Report(QueueStages.Rendering, "新预览已保存，缓存清理诊断未能入库：" + error.Message, preset); }
+                        }
+                    }
+                    summary.Generated++;
+                }
                 else summary.Failed++;
                 Report(QueueStages.Rendering, preset.Message, preset);
                 current = null;
@@ -252,6 +275,85 @@ public sealed class RenderQueue(LibraryStore store)
 
     private static bool HasPreviewMetadata(PresetRecord preset) => !string.IsNullOrWhiteSpace(preset.PreviewPath) &&
         !string.IsNullOrWhiteSpace(preset.CacheKey) && !string.IsNullOrWhiteSpace(preset.TemplateJson);
+
+    private sealed record OwnedCache(string Path, string Key, long Bytes);
+
+    private sealed class PreviewReferences
+    {
+        private readonly Dictionary<string, string> recordPaths = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> sourcePaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly string? root;
+
+        public PreviewReferences(IEnumerable<PresetRecord> stored, IEnumerable<PresetRecord> requested, string directory, CancellationToken token)
+        {
+            root = Normalize(directory);
+            var records = new Dictionary<string, PresetRecord>(StringComparer.Ordinal);
+            foreach (var record in stored.Concat(requested))
+            {
+                token.ThrowIfCancellationRequested();
+                records[record.Id] = record;
+            }
+            foreach (var record in records.Values)
+            {
+                token.ThrowIfCancellationRequested();
+                if (Normalize(record.SourcePath) is string source) sourcePaths.Add(source);
+                Move(record.Id, record.PreviewPath);
+            }
+        }
+
+        public void Move(string id, string path)
+        {
+            if (recordPaths.Remove(id, out var previous))
+            {
+                if (counts[previous] == 1) counts.Remove(previous);
+                else counts[previous]--;
+            }
+            if (Normalize(path) is not string next) return;
+            recordPaths[id] = next;
+            counts[next] = counts.GetValueOrDefault(next) + 1;
+        }
+
+        public OwnedCache? Reclaimable(string path, string key, string nextPath, int expectedReferences)
+        {
+            if (root is null || key.Length != 64 || !key.All(char.IsAsciiHexDigit) || Normalize(path) is not string normalized ||
+                string.Equals(normalized, Normalize(nextPath), StringComparison.OrdinalIgnoreCase) || sourcePaths.Contains(normalized) ||
+                counts.GetValueOrDefault(normalized) != expectedReferences ||
+                !string.Equals(Path.GetDirectoryName(normalized), root, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetFileName(normalized), key + ".wav", StringComparison.OrdinalIgnoreCase)) return null;
+            try
+            {
+                var rootAttributes = File.GetAttributes(root);
+                var attributes = File.GetAttributes(normalized);
+                if ((rootAttributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != FileAttributes.Directory ||
+                    (attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0) return null;
+                return new OwnedCache(normalized, key, new FileInfo(normalized).Length);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            { return null; }
+        }
+
+        public (long FreedBytes, string Warning) DeleteCommitted(OwnedCache old, string nextPath)
+        {
+            if (Reclaimable(old.Path, old.Key, nextPath, 0) is null)
+                return (0, File.Exists(old.Path) ? "已保留未能安全回收的旧缓存。" : "");
+            try
+            {
+                File.Delete(old.Path);
+                return (old.Bytes, "");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            { return (0, "新预览已保存，旧缓存清理失败：" + error.Message); }
+        }
+
+        private static string? Normalize(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            { return null; }
+        }
+    }
 
     private static bool HasValidPreview(PresetRecord preset, CancellationToken token)
     {

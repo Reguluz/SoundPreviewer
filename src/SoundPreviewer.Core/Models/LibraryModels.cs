@@ -70,8 +70,9 @@ public sealed class PreviewTemplate
     public int MiddleNote { get; set; } = 60;
     public int HighNote { get; set; } = 84;
     public int Velocity { get; set; } = 89;
-    public double HoldSeconds { get; set; } = 2;
-    public double TailSeconds { get; set; } = 0.6;
+    public bool QuickPreview { get; set; } = true;
+    public double HoldSeconds { get; set; } = 0.5;
+    public double TailSeconds { get; set; } = 0.08;
     public int Bpm { get; set; } = 120;
     public int SampleRate { get; set; } = 44100;
     public int[] Pitches => [LowNote, MiddleNote, HighNote];
@@ -121,6 +122,8 @@ public sealed class NotePreview
     public double DurationSeconds { get; set; }
     public double ActualHoldSeconds { get; set; }
     public double ActualTailSeconds { get; set; }
+    public double TrimmedLeadingSeconds { get; set; }
+    public double TrimmedTrailingSeconds { get; set; }
     public int ActualVelocity { get; set; }
     public double? ActualNormalizedVelocity { get; set; }
     public AudioMetrics? Metrics { get; set; }
@@ -155,6 +158,7 @@ public static class LibraryJson
 public static class Fingerprints
 {
     public const string AdapterVersion = "soundpreviewer-render-v1";
+    public const string QuickPreviewPolicy = "quick-preview-v1";
     public static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     public static string HashFile(string path, CancellationToken cancellationToken = default)
     {
@@ -187,5 +191,6 @@ public static class Fingerprints
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>
         HashText($"{synth}|{System.IO.Path.GetFullPath(path).ToUpperInvariant()}|{internalPath}|{slot}");
     public static string CacheKey(PresetRecord preset, PluginConfiguration plugin, PreviewTemplate template) =>
-        HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth, plugin, template, AdapterVersion }));
+        HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth, plugin, template, AdapterVersion,
+            PreviewPolicy = template.QuickPreview ? QuickPreviewPolicy : "fixed-v1" }));
 }

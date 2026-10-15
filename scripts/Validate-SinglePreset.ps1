@@ -101,7 +101,10 @@ $request.OutputPath = $outputPath
 [IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 $watch = [Diagnostics.Stopwatch]::StartNew()
 $cancellation = [Threading.CancellationTokenSource]::new()
-$cancellation.CancelAfter([TimeSpan]::FromSeconds([Math]::Clamp($request.Plugin.TimeoutSeconds, 5, 3600) + 30))
+$captureRounds = if ($request.Template.QuickPreview) {
+    if ($request.Plugin.Backend -eq [SoundPreviewer.Core.Models.RenderBackend]::VitalCli) { 3 } else { 4 }
+} else { 1 }
+$cancellation.CancelAfter([TimeSpan]::FromSeconds([Math]::Clamp($request.Plugin.TimeoutSeconds, 5, 3600) * $captureRounds + 30))
 $result = $null
 $failure = $null
 $loadEvidence = switch ($request.Plugin.Backend.ToString()) {
@@ -128,6 +131,8 @@ $summary = [ordered]@{
     Synth = $request.Preset.Synth.ToString()
     PluginVersion = $request.Plugin.Version
     CacheKey = $request.CacheKey
+    QuickPreview = $request.Template.QuickPreview
+    MaximumCaptureRounds = $captureRounds
     EffectiveRequest = ([System.Text.Json.JsonSerializer]::Serialize($request, [SoundPreviewer.Core.Models.RenderRequest], $options) | ConvertFrom-Json -Depth 12)
     OutputPath = $outputPath
     ResultPath = $resultPath
@@ -153,17 +158,39 @@ try {
     $previousEnd = 0
     $noteReports = @()
     $silentNotes = @()
+    $frameTolerance = 1.5 / $audio.SampleRate
+    $nativeBlockTolerance = 64.0 / 44100 + $frameTolerance
+    $vitalNative = $request.Plugin.Backend -eq [SoundPreviewer.Core.Models.RenderBackend]::VitalCli
+    if ($request.Template.QuickPreview -and -not $result.AdapterVersion.Contains([SoundPreviewer.Core.Models.Fingerprints]::QuickPreviewPolicy, [StringComparison]::Ordinal)) {
+        throw 'A new quick preview must declare the compact-preview policy version.'
+    }
     foreach ($note in $result.Notes) {
         $first = [int][Math]::Round($note.StartSeconds * $audio.SampleRate)
         $frames = [int][Math]::Round($note.DurationSeconds * $audio.SampleRate)
         if ($first -lt 0 -or [Math]::Abs($first - $previousEnd) -gt 1 -or $frames -le 0 -or $first + $frames -gt $audio.Frames) {
             throw 'The three note segments must cover contiguous nonempty WAV frame ranges.'
         }
-        if ([Math]::Abs($note.DurationSeconds - $request.Template.HoldSeconds - $request.Template.TailSeconds) -gt 0.01 -or
-            $note.ActualVelocity -ne $request.Template.Velocity -or
-            [Math]::Abs($note.ActualHoldSeconds - $request.Template.HoldSeconds) -gt 0.01 -or
-            [Math]::Abs($note.ActualTailSeconds - $request.Template.TailSeconds) -gt 0.01) {
-            throw 'Actual note velocity or duration differs from the requested template.'
+        if ($request.Template.QuickPreview) {
+            $allowedHolds = if ($vitalNative) { @(1.0, 2.0, 4.0) } else { @(0.5, 1.0, 2.0, 4.0) }
+            $captureHold = $allowedHolds | Where-Object { [Math]::Abs($_ - $note.ActualHoldSeconds) -le $nativeBlockTolerance } | Select-Object -First 1
+            if ($null -eq $captureHold) { throw 'Actual quick-preview hold is not a bounded capture stage.' }
+            $expectedTail = if ($vitalNative) { $captureHold * 0.3 } else { 0.08 }
+            $expectedVelocity = if ($vitalNative) { 89 } else { $request.Template.Velocity }
+            if ($note.DurationSeconds -gt 0.5 + $frameTolerance -or
+                $note.ActualVelocity -ne $expectedVelocity -or
+                [Math]::Abs($note.ActualTailSeconds - $expectedTail) -gt $nativeBlockTolerance -or
+                [Math]::Abs($note.DurationSeconds + $note.TrimmedLeadingSeconds + $note.TrimmedTrailingSeconds -
+                    $note.ActualHoldSeconds - $note.ActualTailSeconds) -gt $frameTolerance) {
+                throw 'Compact duration, real capture velocity/tail or trimmed-frame provenance is invalid.'
+            }
+        } else {
+            if ([Math]::Abs($note.DurationSeconds - $request.Template.HoldSeconds - $request.Template.TailSeconds) -gt 0.01 -or
+                $note.ActualVelocity -ne $request.Template.Velocity -or
+                [Math]::Abs($note.ActualHoldSeconds - $request.Template.HoldSeconds) -gt 0.01 -or
+                [Math]::Abs($note.ActualTailSeconds - $request.Template.TailSeconds) -gt 0.01 -or
+                $note.TrimmedLeadingSeconds -ne 0 -or $note.TrimmedTrailingSeconds -ne 0) {
+                throw 'Actual fixed-mode note velocity or duration differs from the requested template.'
+            }
         }
         $samples = [float[]]::new($frames * $audio.Channels)
         [Array]::Copy($audio.Samples, $first * $audio.Channels, $samples, 0, $samples.Length)
@@ -179,6 +206,12 @@ try {
             FirstFrame = $first
             Frames = $frames
             DurationSeconds = $frames / [double]$audio.SampleRate
+            ActualHoldSeconds = $note.ActualHoldSeconds
+            ActualTailSeconds = $note.ActualTailSeconds
+            ActualVelocity = $note.ActualVelocity
+            ActualNormalizedVelocity = $note.ActualNormalizedVelocity
+            TrimmedLeadingSeconds = $note.TrimmedLeadingSeconds
+            TrimmedTrailingSeconds = $note.TrimmedTrailingSeconds
             Rms = $segmentMetrics.Rms
             Peak = $segmentMetrics.Peak
             IsSilent = $segmentMetrics.IsSilent

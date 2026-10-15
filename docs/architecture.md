@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-15。项目依据 [项目计划](项目计划.md)，按照用户要求采用 C#、.NET 8 与 WPF 实现 Windows 桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。
+更新日期：2026-10-16。项目依据 [项目计划](项目计划.md)，按照用户要求采用 C#、.NET 8 与 WPF 实现 Windows 桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -15,6 +15,7 @@
 | `SoundPreviewer.Core/Storage` | Windows SQLite 参数绑定、事务、版本化数据库、完整 JSON 元数据与设置 |
 | `SoundPreviewer.Core/Services` | 串行渲染队列、进度、取消、有限重试、缓存与存储预算 |
 | `SoundPreviewer.Core/Audio` | 工作进程调用、进程生命周期、WAV 校验与指标、拼接与重采样、WinMM 本地试听 |
+| `QuickPreviewAudio` | 双声道短窗响度检测、半秒边界裁剪、静音压缩、边缘淡化；不生成替代音源音频 |
 | `SoundPreviewer.Worker` | 独立进程内执行 Vital 原生适配器，或转交实现协议的外部插件宿主 |
 | `SoundPreviewer.Vst2Host` | 可选独立 x86 .NET 8 / VST.NET 进程，加载 Sylenth1 VST2 独立 FXP；不加入基础解决方案 |
 | `scripts/renderers/dawdreamer_worker.py` | 可选 Python 宿主，用 DawDreamer 验证匹配架构的 VST2 单预制；发布时复制到工作进程的 `Renderers` 目录 |

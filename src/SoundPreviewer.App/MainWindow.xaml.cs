@@ -179,6 +179,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 void CheckFormatLayout()
                 {
                     var visual = (FrameworkElement)Content;
+                    if (!new Rect(new Point(), visual.RenderSize).Contains(Bounds(ForceGeneration)) ||
+                        Bounds(ForceGeneration).IntersectsWith(Bounds(AppBrandName)) ||
+                        !ForceGeneration.Content.ToString()!.Contains("覆盖", StringComparison.Ordinal))
+                        throw new InvalidOperationException("全量覆盖选项不可见或与标题重叠。");
                     var hint = Bounds(PresetFormatHint);
                     var table = Bounds(PresetGrid);
                     if (!PresetFormatHint.IsVisible || hint.Width <= 0 || hint.Height <= 0
@@ -233,6 +237,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     await Task.Delay(100);
                     _player.Stop();
                     _player.Volume = _settings.PlaybackVolume;
+                    UpdatePlayback();
+                    if (_player.DurationSeconds < 10 && !TimeLabel.Text.EndsWith(
+                        TimeSpan.FromSeconds(_player.DurationSeconds).ToString(@"mm\:ss\.f"), StringComparison.Ordinal))
+                        throw new InvalidOperationException("短预览时长未按十分之一秒显示。");
                     playbackChecked = true;
                 }
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -384,6 +392,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     UpdateLayout();
                     await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     Capture($"ui-plugins-{name}.png");
+                    Pages.SelectedItem = SettingsTab;
+                    var savedQuickMode = QuickPreviewMode.IsChecked;
+                    QuickPreviewMode.IsChecked = true;
+                    UpdateLayout();
+                    if (HoldBox.IsEnabled || TailBox.IsEnabled) throw new InvalidOperationException("快速预览应禁用固定按键及尾音输入。");
+                    QuickPreviewMode.IsChecked = false;
+                    UpdateLayout();
+                    if (!HoldBox.IsEnabled || !TailBox.IsEnabled) throw new InvalidOperationException("关闭快速预览后固定时长输入未恢复。");
+                    QuickPreviewMode.IsChecked = savedQuickMode;
+                    QuickPreviewMode.BringIntoView();
+                    UpdateLayout();
+                    await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    Capture($"ui-quick-settings-{name}.png");
                 }
                 await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new { Loaded = true, Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2, MixedDirectoryChecked = true, UnidentifiedChecked = unidentified is not null, PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked, GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked, DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(p => p.Record.DuplicateOfId.Length > 0), ForceDefaultOff = ForceGeneration.IsChecked != true, Width = ActualWidth, Height = ActualHeight }));
                 Application.Current.Shutdown();
@@ -740,8 +761,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_isPlaying && (!_player.IsPlaying || _segmentEnd is { } end && _player.PositionSeconds >= end)) { StopPlayback(); return; }
         if (_mediaOpened && !SeekSlider.IsMouseCaptureWithin) SeekSlider.Value = _player.PositionSeconds;
         Waveform.SetPosition(_player.PositionSeconds);
-        var duration = TimeSpan.FromSeconds(SeekSlider.Maximum > 1 ? SeekSlider.Maximum : 0);
-        TimeLabel.Text = $"{TimeSpan.FromSeconds(_player.PositionSeconds):mm\\:ss} / {duration:mm\\:ss}";
+        var duration = TimeSpan.FromSeconds(_mediaOpened ? _player.DurationSeconds : 0);
+        var format = duration.TotalSeconds < 10 ? @"mm\:ss\.f" : @"mm\:ss";
+        TimeLabel.Text = TimeSpan.FromSeconds(_player.PositionSeconds).ToString(format) + " / " + duration.ToString(format);
     }
     private void Seek_Released(object sender, MouseButtonEventArgs e)
     {
@@ -843,6 +865,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var directory in directories) PluginDirectories.Add(directory);
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
+        QuickPreviewMode.IsChecked = t.QuickPreview;
         LowNoteBox.Text = t.LowNote.ToString(CultureInfo.InvariantCulture);
         MiddleNoteBox.Text = t.MiddleNote.ToString(CultureInfo.InvariantCulture);
         HighNoteBox.Text = t.HighNote.ToString(CultureInfo.InvariantCulture);
@@ -972,6 +995,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void VitalDefaults_Click(object sender, RoutedEventArgs e)
     {
+        QuickPreviewMode.IsChecked = false;
         var hold = Math.Clamp(Math.Round(ParseDouble(HoldBox.Text, "按键时长")), 1, 30);
         HoldBox.Text = hold.ToString(CultureInfo.InvariantCulture);
         TailBox.Text = (hold * 0.3).ToString("0.0", CultureInfo.InvariantCulture);
@@ -987,7 +1011,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 LowNote = ParseInt(LowNoteBox.Text, "低音"), MiddleNote = ParseInt(MiddleNoteBox.Text, "中音"), HighNote = ParseInt(HighNoteBox.Text, "高音"),
                 Velocity = ParseInt(VelocityBox.Text, "力度"), HoldSeconds = ParseDouble(HoldBox.Text, "按键时长"), TailSeconds = ParseDouble(TailBox.Text, "尾音"),
-                Bpm = ParseInt(BpmBox.Text, "BPM"), SampleRate = SampleRateBox.SelectedIndex == 1 ? 48000 : 44100
+                Bpm = ParseInt(BpmBox.Text, "BPM"), SampleRate = SampleRateBox.SelectedIndex == 1 ? 48000 : 44100,
+                QuickPreview = QuickPreviewMode.IsChecked == true
             };
             template.Validate();
             var budget = ParseDouble(BudgetBox.Text, "存储预算");
