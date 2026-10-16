@@ -16,6 +16,8 @@ powershell -ExecutionPolicy Bypass -File .\Start-SoundPreviewer.ps1
 
 启动脚本将本地数据保存在仓库的 `local-data`，不会提交到 Git。直接打开 `SoundPreviewer.exe` 时，默认数据目录为 `%LOCALAPPDATA%\SoundPreviewer`。可通过 `--data-directory` 指定另一音色库。
 
+当前本机日常入口保留在 `artifacts/publish-quick/SoundPreviewer.exe`，更新须发布回这一原位置，不能仅启动另一个临时发布目录就当作已升级。原快捷方式不传数据参数时，继续使用上述默认音色库，不改成验收库。窗口标题及右下角显示应用版本，悬停版本可核对程序与音色库路径。
+
 ## 配置与使用
 
 1. 在「音源与设置」中选择「自动识别（混合音色包）」并添加整个音色包目录，无需按音源拆分子目录。也可明确选择单一音源；已有目录保留原来的指定方式，可选中后点击「自动识别此目录」切换。

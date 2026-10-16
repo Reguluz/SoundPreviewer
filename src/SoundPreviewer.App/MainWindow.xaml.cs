@@ -96,6 +96,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public int ReviewPreviewCount => Presets.Count(p => p.Record.DuplicateOfId.Length == 0 && p.HasPreview && p.Record.Status == PresetStatus.NeedsReview);
     public Visibility GeneratedResultsVisibility => GeneratedPreviewCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     public string LibraryLocation => Path.GetFullPath(App.DataDirectory);
+    public string AppVersion => "v" + typeof(App).Assembly.GetName().Version!.ToString(3);
+    public string BuildLocation => $"程序：{AppContext.BaseDirectory}{Environment.NewLine}音色库：{LibraryLocation}";
     private static string X86HostPath => Path.Combine(AppContext.BaseDirectory, "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe");
     public string NowPlaying => _selected?.Name ?? "未选择预览";
     public int VisiblePresetCount => PresetsView is CollectionView view ? view.Count : PresetsView.Cast<PresetRow>().Count();
@@ -126,6 +128,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PresetsView = CollectionViewSource.GetDefaultView(Presets);
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
+        Title += " (" + AppVersion + ")";
         DataContext = this;
         PopulateSettings();
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
@@ -207,6 +210,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 void CheckFormatLayout()
                 {
                     var visual = (FrameworkElement)Content;
+                    if (BuildVersionLabel.Text != AppVersion || !BuildVersionLabel.IsVisible ||
+                        Bounds(BuildVersionLabel).IntersectsWith(Bounds(StatusFooterText)))
+                        throw new InvalidOperationException("版本标识缺失或与状态文字重叠。");
                     if (!new Rect(new Point(), visual.RenderSize).Contains(Bounds(ForceGeneration)) ||
                         Bounds(ForceGeneration).IntersectsWith(Bounds(AppBrandName)) ||
                         !ForceGeneration.Content.ToString()!.Contains("覆盖", StringComparison.Ordinal))

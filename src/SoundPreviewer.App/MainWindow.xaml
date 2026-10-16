@@ -338,7 +338,10 @@
    </Grid>
   </Border>
   <Border Grid.Row="4" Background="#EAF0EC" Padding="24,0">
-   <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusMessage}"/>
+   <DockPanel>
+    <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="16,0,0,0"/>
+    <TextBlock x:Name="StatusFooterText" Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusMessage}"/>
+   </DockPanel>
   </Border>
  </Grid>
 </Window>

@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <AssemblyName>SoundPreviewer</AssemblyName>
+    <Version>1.1.0</Version>
     <X86HostDirectory Condition="'$(X86HostDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\vst2host-x86\</X86HostDirectory>
     <NormalizedX86HostDirectory>$([MSBuild]::EnsureTrailingSlash('$(X86HostDirectory)'))</NormalizedX86HostDirectory>
   </PropertyGroup>
