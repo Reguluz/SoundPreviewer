@@ -54,7 +54,7 @@ public sealed class WorkerProcessClient
                 return result;
             }
             if (outcome.ExitCode != 0) throw new IOException($"渲染进程异常退出（{outcome.ExitCode}）。");
-            if (!string.Equals(Path.GetFullPath(result.OutputPath), stagedAudio, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(Path.GetFullPath(result.OutputPath), stagedAudio, ApplicationPaths.PathComparison))
                 throw new InvalidDataException("渲染进程返回的音频路径与请求不符。");
             if (new FileInfo(stagedAudio).Length > request.MaxOutputBytes)
                 throw new InvalidDataException("预览输出超出存储剩余额度，未提交音频。");

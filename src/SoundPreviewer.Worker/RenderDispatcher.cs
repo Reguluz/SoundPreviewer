@@ -161,7 +161,7 @@ public static class RenderDispatcher
         if (template.Velocity != 89 || Math.Abs(template.TailSeconds - template.HoldSeconds * 0.3) > 0.000001)
             throw new ArgumentException("Vital 原生力度固定为 0.7（约 MIDI 89），尾音固定为按键时长的 30%；请采用 Vital 原生参数。");
         string executable = Path.GetFullPath(request.Plugin.ExecutablePath);
-        if (!File.Exists(executable)) throw new FileNotFoundException("找不到 Vital 独立程序，请指定 Vital.exe。", executable);
+        if (!File.Exists(executable)) throw new FileNotFoundException("找不到 Vital 独立程序，请指定当前平台的 Vital 可执行文件。", executable);
         if (!File.Exists(request.Preset.SourcePath)) throw new FileNotFoundException("源预制已丢失。", request.Preset.SourcePath);
         if (new FileInfo(request.Preset.SourcePath).Length > 64L * 1024 * 1024)
             throw new InvalidDataException("Vital 预制超过 64 MB 读取限制。");
@@ -198,7 +198,7 @@ public static class RenderDispatcher
                 await File.WriteAllBytesAsync(Path.Combine(noteDirectory, "preset.vital"), presetBytes, cancellationToken);
                 // Relative input avoids Vital's './' prefix corrupting Windows drive paths.
                 var outcome = await ProcessRunner.RunAsync(executable,
-                    ["--headless", "--render", ".\\preset.vital", "--midi", template.Pitches[i].ToString(CultureInfo.InvariantCulture),
+                    ["--headless", "--render", "./preset.vital", "--midi", template.Pitches[i].ToString(CultureInfo.InvariantCulture),
                      "--length", ((int)template.HoldSeconds).ToString(CultureInfo.InvariantCulture),
                      "--bpm", template.Bpm.ToString(CultureInfo.InvariantCulture)],
                     noteDirectory, TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken);

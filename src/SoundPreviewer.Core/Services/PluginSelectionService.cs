@@ -1,12 +1,32 @@
 using SoundPreviewer.Core.Models;
+using System.Runtime.InteropServices;
 
 namespace SoundPreviewer.Core.Services;
 
 public static class PluginSelectionService
 {
-    public static int RefreshBundledHost(IList<PluginConfiguration> configurations, string? newHostPath)
+    public static PluginPlatform CurrentPlatform => OperatingSystem.IsMacOS() ? PluginPlatform.MacOS : PluginPlatform.Windows;
+    public static PluginArchitecture CurrentArchitecture => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.Arm64 => PluginArchitecture.Arm64,
+        Architecture.X86 => PluginArchitecture.X86,
+        _ => PluginArchitecture.X64
+    };
+
+    public static bool IsCompatible(DiscoveredPlugin plugin, PluginPlatform? platform = null, PluginArchitecture? architecture = null)
+    {
+        PluginPlatform target = platform ?? CurrentPlatform;
+        PluginArchitecture cpu = architecture ?? CurrentArchitecture;
+        return plugin.Platform == target && (target == PluginPlatform.Windows
+            ? plugin.Architecture == PluginArchitecture.X64
+            : cpu is PluginArchitecture.X64 or PluginArchitecture.Arm64 &&
+              (plugin.Architecture == cpu || plugin.Architecture == PluginArchitecture.Universal));
+    }
+
+    public static int RefreshBundledHost(IList<PluginConfiguration> configurations, string? newHostPath, PluginPlatform? platform = null)
     {
         ArgumentNullException.ThrowIfNull(configurations);
+        if ((platform ?? CurrentPlatform) != PluginPlatform.Windows) return 0;
         if (!File.Exists(newHostPath)) return 0;
         string nextPath = Path.GetFullPath(newHostPath!);
         int changed = 0;
@@ -29,24 +49,27 @@ public static class PluginSelectionService
         return changed;
     }
 
-    public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations, string? x86HostPath = null)
+    public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations, string? x86HostPath = null,
+        PluginPlatform? platform = null, PluginArchitecture? architecture = null)
     {
         var changed = 0;
         foreach (var configuration in configurations.Where(p => p.Synth != SynthKind.Unknown))
         {
             var candidates = discovered.Where(p => p.Synth == configuration.Synth &&
-                    (p.Architecture == PluginArchitecture.X64 || CanUseX86Host(configuration, p, x86HostPath))
+                    (IsCompatible(p, platform, architecture) || CanUseX86Host(configuration, p, x86HostPath, platform))
                     && (p.Format != PluginBinaryFormat.Standalone || configuration.Backend is RenderBackend.Unconfigured or RenderBackend.VitalCli))
                 .OrderBy(p => Preference(p, configuration.Synth)).ThenByDescending(p => ParseVersion(p.Version))
                 .ThenBy(p => p.FilePath, StringComparer.OrdinalIgnoreCase).ToList();
             var selected = candidates.FirstOrDefault(p => Matches(configuration, p));
+            bool incompatibleSelection = discovered.Any(p => Matches(configuration, p) &&
+                !IsCompatible(p, platform, architecture) && !CanUseX86Host(configuration, p, x86HostPath, platform));
             // Keep a user's existing selection even when its installation root is offline or omitted.
-            if (selected is null && (File.Exists(configuration.PluginPath) || Directory.Exists(configuration.PluginPath)
+            if (selected is null && !incompatibleSelection && (File.Exists(configuration.PluginPath) || Directory.Exists(configuration.PluginPath)
                 || configuration.Backend == RenderBackend.VitalCli && File.Exists(configuration.ExecutablePath))) continue;
             selected ??= candidates.FirstOrDefault();
             if (selected is null) continue;
             var before = (configuration.PluginPath, configuration.ExecutablePath, configuration.Version, configuration.Backend);
-            Assign(configuration, selected, x86HostPath);
+            Assign(configuration, selected, x86HostPath, platform, architecture);
             if (before != (configuration.PluginPath, configuration.ExecutablePath, configuration.Version, configuration.Backend)) changed++;
         }
         return changed;
@@ -54,18 +77,22 @@ public static class PluginSelectionService
 
     public static bool Matches(PluginConfiguration configuration, DiscoveredPlugin plugin) => configuration.Synth == plugin.Synth
         && (plugin.Format != PluginBinaryFormat.Standalone || configuration.Backend == RenderBackend.VitalCli)
-        && string.Equals(plugin.Format == PluginBinaryFormat.Standalone ? configuration.ExecutablePath : configuration.PluginPath,
-            plugin.FilePath, StringComparison.OrdinalIgnoreCase);
+        && (ApplicationPaths.SamePath(plugin.Format == PluginBinaryFormat.Standalone ? configuration.ExecutablePath : configuration.PluginPath,
+            plugin.FilePath) || plugin.Format == PluginBinaryFormat.Standalone &&
+            ApplicationPaths.SamePath(configuration.ExecutablePath, plugin.BinaryPath));
 
-    public static void Assign(PluginConfiguration configuration, DiscoveredPlugin plugin, string? x86HostPath = null)
+    public static void Assign(PluginConfiguration configuration, DiscoveredPlugin plugin, string? x86HostPath = null,
+        PluginPlatform? platform = null, PluginArchitecture? architecture = null)
     {
         if (plugin.Synth == SynthKind.Unknown || configuration.Synth != plugin.Synth)
             throw new ArgumentException("扫描结果不能关联到此音源。");
+        if (plugin.Platform != (platform ?? CurrentPlatform)) throw new ArgumentException("所选音源与当前操作系统不兼容，请选择本平台版本。");
         if (!File.Exists(plugin.BinaryPath)) throw new FileNotFoundException("扫描到的音源文件已不存在，请重新扫描。", plugin.BinaryPath);
         if (plugin.Format == PluginBinaryFormat.Standalone)
         {
             if (plugin.Synth != SynthKind.Vital) throw new ArgumentException("只有 Vital 独立程序支持原生预览方式。");
-            configuration.ExecutablePath = plugin.FilePath;
+            if (!IsCompatible(plugin, platform, architecture)) throw new ArgumentException("所选 Vital 程序与当前运行架构不兼容。");
+            configuration.ExecutablePath = plugin.BinaryPath;
             configuration.Backend = RenderBackend.VitalCli;
             configuration.PluginPath = "";
             configuration.PluginHash = "";
@@ -79,7 +106,7 @@ public static class PluginSelectionService
                 configuration.ExecutablePath = "";
                 configuration.ExecutableHash = "";
             }
-            if (CanUseX86Host(configuration, plugin, x86HostPath) &&
+            if (CanUseX86Host(configuration, plugin, x86HostPath, platform) &&
                 configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer)
             {
                 configuration.Backend = RenderBackend.ExternalWorker;
@@ -90,7 +117,8 @@ public static class PluginSelectionService
         configuration.Version = plugin.Version;
     }
 
-    private static bool CanUseX86Host(PluginConfiguration configuration, DiscoveredPlugin plugin, string? hostPath) =>
+    private static bool CanUseX86Host(PluginConfiguration configuration, DiscoveredPlugin plugin, string? hostPath, PluginPlatform? platform = null) =>
+        (platform ?? CurrentPlatform) == PluginPlatform.Windows && plugin.Platform == PluginPlatform.Windows &&
         plugin.Synth == SynthKind.Sylenth1 && plugin.Architecture == PluginArchitecture.X86 &&
         plugin.Format == PluginBinaryFormat.Vst2 && !string.IsNullOrWhiteSpace(hostPath) && File.Exists(hostPath) &&
         (configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer ||

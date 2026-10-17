@@ -18,7 +18,7 @@ namespace SoundPreviewer.Tests;
 internal static partial class Program
 {
     private static string _fixtureRoot = "";
-    private static string TestExecutable => Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe");
+    private static string TestExecutable => Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, OperatingSystem.IsWindows() ? ".exe" : null);
 
     public static async Task<int> Main(string[] args)
     {
@@ -33,6 +33,8 @@ internal static partial class Program
         var tests = new List<(string Name, Func<Task> Run)>
         {
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),
+            ("Portable paths, case-sensitive identities and local output defaults", TestPortablePathsAsync),
+            ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Fingerprint and WAV operations honor cancellation without changing hashes", TestCancellationAsync),
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
             ("WAV 8/24/32 bit decoding and malformed chunk rejection", TestWaveFormatsAsync),
@@ -137,7 +139,7 @@ internal static partial class Program
         Throws<ArgumentException>(() => new PreviewTemplate { LowNote = -1 }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { SampleRate = 22050 }.Validate());
         Throws<ArgumentException>(() => new PreviewTemplate { NoteOrder = (PreviewNoteOrder)99 }.Validate());
-        Equal(Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot, "same.fxp")),
+        if (OperatingSystem.IsWindows()) Equal(Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot, "same.fxp")),
             Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot.ToUpperInvariant(), "SAME.FXP")), "Windows source IDs must ignore path case.");
         NotEqual(Fingerprints.PresetId(SynthKind.Serum1, Path.Combine(_fixtureRoot, "same.fxp")),
             Fingerprints.PresetId(SynthKind.Sylenth1, Path.Combine(_fixtureRoot, "same.fxp")), "Shared extension must not merge different synthesizers.");
@@ -379,7 +381,7 @@ internal static partial class Program
         request.Plugin.ExecutablePath = TestExecutable;
         request.Preset.SourcePath = Path.Combine(directory, "TEST-ONLY-capture-log");
         request.MaxOutputBytes = 280000;
-        string worker = Path.ChangeExtension(typeof(RenderDispatcher).Assembly.Location, ".exe");
+        string worker = Path.ChangeExtension(typeof(RenderDispatcher).Assembly.Location, OperatingSystem.IsWindows() ? ".exe" : null);
         var result = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
         True(result.Success && result.NeedsReview, $"Bounded silent pitch remains a real reviewable preview: {result.Message}");
         WorkerProcessClient.ValidateNotes(result, request.Template);
@@ -919,7 +921,7 @@ internal static partial class Program
         var serumConfiguration = selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1);
         serumConfiguration.ExecutablePath = TestExecutable;
         serumConfiguration.Backend = RenderBackend.ExternalWorker;
-        Equal(3, PluginSelectionService.ApplyAutomatic(candidates, selectedSettings.Plugins), "Only known x64 candidates are automatically associated.");
+        Equal(3, ApplyWindowsAutomatic(candidates, selectedSettings.Plugins), "Only known x64 candidates are automatically associated.");
         Equal(newer, serumConfiguration.PluginPath, "Within the supported VST2 preference, newest version wins regardless of discovery order.");
         Equal("1.4.9", serumConfiguration.Version, "Selected metadata version is persisted.");
         Equal(TestExecutable, serumConfiguration.ExecutablePath, "Plugin association does not overwrite an advanced external renderer program.");
@@ -929,31 +931,31 @@ internal static partial class Program
         Equal(RenderBackend.VitalCli, vitalConfiguration.Backend, "Unconfigured Vital standalone can use the native backend.");
         Equal(bundle, selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum2).PluginPath, "Serum 2 retains a VST3 bundle selection.");
         Equal("", selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Sylenth1).PluginPath, "An x86 discovery is never automatically enabled for the x64 host.");
-        Equal(0, PluginSelectionService.ApplyAutomatic(candidates, selectedSettings.Plugins), "Repeated association leaves valid chosen binaries unchanged.");
+        Equal(0, ApplyWindowsAutomatic(candidates, selectedSettings.Plugins), "Repeated association leaves valid chosen binaries unchanged.");
         var x86Configuration = new PluginConfiguration { Synth = SynthKind.Sylenth1, ExecutableHash = "stale-host-fingerprint" };
-        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], Path.Combine(directory, "missing-x86-host.exe")),
+        Equal(0, ApplyWindowsAutomatic([sylenth32], [x86Configuration], Path.Combine(directory, "missing-x86-host.exe")),
             "An unavailable built-in host cannot enable an x86 plugin automatically.");
         Equal("", x86Configuration.PluginPath, "Missing x86 host preserves the legacy unconfigured plugin selection.");
         Equal(RenderBackend.Unconfigured, x86Configuration.Backend, "Missing x86 host cannot claim an executable backend.");
-        Equal(1, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], TestExecutable),
+        Equal(1, ApplyWindowsAutomatic([sylenth32], [x86Configuration], TestExecutable),
             "Only an explicitly available x86 host enables known Sylenth1 x86 VST2 automatically.");
         Equal(x86, x86Configuration.PluginPath, "The x86 host retains the actual discovered plugin path.");
         Equal(RenderBackend.ExternalWorker, x86Configuration.Backend, "The built-in x86 host uses the external process protocol, not the x64 DawDreamer bridge.");
         Equal(TestExecutable, x86Configuration.ExecutablePath, "The supplied host path is the configured executable; no plugin is run by this test.");
         Equal("", x86Configuration.ExecutableHash, "Switching to the x86 host clears the stale executable fingerprint.");
-        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [x86Configuration], TestExecutable), "Repeated x86 association is idempotent.");
+        Equal(0, ApplyWindowsAutomatic([sylenth32], [x86Configuration], TestExecutable), "Repeated x86 association is idempotent.");
         var dawX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = x86, Backend = RenderBackend.DawDreamer, ExecutablePath = standalone };
-        Equal(1, PluginSelectionService.ApplyAutomatic([sylenth32], [dawX86], TestExecutable), "A previously selected x86 DLL can move off an incompatible DawDreamer backend.");
+        Equal(1, ApplyWindowsAutomatic([sylenth32], [dawX86], TestExecutable), "A previously selected x86 DLL can move off an incompatible DawDreamer backend.");
         Equal(RenderBackend.ExternalWorker, dawX86.Backend, "An x86 DawDreamer selection is switched to the available matching host.");
         Equal(TestExecutable, dawX86.ExecutablePath, "The incompatible host executable is replaced deliberately.");
         var explicitX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1 };
-        PluginSelectionService.Assign(explicitX86, sylenth32, TestExecutable);
+        AssignWindowsPlugin(explicitX86, sylenth32, TestExecutable);
         Equal(RenderBackend.ExternalWorker, explicitX86.Backend, "Explicit version selection can configure the same available x86 host.");
         Equal(TestExecutable, explicitX86.ExecutablePath, "Explicit selection uses the supplied matching host.");
         var customX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = x86, Backend = RenderBackend.ExternalWorker, ExecutablePath = standalone, Version = sylenth32.Version };
-        Equal(0, PluginSelectionService.ApplyAutomatic([sylenth32], [customX86], TestExecutable), "Automatic discovery cannot replace a user's custom external x86 renderer.");
+        Equal(0, ApplyWindowsAutomatic([sylenth32], [customX86], TestExecutable), "Automatic discovery cannot replace a user's custom external x86 renderer.");
         Equal(standalone, customX86.ExecutablePath, "Custom external executable choice survives the presence of a built-in host.");
-        PluginSelectionService.Assign(customX86, sylenth32, TestExecutable);
+        AssignWindowsPlugin(customX86, sylenth32, TestExecutable);
         Equal(standalone, customX86.ExecutablePath, "Explicit plugin association also preserves an existing custom external renderer.");
         string currentHostDirectory = Path.Combine(directory, "TEST-ONLY-current-publish", "Vst2Host-x86");
         Directory.CreateDirectory(currentHostDirectory);
@@ -968,7 +970,7 @@ internal static partial class Program
         };
         var migration = OldBundledHost();
         True(!File.Exists(oldHost), "The previous bundled version is deliberately offline in the migration fixture.");
-        Equal(1, PluginSelectionService.RefreshBundledHost([migration], currentHost), "A recognized previous bundled Sylenth host is refreshed even when its old release was removed.");
+        Equal(1, RefreshWindowsHost([migration], currentHost), "A recognized previous bundled Sylenth host is refreshed even when its old release was removed.");
         Equal(Path.GetFullPath(currentHost), migration.ExecutablePath, "Migration uses the current release's available bundled host.");
         Equal("", migration.ExecutableHash, "Migrating the host invalidates its old executable fingerprint.");
         Equal("", migration.InitBaselinePath, "An old host's startup baseline cannot be retained for the new release.");
@@ -977,13 +979,13 @@ internal static partial class Program
         Equal("2.2.1.2", migration.Version, "Host migration preserves the actual plugin version.");
         migration.ExecutableHash = "TEST ONLY current executable fingerprint";
         migration.InitBaselinePath = "TEST ONLY current baseline locator";
-        Equal(0, PluginSelectionService.RefreshBundledHost([migration], currentHost.ToUpperInvariant()), "A current bundled path is idempotent even when its path case differs.");
+        Equal(0, RefreshWindowsHost([migration], currentHost.ToUpperInvariant()), "A current bundled path is idempotent even when its path case differs.");
         Equal("TEST ONLY current executable fingerprint", migration.ExecutableHash, "Routine startup does not clear an already-current fingerprint.");
         Equal("TEST ONLY current baseline locator", migration.InitBaselinePath, "Routine startup keeps a current release's valid baseline locator.");
         var unavailableMigration = OldBundledHost();
         string unavailableBefore = JsonSerializer.Serialize(unavailableMigration, LibraryJson.Options);
-        Equal(0, PluginSelectionService.RefreshBundledHost([unavailableMigration], Path.Combine(directory, "TEST-ONLY-missing-host.exe")), "An unavailable new host cannot migrate stored settings.");
-        Equal(0, PluginSelectionService.RefreshBundledHost([unavailableMigration], null), "A missing optional bundled host is a no-op.");
+        Equal(0, RefreshWindowsHost([unavailableMigration], Path.Combine(directory, "TEST-ONLY-missing-host.exe")), "An unavailable new host cannot migrate stored settings.");
+        Equal(0, RefreshWindowsHost([unavailableMigration], null), "A missing optional bundled host is a no-op.");
         Equal(unavailableBefore, JsonSerializer.Serialize(unavailableMigration, LibraryJson.Options), "Failed host discovery leaves all prior settings and baseline metadata unchanged.");
         var protectedMigrations = Enumerable.Range(0, 6).Select(_ => OldBundledHost()).ToList();
         protectedMigrations[0].ExecutablePath = Path.Combine(directory, "Vst2Host-x86", "CustomRenderer.exe");
@@ -993,20 +995,20 @@ internal static partial class Program
         protectedMigrations[4].Backend = RenderBackend.Unconfigured;
         protectedMigrations[5].ExecutablePath = "TEST ONLY invalid\0path";
         string protectedBefore = JsonSerializer.Serialize(protectedMigrations, LibraryJson.Options);
-        Equal(0, PluginSelectionService.RefreshBundledHost(protectedMigrations, currentHost), "Custom names/directories, other synths/backends and malformed legacy paths cannot be mistaken for the bundled host.");
+        Equal(0, RefreshWindowsHost(protectedMigrations, currentHost), "Custom names/directories, other synths/backends and malformed legacy paths cannot be mistaken for the bundled host.");
         Equal(protectedBefore, JsonSerializer.Serialize(protectedMigrations, LibraryJson.Options), "Protected external configurations are not changed in any field.");
         var wrongX86 = new PluginConfiguration { Synth = SynthKind.Serum1 };
         var serum32 = Candidate(SynthKind.Serum1, x86, x86, "1.0.0", PluginBinaryFormat.Vst2, PluginArchitecture.X86);
-        Equal(0, PluginSelectionService.ApplyAutomatic([serum32], [wrongX86], TestExecutable), "The Sylenth1-only built-in host cannot automatically enable arbitrary x86 synths.");
+        Equal(0, ApplyWindowsAutomatic([serum32], [wrongX86], TestExecutable), "The Sylenth1-only built-in host cannot automatically enable arbitrary x86 synths.");
         var wrongFormatX86 = new PluginConfiguration { Synth = SynthKind.Sylenth1 };
         var sylenthVst3 = Candidate(SynthKind.Sylenth1, plainVst3, plainVst3, "2.0.0", PluginBinaryFormat.Vst3, PluginArchitecture.X86);
-        Equal(0, PluginSelectionService.ApplyAutomatic([sylenthVst3], [wrongFormatX86], TestExecutable), "The built-in VST2 host cannot automatically enable an x86 VST3 candidate.");
-        PluginSelectionService.Assign(serumConfiguration, oldSerum);
-        PluginSelectionService.ApplyAutomatic([newSerum], selectedSettings.Plugins);
+        Equal(0, ApplyWindowsAutomatic([sylenthVst3], [wrongFormatX86], TestExecutable), "The built-in VST2 host cannot automatically enable an x86 VST3 candidate.");
+        AssignWindowsPlugin(serumConfiguration, oldSerum);
+        ApplyWindowsAutomatic([newSerum], selectedSettings.Plugins);
         Equal(x64, serumConfiguration.PluginPath, "A valid manually chosen older DLL survives a later scan that omits it.");
         var bundleConfiguration = selectedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum2);
         var otherSerum2 = Candidate(SynthKind.Serum2, plainVst3, plainVst3, "9.0.0", PluginBinaryFormat.Vst3);
-        PluginSelectionService.ApplyAutomatic([otherSerum2], selectedSettings.Plugins);
+        ApplyWindowsAutomatic([otherSerum2], selectedSettings.Plugins);
         Equal(bundle, bundleConfiguration.PluginPath, "A valid selected bundle directory survives an omitted-root scan.");
         Equal(Fingerprints.HashFile(x64), Fingerprints.PluginBinaryHash(serumConfiguration, candidates),
             "Ordinary DLL fingerprint remains its existing SHA256 hash.");
@@ -1045,35 +1047,35 @@ internal static partial class Program
         Equal("", Fingerprints.PluginBinaryHash(bundleConfiguration, []), "A bundle without discovered binaries cannot hash a directory as a file.");
         vitalConfiguration.Backend = RenderBackend.ExternalWorker;
         vitalConfiguration.ExecutablePath = TestExecutable;
-        PluginSelectionService.ApplyAutomatic([vital], selectedSettings.Plugins);
+        ApplyWindowsAutomatic([vital], selectedSettings.Plugins);
         Equal(TestExecutable, vitalConfiguration.ExecutablePath, "Automatic Vital discovery cannot replace an active external renderer.");
         Equal(RenderBackend.ExternalWorker, vitalConfiguration.Backend, "Automatic Vital discovery cannot change an active external backend.");
         vitalConfiguration.ExecutablePath = standalone;
         True(!PluginSelectionService.Matches(vitalConfiguration, vital), "A matching standalone filename does not imply a native backend selection.");
         vitalConfiguration.PluginPath = newer;
         vitalConfiguration.PluginHash = "old-vst-hash";
-        PluginSelectionService.Assign(vitalConfiguration, vital);
+        AssignWindowsPlugin(vitalConfiguration, vital);
         Equal(RenderBackend.VitalCli, vitalConfiguration.Backend, "Explicit standalone selection switches to the native backend.");
         Equal("", vitalConfiguration.PluginPath, "Standalone selection clears the inactive VST path.");
         Equal("", vitalConfiguration.PluginHash, "Standalone selection clears the inactive VST fingerprint.");
         True(PluginSelectionService.Matches(vitalConfiguration, vital), "Standalone is matched only after selecting the native backend.");
         vitalConfiguration.ExecutableHash = "old-native-hash";
         var vitalVst = Candidate(SynthKind.Vital, newer, newer, "1.5.7", PluginBinaryFormat.Vst2);
-        PluginSelectionService.Assign(vitalConfiguration, vitalVst);
+        AssignWindowsPlugin(vitalConfiguration, vitalVst);
         Equal(RenderBackend.Unconfigured, vitalConfiguration.Backend, "Native-to-VST switch requires a compatible external renderer configuration.");
         Equal("", vitalConfiguration.ExecutablePath, "Native-to-VST switch clears the stale CLI executable.");
         Equal("", vitalConfiguration.ExecutableHash, "Native-to-VST switch clears the stale CLI fingerprint.");
         Equal(newer, vitalConfiguration.PluginPath, "Native-to-VST switch keeps the selected plugin binary.");
         Equal("1.5.7", vitalConfiguration.Version, "Native-to-VST switch uses the selected plugin version.");
         vitalConfiguration.PluginHash = "vst-selection-hash";
-        PluginSelectionService.Assign(vitalConfiguration, vital);
+        AssignWindowsPlugin(vitalConfiguration, vital);
         Equal(RenderBackend.VitalCli, vitalConfiguration.Backend, "VST-to-native switch restores the native backend deliberately.");
         Equal(standalone, vitalConfiguration.ExecutablePath, "VST-to-native switch restores the selected standalone executable.");
         Equal("", vitalConfiguration.PluginPath, "VST-to-native switch removes the inactive plugin mapping.");
         Equal("", vitalConfiguration.PluginHash, "VST-to-native switch removes the inactive plugin fingerprint.");
         string beforeInvalid = JsonSerializer.Serialize(serumConfiguration, LibraryJson.Options);
-        Throws<ArgumentException>(() => PluginSelectionService.Assign(serumConfiguration, sylenth32));
-        Throws<ArgumentException>(() => PluginSelectionService.Assign(serumConfiguration, x64Plugin));
+        Throws<ArgumentException>(() => AssignWindowsPlugin(serumConfiguration, sylenth32));
+        Throws<ArgumentException>(() => AssignWindowsPlugin(serumConfiguration, x64Plugin));
         Equal(beforeInvalid, JsonSerializer.Serialize(serumConfiguration, LibraryJson.Options), "Mismatched or unknown candidates cannot partly mutate a plugin configuration.");
     }
 
@@ -1374,30 +1376,30 @@ internal static partial class Program
             new DiscoveredPlugin { Synth = SynthKind.Sylenth1, FilePath = sylenth32, BinaryPath = sylenth32, Version = "TEST ONLY 2", Architecture = PluginArchitecture.X86, Format = PluginBinaryFormat.Vst2 },
             new DiscoveredPlugin { Synth = SynthKind.Serum1, FilePath = serumVst3, BinaryPath = serumVst3, Version = "TEST ONLY 1", Architecture = PluginArchitecture.X64, Format = PluginBinaryFormat.Vst3 }
         };
-        var absent = RenderReadinessService.Evaluate(new AppSettings { Plugins = [], DiscoveredPlugins = discovery.ToList() });
+        var absent = EvaluateWindowsReadiness(new AppSettings { Plugins = [], DiscoveredPlugins = discovery.ToList() });
         Equal(4, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
         True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1 }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
         True(absent.All(p => !p.CanAttemptRender && !p.IsVerified && !string.IsNullOrWhiteSpace(p.Status) && !string.IsNullOrWhiteSpace(p.Detail)), "Missing configuration is actionable and cannot be presented as successful verification.");
 
         var sylenth = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = sylenth32, Version = "TEST ONLY 2" };
-        var unconfigured32 = RenderReadinessService.Evaluate(sylenth, discovery);
+        var unconfigured32 = EvaluateWindowsReadiness(sylenth, discovery);
         True(!unconfigured32.CanAttemptRender && !unconfigured32.IsVerified, "Finding a 32-bit plugin does not configure an actual renderer.");
         True(unconfigured32.Detail.Contains("32", StringComparison.Ordinal) || unconfigured32.Detail.Contains("x86", StringComparison.OrdinalIgnoreCase), "An unconfigured x86 plugin exposes its real architecture instead of requiring a nonexistent 64-bit package.");
 
         var serum = new PluginConfiguration { Synth = SynthKind.Serum1, PluginPath = serum64, ExecutablePath = host, Version = "TEST ONLY 1", Backend = RenderBackend.DawDreamer };
-        var ready = RenderReadinessService.Evaluate(serum, discovery);
+        var ready = EvaluateWindowsReadiness(serum, discovery);
         True(ready.CanAttemptRender && !ready.IsVerified, "Structurally configured x64 VST2 can be attempted, but file discovery cannot verify real synthesis.");
         True(!string.IsNullOrWhiteSpace(ready.Status) && !string.IsNullOrWhiteSpace(ready.Detail), "Readiness includes a visible explanation rather than an unexplained success flag.");
         sylenth.Backend = RenderBackend.DawDreamer; sylenth.ExecutablePath = host;
-        True(!RenderReadinessService.Evaluate(sylenth, discovery).CanAttemptRender, "The built-in x64 DawDreamer bridge cannot attempt an x86 DLL.");
+        True(!EvaluateWindowsReadiness(sylenth, discovery).CanAttemptRender, "The built-in x64 DawDreamer bridge cannot attempt an x86 DLL.");
         serum.PluginPath = serumVst3;
-        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Discovering a VST3 is not evidence that this VST2 FXP bridge can render it.");
+        True(!EvaluateWindowsReadiness(serum, discovery).CanAttemptRender, "Discovering a VST3 is not evidence that this VST2 FXP bridge can render it.");
         serum.PluginPath = Path.Combine(directory, "missing.dll");
-        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Missing configured plugin files block an attempt.");
+        True(!EvaluateWindowsReadiness(serum, discovery).CanAttemptRender, "Missing configured plugin files block an attempt.");
         serum.PluginPath = serum64; serum.ExecutablePath = Path.Combine(directory, "missing-host.exe");
-        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "Missing host executables block an attempt.");
+        True(!EvaluateWindowsReadiness(serum, discovery).CanAttemptRender, "Missing host executables block an attempt.");
         serum.ExecutablePath = host; serum.Version = "";
-        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "A blank actual version remains an incomplete renderer configuration.");
+        True(!EvaluateWindowsReadiness(serum, discovery).CanAttemptRender, "A blank actual version remains an incomplete renderer configuration.");
         serum.Version = "TEST ONLY 1";
         foreach (var (synth, architecture) in new[]
         {
@@ -1407,28 +1409,28 @@ internal static partial class Program
         })
         {
             var uncertain = new[] { new DiscoveredPlugin { Synth = synth, FilePath = serum64, BinaryPath = serum64, Architecture = architecture, Format = PluginBinaryFormat.Vst2 } };
-            True(!RenderReadinessService.Evaluate(serum, uncertain).CanAttemptRender, "Unknown architecture or a different/unknown product at the configured path cannot establish DawDreamer readiness.");
+            True(!EvaluateWindowsReadiness(serum, uncertain).CanAttemptRender, "Unknown architecture or a different/unknown product at the configured path cannot establish DawDreamer readiness.");
         }
 
         sylenth.Backend = RenderBackend.ExternalWorker;
-        var external32 = RenderReadinessService.Evaluate(sylenth, discovery);
+        var external32 = EvaluateWindowsReadiness(sylenth, discovery);
         True(external32.CanAttemptRender && !external32.IsVerified, "A custom matching external worker is not globally denied merely because its plugin is x86.");
         True(external32.Detail.Contains("32", StringComparison.Ordinal) || external32.Detail.Contains("x86", StringComparison.OrdinalIgnoreCase), "The external-worker result still identifies the x86 host-matching responsibility.");
         var externalOnly = new PluginConfiguration { Synth = SynthKind.Sylenth1, Backend = RenderBackend.ExternalWorker, ExecutablePath = host, Version = "TEST ONLY external adapter" };
-        True(RenderReadinessService.Evaluate(externalOnly, []).CanAttemptRender, "A custom external protocol renderer can manage its own plugin and does not require DawDreamer discovery fields.");
+        True(EvaluateWindowsReadiness(externalOnly, []).CanAttemptRender, "A custom external protocol renderer can manage its own plugin and does not require DawDreamer discovery fields.");
         var vital = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.VitalCli, ExecutablePath = host, Version = "TEST ONLY" };
-        var vitalReadiness = RenderReadinessService.Evaluate(vital, discovery);
+        var vitalReadiness = EvaluateWindowsReadiness(vital, discovery);
         True(vitalReadiness.CanAttemptRender && !vitalReadiness.IsVerified, "Vital CLI configuration is attemptable but cannot verify preset loading in a read-only status check.");
         var vitalSettings = new AppSettings { Plugins = [vital], Template = new PreviewTemplate { QuickPreview = false, Velocity = 89, HoldSeconds = 1, TailSeconds = 0.3 } };
         string beforeReadiness = JsonSerializer.Serialize(vitalSettings, LibraryJson.Options);
-        True(RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness accepts the native adapter's actual fixed parameters.");
+        True(EvaluateWindowsReadiness(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness accepts the native adapter's actual fixed parameters.");
         Equal(beforeReadiness, JsonSerializer.Serialize(vitalSettings, LibraryJson.Options), "Readiness evaluation does not change the user's settings, source paths or template.");
         vitalSettings.Template.HoldSeconds = 1.5; vitalSettings.Template.TailSeconds = 0.45;
-        True(!RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness explains unsupported fractional native hold time before a render is attempted.");
+        True(!EvaluateWindowsReadiness(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Global readiness explains unsupported fractional native hold time before a render is attempted.");
         vitalSettings.Template = new PreviewTemplate();
-        True(RenderReadinessService.Evaluate(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Quick defaults are ready for Vital because the dispatcher selects valid native capture stages itself.");
+        True(EvaluateWindowsReadiness(vitalSettings).Single(p => p.Synth == SynthKind.Vital).CanAttemptRender, "Quick defaults are ready for Vital because the dispatcher selects valid native capture stages itself.");
         serum.Backend = RenderBackend.VitalCli; serum.Version = "TEST ONLY";
-        True(!RenderReadinessService.Evaluate(serum, discovery).CanAttemptRender, "A Vital-only backend cannot be marked ready for Serum.");
+        True(!EvaluateWindowsReadiness(serum, discovery).CanAttemptRender, "A Vital-only backend cannot be marked ready for Serum.");
         return Task.CompletedTask;
     }
 

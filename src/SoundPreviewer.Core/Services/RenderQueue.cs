@@ -336,8 +336,8 @@ public sealed class RenderQueue(LibraryStore store)
     private sealed class PreviewReferences
     {
         private readonly Dictionary<string, string> recordPaths = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> sourcePaths = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> counts = new(ApplicationPaths.PathComparer);
+        private readonly HashSet<string> sourcePaths = new(ApplicationPaths.PathComparer);
         private readonly string? root;
 
         public PreviewReferences(IEnumerable<PresetRecord> stored, IEnumerable<PresetRecord> requested, string directory, CancellationToken token)
@@ -372,10 +372,10 @@ public sealed class RenderQueue(LibraryStore store)
         public OwnedCache? Reclaimable(string path, string key, string nextPath, int expectedReferences)
         {
             if (root is null || key.Length != 64 || !key.All(char.IsAsciiHexDigit) || Normalize(path) is not string normalized ||
-                string.Equals(normalized, Normalize(nextPath), StringComparison.OrdinalIgnoreCase) || sourcePaths.Contains(normalized) ||
+                string.Equals(normalized, Normalize(nextPath), ApplicationPaths.PathComparison) || sourcePaths.Contains(normalized) ||
                 counts.GetValueOrDefault(normalized) != expectedReferences ||
-                !string.Equals(Path.GetDirectoryName(normalized), root, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(Path.GetFileName(normalized), key + ".wav", StringComparison.OrdinalIgnoreCase)) return null;
+                !string.Equals(Path.GetDirectoryName(normalized), root, ApplicationPaths.PathComparison) ||
+                !string.Equals(Path.GetFileName(normalized), key + ".wav", ApplicationPaths.PathComparison)) return null;
             try
             {
                 var rootAttributes = File.GetAttributes(root);

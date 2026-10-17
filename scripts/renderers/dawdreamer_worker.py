@@ -7,6 +7,8 @@ import importlib.metadata
 import json
 import math
 import os
+import platform
+import plistlib
 from pathlib import Path
 import struct
 import subprocess
@@ -26,7 +28,8 @@ def host_metadata():
     return {
         "PythonPath": sys.executable,
         "PythonVersion": sys.version.split()[0],
-        "Architecture": "x64" if struct.calcsize("P") == 8 else "x86",
+        "Architecture": "arm64" if platform.machine().lower() in ("arm64", "aarch64") else ("x64" if struct.calcsize("P") == 8 else "x86"),
+        "Platform": sys.platform,
         "HostVersion": importlib.metadata.version("dawdreamer"),
         "NumpyVersion": importlib.metadata.version("numpy"),
     }
@@ -93,8 +96,8 @@ def validate_runtime_info(runtimes):
 
 
 def load_host(report_phase, report_metadata=lambda metadata: None):
-    if sys.platform != "win32" or struct.calcsize("P") != 8 or sys.version_info[:2] not in ((3, 11), (3, 12)):
-        raise ValueError("Pinned DawDreamer bridge requires Windows and 64-bit Python 3.11 or 3.12.")
+    if sys.platform not in ("win32", "darwin") or struct.calcsize("P") != 8 or sys.version_info[:2] not in ((3, 11), (3, 12)):
+        raise ValueError("Pinned DawDreamer bridge requires Windows/macOS and 64-bit Python 3.11 or 3.12.")
     try:
         metadata = host_metadata()
     except importlib.metadata.PackageNotFoundError as error:
@@ -107,9 +110,10 @@ def load_host(report_phase, report_metadata=lambda metadata: None):
     report_phase("导入本地宿主库")
     import dawdreamer as daw
 
-    metadata["RuntimeDlls"] = loaded_runtime_info()
-    report_metadata(metadata)
-    validate_runtime_info(metadata["RuntimeDlls"])
+    if sys.platform == "win32":
+        metadata["RuntimeDlls"] = loaded_runtime_info()
+        report_metadata(metadata)
+        validate_runtime_info(metadata["RuntimeDlls"])
     import numpy as np
     return daw, np, metadata
 
@@ -153,7 +157,8 @@ def isolated_probe(result_path, report_phase):
         command = [sys.executable, str(Path(__file__).resolve()), "--probe-internal", "--result", str(child_result)]
         try:
             process = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     timeout=PROBE_TIMEOUT_SECONDS, creationflags=subprocess.CREATE_NO_WINDOW)
+                                     timeout=PROBE_TIMEOUT_SECONDS,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0)
             exit_code = process.returncode
         except subprocess.TimeoutExpired:
             exit_code = None
@@ -181,6 +186,9 @@ def isolated_probe(result_path, report_phase):
 
 
 def check_plugin_architecture(plugin_path):
+    if sys.platform == "darwin":
+        check_mac_plugin_architecture(plugin_path)
+        return
     with plugin_path.open("rb") as stream:
         if stream.read(2) != b"MZ":
             raise ValueError("Plugin is not a Windows PE binary.")
@@ -201,6 +209,52 @@ def check_plugin_architecture(plugin_path):
         raise ValueError(f"Unsupported plugin architecture: PE machine 0x{machine:04X}.")
 
 
+def check_mac_plugin_architecture(bundle):
+    if bundle.suffix.lower() != ".vst" or not bundle.is_dir() or bundle.is_symlink():
+        raise ValueError("macOS FXP rendering requires a native VST2 .vst bundle; Windows DLLs cannot run on macOS.")
+    contents = bundle / "Contents"
+    plist_path = contents / "Info.plist"
+    if contents.is_symlink() or plist_path.is_symlink() or plist_path.stat().st_size > 1024 * 1024:
+        raise ValueError("Invalid or linked VST2 bundle metadata.")
+    metadata = plistlib.loads(plist_path.read_bytes())
+    name = metadata.get("CFBundleExecutable", "")
+    if not isinstance(name, str) or not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise ValueError("VST2 bundle executable must be a filename inside Contents/MacOS.")
+    binary = contents / "MacOS" / name
+    if binary.parent.is_symlink() or binary.is_symlink() or not binary.is_file():
+        raise ValueError("VST2 bundle executable is missing or linked outside the bundle.")
+    required = 0x0100000C if platform.machine().lower() in ("arm64", "aarch64") else 0x01000007
+    with binary.open("rb") as stream:
+        header = stream.read(8)
+        if len(header) != 8:
+            raise ValueError("Mach-O header is truncated.")
+        magic = header[:4]
+        if magic in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"):
+            endian = "<" if magic[0] == 0xCF else ">"
+            machines = {struct.unpack(endian + "I", header[4:8])[0]}
+        elif magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"):
+            endian = ">" if magic[0] == 0xCA else "<"
+            count = struct.unpack(endian + "I", header[4:8])[0]
+            if not 1 <= count <= 32:
+                raise ValueError("Invalid Mach-O universal architecture count.")
+            wide = magic in (b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca")
+            size = 32 if wide else 20
+            machines = set()
+            for _ in range(count):
+                record = stream.read(size)
+                if len(record) != size:
+                    raise ValueError("Mach-O universal header is truncated.")
+                machine = struct.unpack(endian + "I", record[:4])[0]
+                offset, length = struct.unpack(endian + ("QQ" if wide else "II"), record[8:24] if wide else record[8:16])
+                if offset < 8 + count * size or length < 32 or offset + length > binary.stat().st_size:
+                    raise ValueError("Mach-O universal slice is outside the binary.")
+                machines.add(machine)
+        else:
+            raise ValueError("Plugin is not a native 64-bit Mach-O binary.")
+    if required not in machines:
+        raise ValueError(f"Plugin architecture does not match Python {platform.machine()}; use a matching native host and plugin.")
+
+
 def validate_request(request):
     preset = request["Preset"]
     plugin = request["Plugin"]
@@ -214,8 +268,8 @@ def validate_request(request):
     if baseline and (preset.get("SourcePath") or preset.get("ContentHash")):
         raise ValueError("Default-startup baseline must not contain a source preset identity.")
     source = None if baseline else Path(preset["SourcePath"]).resolve(strict=True)
-    if (source is not None and source.suffix.lower() != ".fxp") or binary.suffix.lower() != ".dll":
-        raise ValueError("FXP requires the VST2 instrument DLL. VST3, SerumPreset and FXB banks are not supported by this bridge.")
+    if (source is not None and source.suffix.lower() != ".fxp") or binary.suffix.lower() not in (".dll", ".vst"):
+        raise ValueError("FXP requires a VST2 instrument (.dll on Windows, .vst on macOS). VST3, SerumPreset and FXB banks are not supported by this bridge.")
     if "serumfx" in binary.stem.lower():
         raise ValueError("SerumFX is an effect; select the Serum instrument DLL.")
     if source is not None and source.stat().st_size > 64 * 1024 * 1024:

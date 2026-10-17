@@ -202,6 +202,9 @@ public static class Fingerprints
         cancellationToken.ThrowIfCancellationRequested();
         if (File.Exists(plugin.PluginPath)) return HashFile(plugin.PluginPath, cancellationToken);
         if (!Directory.Exists(plugin.PluginPath)) return "";
+        var binary = Scanning.PluginScanService.ResolveBundleExecutable(plugin.PluginPath);
+        if (binary is not null) return HashText(JsonSerializer.Serialize(new { Binary = HashFile(binary, cancellationToken),
+            Metadata = HashFile(Path.Combine(plugin.PluginPath, "Contents", "Info.plist"), cancellationToken) }));
         var binaries = discovered.Where(p => string.Equals(p.FilePath, plugin.PluginPath, StringComparison.OrdinalIgnoreCase))
             .Select(p => p.BinaryPath).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
@@ -210,7 +213,7 @@ public static class Fingerprints
         return binaries.Count == 0 ? "" : HashText(JsonSerializer.Serialize(binaries));
     }
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>
-        HashText($"{synth}|{System.IO.Path.GetFullPath(path).ToUpperInvariant()}|{internalPath}|{slot}");
+        HashText($"{synth}|{ApplicationPaths.PathIdentity(path)}|{internalPath}|{slot}");
     public static string CacheKey(PresetRecord preset, PluginConfiguration plugin, PreviewTemplate template) =>
         HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth,
             Plugin = new { plugin.Synth, plugin.Backend, plugin.ExecutablePath, plugin.PluginPath, plugin.Version,

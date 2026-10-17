@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$RequestPath,
     [Parameter(Mandatory = $true)][string]$ArtifactDirectory,
-    [string]$WorkerPath = (Join-Path $PSScriptRoot '..\src\SoundPreviewer.Worker\bin\Release\net8.0-windows\SoundPreviewer.Worker.exe'),
+    [string]$WorkerPath = (Join-Path $PSScriptRoot '..\src\SoundPreviewer.Worker\bin\Release\net8.0\SoundPreviewer.Worker.exe'),
     [string]$CorePath,
     [string]$RendererPath
 )

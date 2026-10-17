@@ -1,5 +1,5 @@
 param(
-    [string]$DataDirectory = (Join-Path $PSScriptRoot 'local-data'),
+    [string]$DataDirectory = '',
     [switch]$SkipBuild
 )
 $ErrorActionPreference = 'Stop'
@@ -14,8 +14,11 @@ try {
         dotnet build SoundPreviewer.sln -c Release --no-restore
         if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
     }
-    $application = Join-Path $PSScriptRoot 'src\SoundPreviewer.App\bin\Release\net8.0-windows\SoundPreviewer.exe'
+    $application = Join-Path $PSScriptRoot 'src\SoundPreviewer.App\bin\Release\net8.0\SoundPreviewer.exe'
     if (-not (Test-Path -LiteralPath $application)) { throw 'Application build is missing.' }
-    Start-Process -FilePath $application -ArgumentList @('--data-directory', ('"{0}"' -f [IO.Path]::GetFullPath($DataDirectory)))
+    if ($DataDirectory) {
+        Start-Process -FilePath $application -ArgumentList @('--data-directory', ('"{0}"' -f [IO.Path]::GetFullPath($DataDirectory)))
+    }
+    else { Start-Process -FilePath $application }
 }
 finally { Pop-Location }

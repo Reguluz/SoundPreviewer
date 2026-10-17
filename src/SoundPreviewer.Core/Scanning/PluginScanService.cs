@@ -13,6 +13,24 @@ public sealed class PluginScanService
     private const long MaximumBinaryBytes = 512L * 1024 * 1024;
     private const uint MaximumExportNames = 4096;
 
+    public static string? ResolveBundleExecutable(string path)
+    {
+        try
+        {
+            string extension = Path.GetExtension(path);
+            if (!Directory.Exists(path) || !(extension.Equals(".app", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".vst", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vst3", StringComparison.OrdinalIgnoreCase))) return null;
+            string content = Path.Combine(path, "Contents"), binaries = Path.Combine(content, "MacOS");
+            string plist = Path.Combine(content, "Info.plist");
+            if (new[] { path, content, binaries, plist }.Any(item => (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)) return null;
+            string executable = MacBundleMetadata.Read(plist).GetValueOrDefault("CFBundleExecutable", "");
+            if (string.IsNullOrWhiteSpace(executable) || executable is "." or ".." || executable.IndexOfAny(['/', '\\', '\0']) >= 0) return null;
+            string binary = Path.Combine(binaries, executable);
+            return File.Exists(binary) && (File.GetAttributes(binary) & FileAttributes.ReparsePoint) == 0 ? binary : null;
+        }
+        catch (Exception error) when (IsFileError(error)) { return null; }
+    }
+
     public Task<PluginScanResult> ScanAsync(IReadOnlyList<string> directories, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(directories);
@@ -63,9 +81,13 @@ public sealed class PluginScanService
                         if (string.Equals(directory, root, StringComparison.OrdinalIgnoreCase)) result.UnavailableRoots.Add(root);
                         continue;
                     }
-                    if (Path.GetExtension(directory).Equals(".vst3", StringComparison.OrdinalIgnoreCase))
+                    string directoryExtension = Path.GetExtension(directory);
+                    if (directoryExtension.Equals(".vst3", StringComparison.OrdinalIgnoreCase) ||
+                        directoryExtension.Equals(".vst", StringComparison.OrdinalIgnoreCase) ||
+                        directoryExtension.Equals(".app", StringComparison.OrdinalIgnoreCase))
                     {
-                        InspectBundle(directory);
+                        if (Directory.Exists(Path.Combine(directory, "Contents", "MacOS"))) InspectMacBundle(directory);
+                        else if (directoryExtension.Equals(".vst3", StringComparison.OrdinalIgnoreCase)) InspectBundle(directory);
                         continue;
                     }
                     foreach (string path in Directory.EnumerateFileSystemEntries(directory))
@@ -92,6 +114,46 @@ public sealed class PluginScanService
         }
         result.Plugins.Sort((left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.BinaryPath, right.BinaryPath));
         return result;
+
+        void InspectMacBundle(string bundle)
+        {
+            string content = Path.Combine(bundle, "Contents");
+            string binaries = Path.Combine(content, "MacOS");
+            string metadataPath = Path.Combine(content, "Info.plist");
+            if (IsLink(content, result) || IsLink(binaries, result) || IsLink(metadataPath, result)) return;
+            var metadata = MacBundleMetadata.Read(metadataPath);
+            string executable = metadata.GetValueOrDefault("CFBundleExecutable", "");
+            if (string.IsNullOrWhiteSpace(executable) || executable is "." or ".." ||
+                executable.IndexOfAny(['/', '\\', '\0']) >= 0)
+                throw new InvalidDataException("macOS 包的 CFBundleExecutable 无效，不能离开 Contents/MacOS 目录。");
+            string binary = Path.Combine(binaries, executable);
+            if (IsLink(binary, result) || !seenBinaries.Add(binary)) return;
+            token.ThrowIfCancellationRequested();
+            PluginBinaryFormat format = Path.GetExtension(bundle).ToLowerInvariant() switch
+            {
+                ".app" => PluginBinaryFormat.Standalone,
+                ".vst3" => PluginBinaryFormat.Vst3,
+                _ => PluginBinaryFormat.Vst2
+            };
+            var native = MachOPluginMetadata.Read(binary, format, token);
+            string product = metadata.GetValueOrDefault("CFBundleName", metadata.GetValueOrDefault("CFBundleDisplayName", ""));
+            string identifier = metadata.GetValueOrDefault("CFBundleIdentifier", "");
+            string version = metadata.GetValueOrDefault("CFBundleShortVersionString", metadata.GetValueOrDefault("CFBundleVersion", ""));
+            string fileName = Path.GetFileNameWithoutExtension(bundle);
+            if (IsSerumEffect(fileName) || IsSerumEffect(product) || IsSerumEffect(identifier)) return;
+            SynthKind synth = IdentifyMac(fileName, product, identifier, version);
+            if (format == PluginBinaryFormat.Standalone && synth != SynthKind.Vital) return;
+            string name = synth == SynthKind.Unknown ? (string.IsNullOrWhiteSpace(product) ? fileName : product.Trim()) : PresetDetection.SynthName(synth);
+            result.Plugins.Add(new DiscoveredPlugin
+            {
+                Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(binary))).ToLowerInvariant(),
+                Synth = synth, FilePath = bundle, BinaryPath = binary, Version = version.Trim(),
+                Architecture = native, Platform = PluginPlatform.MacOS, Format = format, Name = name,
+                Reason = synth == SynthKind.Unknown
+                    ? "macOS 包及 Mach-O 入口有效，但产品 / 厂商标识不足以确认音源；文件名不作为唯一身份依据。"
+                    : $"macOS 包名称、产品 / 厂商标识对应 {name}，Mach-O 架构为 {native}；仅检查元数据和入口，未实例化插件。"
+            });
+        }
 
         void InspectBundle(string bundle)
         {
@@ -189,6 +251,22 @@ public sealed class PluginScanService
                 Architecture = architecture, Format = format, Name = name, Reason = reason
             });
         }
+    }
+
+    private static SynthKind IdentifyMac(string fileName, string product, string identifier, string version)
+    {
+        string id = identifier.ToLowerInvariant();
+        bool Vendor(string prefix) => id.StartsWith(prefix + ".", StringComparison.Ordinal);
+        bool Product(string name) => KnownFileName(fileName, name) && KnownFileName(product, name) &&
+            id.Split('.').Any(part => KnownFileName(part, name));
+        if ((Vendor("com.xfer") || Vendor("com.xferrecords")) && (Product("Serum") || Product("Serum2")))
+        {
+            string major = version.Split('.')[0];
+            return major switch { "1" when !Product("Serum2") => SynthKind.Serum1, "2" => SynthKind.Serum2, _ => SynthKind.Unknown };
+        }
+        if (Vendor("com.lennardigital") && Product("Sylenth1")) return SynthKind.Sylenth1;
+        if ((Vendor("com.matttytel") || Vendor("com.vitalaudio") || Vendor("audio.vital")) && Product("Vital")) return SynthKind.Vital;
+        return SynthKind.Unknown;
     }
 
     private static HashSet<string> ReadPluginExports(FileStream stream, PEHeaders headers, CancellationToken token)

@@ -1,20 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <UseWPF>true</UseWPF>
+    <TargetFramework>net8.0</TargetFramework>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>SoundPreviewer</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <X86HostDirectory Condition="'$(X86HostDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\vst2host-x86\</X86HostDirectory>
+    <WorkerOutputDirectory>$(MSBuildThisFileDirectory)../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/</WorkerOutputDirectory>
     <NormalizedX86HostDirectory>$([MSBuild]::EnsureTrailingSlash('$(X86HostDirectory)'))</NormalizedX86HostDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.13" />
     <ProjectReference Include="../SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
     <ProjectReference Include="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <Target Name="CopyRenderWorker" AfterTargets="Build">
     <ItemGroup>
-      <WorkerFiles Include="../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/SoundPreviewer.Worker*" />
-      <RendererFiles Include="../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/Renderers/*" />
+      <WorkerFiles Include="$(WorkerOutputDirectory)SoundPreviewer.Worker*" />
+      <RendererFiles Include="$(WorkerOutputDirectory)Renderers/*" />
     </ItemGroup>
     <Copy SourceFiles="@(WorkerFiles)" DestinationFolder="$(OutDir)" />
     <Copy SourceFiles="@(RendererFiles)" DestinationFolder="$(OutDir)Renderers/" />
@@ -23,11 +28,11 @@
     <MSBuild Projects="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" Targets="Publish"
              Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)" />
   </Target>
-  <Target Name="CopyX86Host" AfterTargets="Build" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe')">
+  <Target Name="CopyX86Host" AfterTargets="Build" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe') and ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))))">
     <ItemGroup><X86HostFiles Include="$(NormalizedX86HostDirectory)**\*" /></ItemGroup>
     <Copy SourceFiles="@(X86HostFiles)" DestinationFiles="@(X86HostFiles->'$(OutDir)Vst2Host-x86\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
-  <Target Name="PublishX86Host" AfterTargets="Publish" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe')">
+  <Target Name="PublishX86Host" AfterTargets="Publish" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe') and ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))))">
     <ItemGroup><PublishedX86HostFiles Include="$(NormalizedX86HostDirectory)**\*" /></ItemGroup>
     <Copy SourceFiles="@(PublishedX86HostFiles)" DestinationFiles="@(PublishedX86HostFiles->'$(PublishDir)Vst2Host-x86\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>

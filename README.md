@@ -1,12 +1,12 @@
 # SoundPreviewer
 
-Windows 本地合成器预制音色库，使用 C#、.NET 8 和 WPF 开发。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。基础应用无需第三方 NuGet 包，也不调用云端服务。
+Windows / macOS 本地合成器预制音色库，使用 C#、.NET 8 和 Avalonia 开发。两端共用完整界面与业务核心，使用各自的原生音频输出。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。界面使用 Avalonia NuGet 包，音色库与渲染在本地运行，不调用云端服务。
 
-当前交付为可运行的首个开发版本。目录扫描、检索、收藏、反馈、播放、任务恢复和独立渲染进程已实现；真实音源的支持范围见 [渲染验证记录](docs/rendering.md)。AI 向量搜索、个人推荐、FXB 银行槽位遍历与 macOS 尚未实现。
+当前交付为可运行的首个开发版本。目录扫描、检索、收藏、反馈、播放、任务恢复和独立渲染进程已实现；真实音源的支持范围见 [渲染验证记录](docs/rendering.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。macOS 适配与验证范围见 [双平台说明](docs/cross-platform.md)。
 
 ## 启动
 
-需要 Windows 10/11、.NET 8 Desktop Runtime；从源码构建还需要 .NET 8 SDK。仓库固定 SDK 8.0.425，允许更新的 .NET 8 功能版本。
+支持 Windows 10/11、macOS（Apple Silicon / Intel）。从源码构建需要 .NET 8 SDK；便携发布版包含 .NET 运行时，无需额外安装 Desktop Runtime。仓库固定 SDK 8.0.425，允许更新的 .NET 8 功能版本。
 
 双击仓库中的 `Start-SoundPreviewer.cmd`，或使用下面的启动命令。
 
@@ -14,9 +14,11 @@ Windows 本地合成器预制音色库，使用 C#、.NET 8 和 WPF 开发。SQL
 powershell -ExecutionPolicy Bypass -File .\Start-SoundPreviewer.ps1
 ```
 
-启动脚本将本地数据保存在仓库的 `local-data`，不会提交到 Git。直接打开 `SoundPreviewer.exe` 时，默认数据目录为 `%LOCALAPPDATA%\SoundPreviewer`。可通过 `--data-directory` 指定另一音色库。
+macOS 从源码双击 `Start-SoundPreviewer.command`，或运行 `./Start-SoundPreviewer.command`。
 
-当前本机日常入口保留在 `artifacts/publish-quick/SoundPreviewer.exe`，更新须发布回这一原位置，不能仅启动另一个临时发布目录就当作已升级。原快捷方式不传数据参数时，继续使用上述默认音色库，不改成验收库。窗口标题及右下角显示应用版本，悬停版本可核对程序与音色库路径。
+两端默认将数据库、日志与预览保存在**应用可执行文件所在目录**的 `local-data`，分类规则位于同目录 `Config`。相对路径以程序目录为基准，不随工作目录变化。设置中的生成目录和导出位置须在程序目录内；显式 `--data-directory` 可用于隔离测试或指定旧库。程序目录必须可写。不会自动移动旧 Windows 音色库，请使用 `--data-directory` 指向旧库后核对。
+
+旧 Windows 交付入口为 `artifacts/publish-quick/SoundPreviewer.exe`；本次源代码升级不覆盖旧发布目录。新版默认改用程序目录内的数据；若要继续使用原库，需显式指定原数据路径。窗口标题及右下角显示应用版本，悬停版本可核对程序与音色库路径。
 
 ## 配置与使用
 
@@ -64,9 +66,9 @@ Vital 包仅索引内部条目；已识别但未实现渲染的银行显示「�
 ```powershell
 dotnet restore SoundPreviewer.sln --configfile NuGet.Config
 dotnet build SoundPreviewer.sln -c Release --no-restore
-.\tests\SoundPreviewer.Tests\bin\Release\net8.0-windows\SoundPreviewer.Tests.exe
-python -m unittest discover -s scripts/renderers -p test_dawdreamer_worker.py
-dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release --no-restore -o artifacts/publish
+dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build
+python -m unittest discover -s scripts/renderers -p "test_*.py"
+pwsh -File scripts/Publish-Desktop.ps1 -Runtime win-x64
 ```
 
 可选 32 位 Sylenth1 宿主须另行运行 `pwsh -File src/SoundPreviewer.Vst2Host/build.ps1` 后再发布主应用；此项目单独使用官方 NuGet 依赖，基础解决方案不受影响。目标电脑需 x86 .NET 8 Desktop Runtime。真实单 FXP 已生成并播放，尚未代表批量或 FXB 验收。详见渲染记录。
@@ -75,23 +77,32 @@ dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release --no-
 
 测试覆盖实际 WAV 格式和异常值、SQLite 事务与 v1→v2 迁移、MD5 回填与重复代表提升、混合目录识别与冲突、手动分类和旧设置兼容、插件 PE / 导出 / 位数 / VST3 包与版本选择、扫描增量与反馈、音色包资源变化、未知音源禁止渲染、进程超时、停止后逐项恢复、默认复用与强制生成、原子提交和有限重试。测试中的声音、PE 文件和子进程仅用于基础设施验证，不能作为插件兼容性的证据。
 
-默认测试入口现包含 29 组无需音频设备的检查。可添加 `--test-playback`，在具备默认音频设备的 Windows 上进行第 30 组静音播放检查，涵盖暂停、跳转、继续和释放。本轮最终 C# 检查 30/30 通过，Python 纯测试 18/18 通过，独立 x86 宿主的无插件自检也通过（包含拒绝未改变状态的 chunk）；这些结果不替代真实插件或人工试听验收。测试覆盖分类规则、三参考启动比对、基准工作流、新旧顺序兼容、内置宿主迁移、快速预览响度检测、慢起音延长与总超时、反相和内部停顿、采集与裁剪映射、旧 12 秒预览复用、强制同路径覆盖及换路径安全回收、共享与源文件保护，以及队列反馈、取消和待确认音频持久化。
+默认测试入口包含 31 组无需音频设备的检查。可添加 `--test-playback`，在具备默认音频设备的 Windows / macOS 上进行第 32 组静音播放检查，涵盖暂停、跳转、继续和释放。本次 Apple Silicon 上 C# 32/32、Python 25/25 通过，共用界面的两种窗口尺寸自动验收通过；这些结果不替代真实商业插件或跨平台声音一致性验收。Windows 既有 x86 宿主及真实音源的历史验收仍见渲染记录。完整范围见 [双平台验收记录](docs/cross-platform.md#本次验证结果)。
 
 UI 可用隔离音色库生成两种窗口尺寸、三个主页面及设置子页的截图，检查组合筛选、列选择与布局后自动退出；是否通过以当次 `ui-smoke.json` 为准：
 
 ```powershell
-.\src\SoundPreviewer.App\bin\Release\net8.0-windows\SoundPreviewer.exe --data-directory .\artifacts\ui-smoke --smoke-test
+.\src\SoundPreviewer.App\bin\Release\net8.0\SoundPreviewer.exe --data-directory .\artifacts\ui-smoke --smoke-test
 ```
 
-本轮最终两种窗口尺寸的界面检查通过，包含明确标记的测试音频库，以及真实音色库副本中的 8,859 条路径索引、1,019 个重复副本及 122 个插件发现结果；组合筛选、可选列与设置列表的实际可见空间均已检查。原音色库数据库未修改，也未为界面检查启动商业插件或批量渲染。
+此前 Windows WPF 版本的两种窗口尺寸界面检查通过，包含明确标记的测试音频库，以及真实音色库副本中的 8,859 条路径索引、1,019 个重复副本及 122 个插件发现结果；组合筛选、可选列与设置列表的实际可见空间均已检查。原音色库数据库未修改，也未为界面检查启动商业插件或批量渲染。
 
 升级前另存了数据库备份 `artifacts/library-before-library-upgrade-20261016-022919`。最终程序已打开既有隔离试听库，启动日志确认更新内置宿主路径、恢复任务数为零；没有自动扫描或渲染。
 
 `scripts/Validate-InitializationBaseline.ps1` 用既有、已核对的普通 FXP 请求，在全新的 `artifacts` 子目录中尝试建立独立启动基准、比较重复启动声音并与目标 FXP 区分，保存音频、指标、结果和输入前后指纹。不扫描目录、不写用户音色库、不覆盖旧验收输出。它会真实调用请求指定的插件宿主，不能当作无插件自检；本轮基准校准与真实验收结论仍见 [渲染说明](docs/rendering.md#默认启动音色基准)。
 
+macOS 自包含发布：
+
+```bash
+./scripts/Publish-Desktop.sh osx-arm64 # Apple Silicon
+./scripts/Publish-Desktop.sh osx-x64   # Intel
+```
+
+在对应 `artifacts/publish-<平台>` 文件夹内双击 `Start-SoundPreviewer.command`（macOS）或 `SoundPreviewer.exe`（Windows）。复制或升级时保留整个目录及 `local-data`。构建/测试矩阵与当前验收边界见 [双平台说明](docs/cross-platform.md)。
+
 ## 数据与维护
 
-所有预制文件均只读。索引使用 Windows 自带的 `winsqlite3.dll`，旧数据库自动迁移并在下次可访问的扫描中回填 MD5；Vital 预览使用原生 PCM16，DawDreamer 桥接保留 float32 原始输出，先校验临时文件，再原子提交。试听通过 WinMM 输出内存中的 PCM16 音频，独立音量不修改预览文件，也不依赖 Windows Media Player。生成缓存包含音色内容、插件/程序指纹、实际版本、试听模板及适配器版本；默认复用依据已保存模板校验完整预览，不因当前配置变化自动重渲染。源文件内容或音源归属变化会使旧映射失效。单文件外部资源的变更跟踪仍需专用适配器补充。
+所有预制文件均只读。索引在 Windows 使用自带的 `winsqlite3.dll`，macOS 使用系统 `libsqlite3.dylib`，旧数据库自动迁移并在下次可访问的扫描中回填 MD5；Vital 预览使用原生 PCM16，DawDreamer 桥接保留 float32 原始输出，先校验临时文件，再原子提交。试听在 Windows 通过 WinMM、macOS 通过 AudioQueue 输出同一份内存 PCM16 音频，独立音量不修改预览文件，也不依赖 Windows Media Player。生成缓存包含音色内容、插件/程序指纹、实际版本、试听模板及适配器版本；默认复用依据已保存模板校验完整预览，不因当前配置变化自动重渲染。源文件内容或音源归属变化会使旧映射失效。单文件外部资源的变更跟踪仍需专用适配器补充。
 
 不会自动下载模型或商业音源，不包含用户预制。可选 DawDreamer 及其他组件的发行许可需在正式打包前逐项核对。当前仅调用用户安装的音源；本仓库未替用户选定项目发行许可证。
 

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Text;
 
 namespace SoundPreviewer.Core.Storage;
@@ -106,7 +107,18 @@ internal sealed class NativeSqlite : IDisposable
 
     private static class Native
     {
-        private const string Library = "winsqlite3.dll";
+        private const string Library = "SoundPreviewer.Sqlite";
+
+        static Native() => NativeLibrary.SetDllImportResolver(typeof(NativeSqlite).Assembly, ResolveLibrary);
+
+        private static IntPtr ResolveLibrary(string name, Assembly assembly, DllImportSearchPath? searchPath)
+        {
+            if (name != Library) return IntPtr.Zero;
+            string platformLibrary = OperatingSystem.IsWindows() ? "winsqlite3.dll" :
+                OperatingSystem.IsMacOS() ? "/usr/lib/libsqlite3.dylib" : "libsqlite3.so.0";
+            return NativeLibrary.Load(platformLibrary, assembly, searchPath);
+        }
+
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_open_v2(byte[] filename, out IntPtr db, int flags, IntPtr vfs);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_close_v2(IntPtr db);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr sqlite3_errmsg(IntPtr db);

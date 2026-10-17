@@ -1,0 +1,41 @@
+name: Desktop parity
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: dotnet restore SoundPreviewer.sln --configfile NuGet.Config
+      - run: dotnet build SoundPreviewer.sln -c Release --no-restore
+      - run: dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build
+      - run: python -m unittest discover -s scripts/renderers -p "test_*.py"
+      - name: Publish portable Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/Publish-Desktop.ps1 -Runtime win-x64
+      - name: Publish portable macOS builds
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ./scripts/Publish-Desktop.sh osx-arm64
+          ./scripts/Publish-Desktop.sh osx-x64
+          tar -czf artifacts/SoundPreviewer-osx-arm64.tar.gz -C artifacts publish-osx-arm64
+          tar -czf artifacts/SoundPreviewer-osx-x64.tar.gz -C artifacts publish-osx-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoundPreviewer-${{ runner.os }}
+          path: |
+            artifacts/publish-win-x64/**
+            artifacts/SoundPreviewer-osx-*.tar.gz

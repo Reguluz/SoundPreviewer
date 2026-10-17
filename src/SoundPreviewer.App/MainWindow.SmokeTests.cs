@@ -1,0 +1,259 @@
+using System.Text.Json;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using SoundPreviewer.Core.Models;
+
+namespace SoundPreviewer.App;
+
+public partial class MainWindow
+{
+    private async Task RunSmokeTestAsync()
+    {
+        // Exercises the same controller, bindings and native playback on both desktop targets.
+        if (ForceGeneration.IsChecked == true || ShowDuplicates.IsChecked == true)
+            throw new InvalidOperationException("全量生成与重复项必须默认关闭。");
+        if (SourceSynthChoice.SelectedIndex != 0 || SourceChoices[0].Value is not null ||
+            PluginDirectoryGrid.ItemsSource?.Cast<object>().Count() != PluginDirectories.Count ||
+            DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
+            throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
+        if (PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0))
+            throw new InvalidOperationException("重复音色未默认隐藏。");
+        ShowDuplicates.IsChecked = true;
+        if (PresetsView.Count != Presets.Count) throw new InvalidOperationException("显示重复项未恢复完整索引。");
+        ShowDuplicates.IsChecked = false;
+        foreach (var synth in Enum.GetValues<SynthKind>())
+        {
+            var filter = SynthFilters.Single(choice => choice.Value == synth);
+            if (filter.Label != $"{Labels.Synth(synth)} ({Labels.PresetExtensions(synth)})")
+                throw new InvalidOperationException("音源类型与文件后缀标签不一致。");
+        }
+        var first = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0);
+        if (first is not null)
+        {
+            ResetFilterControls();
+            SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == first.Record.Synth);
+            SourceFilter.SelectedItem = SourceFilters.Single(choice => choice.Value == (first.Record.SourceId.Length == 0 ? MissingFilter : first.Record.SourceId));
+            PackageFilter.SelectedItem = PackageFilters.Single(choice => choice.Value == (first.Package.Length == 0 ? MissingFilter : first.Package));
+            CategoryFilter.SelectedItem = CategoryFilters.First(choice => choice.Value == (first.Record.CategoryTags.FirstOrDefault() ?? MissingFilter));
+            FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (first.Record.Favorite ? 1 : 0));
+            StatusFilter.SelectedItem = StatusFilters.Single(choice => choice.Value == first.Record.Status);
+            SearchBox.Text = first.Name;
+            PresetsView.Refresh();
+            if (!PresetsView.Cast<PresetRow>().Contains(first)) throw new InvalidOperationException("组合筛选遗漏匹配音色。");
+            FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (first.Record.Favorite ? 0 : 1));
+            if (PresetsView.Cast<PresetRow>().Contains(first)) throw new InvalidOperationException("收藏筛选没有排除音色。");
+            ResetFilterControls();
+        }
+        var menu = new ContextMenu();
+        ColumnMenu_Opened(menu, new RoutedEventArgs());
+        if (menu.Items.Count != PresetGrid.Columns.Count) throw new InvalidOperationException("列选择菜单与表格列不一致。");
+        var column = PresetGrid.Columns.First(value => value.IsVisible);
+        var item = menu.Items.OfType<MenuItem>().First(value => Equals(value.Header, column.Header));
+        item.IsChecked = false;
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        if (column.IsVisible) throw new InvalidOperationException("列选择没有隐藏主表列。");
+        item.IsChecked = true;
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        foreach (var order in Enum.GetValues<PreviewNoteOrder>())
+        {
+            var template = new PreviewTemplate { NoteOrder = order };
+            var record = new PresetRecord
+            {
+                TemplateJson = JsonSerializer.Serialize(template, LibraryJson.Options),
+                Notes = template.Pitches.Select((pitch, index) => new NotePreview { MidiNote = pitch, StartSeconds = index * .5, DurationSeconds = .5 }).ToList()
+            };
+            foreach (var (region, pitch) in new[] { ("Middle", 60), ("High", 84), ("Low", 36) })
+                if (FindPreviewNote(record, region)?.MidiNote != pitch) throw new InvalidOperationException("新旧音区顺序的试听按钮映射错误。");
+        }
+        var playbackChecked = false;
+        PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && row.HasPreview) ?? first;
+        await LoadSelectedPreview();
+        if (_mediaOpened)
+        {
+            _player.Volume = 0;
+            _player.Play(0);
+            await Task.Delay(250);
+            if (_player.PositionSeconds <= 0) throw new InvalidOperationException("原生音频播放位置未前进。");
+            _player.Pause();
+            var paused = _player.PositionSeconds;
+            await Task.Delay(100);
+            if (Math.Abs(_player.PositionSeconds - paused) > .05) throw new InvalidOperationException("原生音频暂停检查失败。");
+            _player.Seek(Math.Min(1, _player.DurationSeconds / 2));
+            _player.Resume();
+            await Task.Delay(100);
+            _player.Stop();
+            _player.Volume = _settings.PlaybackVolume;
+            playbackChecked = true;
+        }
+        var stopChecked = false;
+        await RunTask(async token =>
+        {
+            await SettleLayoutAsync();
+            if (!CanStopTask || !StopTaskButton.IsEnabled || !TaskStatusBand.IsVisible || !GenerationProgressBar.IsIndeterminate)
+                throw new InvalidOperationException("任务准备阶段未显示进度和停止按钮。");
+            var elapsed = TaskElapsed;
+            await Task.Delay(1100, token);
+            if (TaskElapsed == elapsed) throw new InvalidOperationException("任务用时未更新。");
+            CaptureSmokeImage("ui-generation-preparing.png");
+            StopTask_Click(StopTaskButton, new RoutedEventArgs());
+            if (CanStopTask) throw new InvalidOperationException("停止请求未及时更新。");
+            stopChecked = true;
+            token.ThrowIfCancellationRequested();
+        });
+        if (!stopChecked || !IsIdle || CanStopTask || !StatusMessage.StartsWith("已停止", StringComparison.Ordinal))
+            throw new InvalidOperationException("停止后任务状态未恢复。");
+        bool generatedViewChecked = false, generationFeedbackChecked = false;
+        var preview = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && row.HasPreview);
+        if (preview is not null)
+        {
+            SearchBox.Text = "TEST ONLY: no search match";
+            ShowGeneratedPreviews();
+            if (StatusFilter.SelectedItem is not StatusFilterChoice { GeneratedOnly: true } ||
+                SearchBox.Text?.Length > 0 || !PresetsView.Cast<PresetRow>().Contains(preview) || !CanPlay)
+                throw new InvalidOperationException("已生成视图没有清除旧筛选或选择预览。");
+            generatedViewChecked = true;
+            ResetFilterControls();
+        }
+        var unconfigured = _settings.Plugins.FirstOrDefault(plugin => plugin.Backend == RenderBackend.Unconfigured);
+        if (unconfigured is not null)
+        {
+            var pending = Enumerable.Range(0, 10000).Select(index => new PresetRecord { Id = $"TEST-ONLY-progress-{index}", Name = $"TEST ONLY progress {index}", Synth = unconfigured.Synth, Status = PresetStatus.Pending }).ToList();
+            await Generate(pending);
+            if (!IsIdle || !TaskStatusBand.IsVisible || GenerationProgressBar.IsIndeterminate || ProgressValue != 100 ||
+                TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未配置", StringComparison.Ordinal) || !TaskSettingsVisibility)
+                throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果。");
+            generationFeedbackChecked = true;
+        }
+        PluginConfiguration? editedBackendModel = null;
+        var originalBackend = RenderBackend.Unconfigured;
+        foreach (var (width, height, name) in new[] { (1380d, 900d, "desktop"), (1040d, 700d, "compact") })
+        {
+            Width = width; Height = height;
+            Pages.SelectedIndex = 0;
+            SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == SynthKind.Serum2);
+            await SettleLayoutAsync();
+            CheckSmokeLayout();
+            CaptureSmokeImage($"ui-format-{name}.png");
+            var feedback = _statusMessage;
+            _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
+            NotifyTaskProgress();
+            await SettleLayoutAsync();
+            CheckSmokeLayout();
+            if (TaskProgressDetails.Bounds.Height > 48.1 || TaskStatusBand.Bounds.Height > 125)
+                throw new InvalidOperationException("长渲染错误挤占音色库内容区域。");
+            CaptureSmokeImage($"ui-long-feedback-{name}.png");
+            _statusMessage = feedback;
+            NotifyTaskProgress();
+            ResetFilterControls();
+            for (var page = 0; page < 3; page++)
+            {
+                Pages.SelectedIndex = page;
+                await SettleLayoutAsync();
+                CaptureSmokeImage($"ui-{name}-{page}.png");
+            }
+            foreach (var (tab, suffix) in new[] { (DirectorySettingsTab, "directories"), (DiscoveredSettingsTab, "discovered"), (RenderSettingsTab, "renderers"), (StorageSettingsTab, "storage"), (ClassificationSettingsTab, "categories") })
+            {
+                Pages.SelectedItem = SettingsTab;
+                SettingsPages.SelectedItem = tab;
+                await SettleLayoutAsync();
+                if (tab == RenderSettingsTab)
+                {
+                    var backends = PluginGrid.GetVisualDescendants().OfType<ComboBox>()
+                        .Where(combo => combo.IsEffectivelyVisible)
+                        .DistinctBy(combo => (combo.DataContext as PluginConfiguration)?.Synth).ToList();
+                    await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, $"ui-backends-{name}.json"), JsonSerializer.Serialize(backends.Select(combo => new
+                    {
+                        Synth = (combo.DataContext as PluginConfiguration)?.Synth.ToString(),
+                        ModelBackend = (combo.DataContext as PluginConfiguration)?.Backend.ToString(),
+                        SelectedItem = combo.SelectedItem?.ToString(), combo.SelectedIndex, combo.ItemCount
+                    })));
+                    if (backends.Count != Plugins.Count || backends.Any(combo => combo.DataContext is not PluginConfiguration plugin ||
+                        combo.SelectedItem is not RenderBackend selected || selected != plugin.Backend || combo.ItemCount != Enum.GetValues<RenderBackend>().Length))
+                        throw new InvalidOperationException("渲染器方式列表未显示全部音源的当前设置。");
+                    var editable = backends.First(combo => combo.DataContext is PluginConfiguration { Synth: SynthKind.Serum1 });
+                    var model = (PluginConfiguration)editable.DataContext!;
+                    if (name == "desktop")
+                    {
+                        originalBackend = model.Backend;
+                        editedBackendModel = model;
+                        editable.SelectedIndex = (int)RenderBackend.ExternalWorker;
+                        await SettleLayoutAsync();
+                    }
+                    if (model.Backend != RenderBackend.ExternalWorker || editable.SelectedItem is not RenderBackend.ExternalWorker)
+                        throw new InvalidOperationException("渲染器方式编辑未写回设置或在页面及窗口切换后丢失。");
+                }
+                CaptureSmokeImage($"ui-settings-{suffix}-{name}.png");
+            }
+            SettingsPages.SelectedItem = StorageSettingsTab;
+            var quick = QuickPreviewMode.IsChecked;
+            QuickPreviewMode.IsChecked = true;
+            await SettleLayoutAsync();
+            if (HoldBox.IsEffectivelyEnabled || TailBox.IsEffectivelyEnabled) throw new InvalidOperationException("快速预览未禁用固定时长输入。");
+            QuickPreviewMode.IsChecked = false;
+            await SettleLayoutAsync();
+            if (!HoldBox.IsEffectivelyEnabled || !TailBox.IsEffectivelyEnabled) throw new InvalidOperationException("固定时长输入未恢复。");
+            QuickPreviewMode.IsChecked = quick;
+        }
+        if (editedBackendModel is not null)
+        {
+            editedBackendModel.Backend = originalBackend;
+            RefreshGrid(PluginGrid);
+        }
+        await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
+        {
+            Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2,
+            MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
+            PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
+            GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked,
+            DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(row => row.Record.DuplicateOfId.Length > 0),
+            ForceDefaultOff = ForceGeneration.IsChecked != true, Width = Bounds.Width, Height = Bounds.Height
+        }));
+        App.Shutdown();
+    }
+
+    private async Task SettleLayoutAsync()
+    {
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        UpdateLayout();
+        await Task.Delay(70);
+    }
+
+    private Rect SmokeBounds(Control control)
+    {
+        var content = (Control)Content!;
+        var point = control.TranslatePoint(default, content) ?? throw new InvalidOperationException("控件不在窗口可视树内。");
+        return new Rect(point, control.Bounds.Size);
+    }
+
+    private void CheckSmokeLayout()
+    {
+        var content = (Control)Content!;
+        var area = new Rect(content.Bounds.Size);
+        if (BuildVersionLabel.Text != AppVersion || !BuildVersionLabel.IsEffectivelyVisible ||
+            SmokeBounds(BuildVersionLabel).Intersects(SmokeBounds(StatusFooterText)))
+            throw new InvalidOperationException("版本标识缺失或与状态文字重叠。");
+        if (!area.Contains(SmokeBounds(ForceGeneration)) || SmokeBounds(ForceGeneration).Intersects(SmokeBounds(AppBrandName)))
+            throw new InvalidOperationException("全量覆盖选项不可见或与标题重叠。");
+        var hint = SmokeBounds(PresetFormatHint);
+        if (!PresetFormatHint.IsEffectivelyVisible || hint.Width <= 0 || hint.Height <= 0 || !area.Contains(hint) || hint.Bottom > SmokeBounds(PresetGrid).Top + 1)
+            throw new InvalidOperationException("文件后缀说明不可见或超出表格区域。");
+        foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
+            if (PresetFormatHint.Text?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
+        if (TaskStatusBand.IsEffectivelyVisible && (SmokeBounds(TaskProgressTitle).Intersects(SmokeBounds(TaskProgressMetadata)) ||
+            SmokeBounds(TaskProgressDetails).Bottom > SmokeBounds(GenerationProgressBar).Top || SmokeBounds(TaskStatusBand).Bottom > SmokeBounds(Pages).Top))
+            throw new InvalidOperationException("任务进度区域内容重叠。");
+    }
+
+    private void CaptureSmokeImage(string name)
+    {
+        var content = (Control)Content!;
+        using var bitmap = new RenderTargetBitmap(new PixelSize(Math.Max(1, (int)content.Bounds.Width), Math.Max(1, (int)content.Bounds.Height)), new Vector(96, 96));
+        bitmap.Render(content);
+        bitmap.Save(Path.Combine(App.DataDirectory, name));
+    }
+}

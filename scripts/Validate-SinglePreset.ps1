@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$RequestPath,
-    [string]$WorkerPath = (Join-Path $PSScriptRoot '..\src\SoundPreviewer.Worker\bin\Release\net8.0-windows\SoundPreviewer.Worker.exe'),
+    [string]$WorkerPath = (Join-Path $PSScriptRoot '..\src\SoundPreviewer.Worker\bin\Release\net8.0\SoundPreviewer.Worker.exe'),
     [string]$CorePath,
     [switch]$Play,
     [ValidateRange(0.0, 1.0)]

@@ -1,0 +1,93 @@
+<Application x:Class="SoundPreviewer.App.App"
+ xmlns="https://github.com/avaloniaui"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="using:SoundPreviewer.App"
+ RequestedThemeVariant="Light">
+ <Application.Resources>
+  <SolidColorBrush x:Key="Accent" Color="#167C69" />
+  <SolidColorBrush x:Key="Muted" Color="#64716B" />
+  <SolidColorBrush x:Key="Line" Color="#DCE2DE" />
+  <local:SourceDetectionConverter x:Key="SourceDetection"/>
+  <local:RenderBackendValues x:Key="RenderBackendValues"/>
+  <local:BackendLabelConverter x:Key="BackendLabel"/>
+  <local:BackendIndexConverter x:Key="BackendIndex"/>
+ </Application.Resources>
+ <Application.Styles>
+  <FluentTheme/>
+  <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+  <Style Selector="Window">
+   <Setter Property="FontFamily" Value="PingFang SC, Microsoft YaHei UI, Noto Sans CJK SC, sans-serif"/>
+   <Setter Property="FontSize" Value="13"/>
+   <Setter Property="Foreground" Value="#202C26"/>
+   <Setter Property="Background" Value="#F5F7F6"/>
+  </Style>
+  <Style Selector="Button">
+   <Setter Property="Padding" Value="13,8"/>
+   <Setter Property="Margin" Value="0,0,8,0"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+   <Setter Property="Foreground" Value="#25392D"/>
+   <Setter Property="CornerRadius" Value="4"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="HorizontalContentAlignment" Value="Center"/>
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Button.icon">
+   <Setter Property="FontFamily" Value="Arial, PingFang SC, Microsoft YaHei UI"/>
+   <Setter Property="FontSize" Value="17"/>
+   <Setter Property="Width" Value="38"/>
+   <Setter Property="Height" Value="36"/>
+   <Setter Property="Padding" Value="0"/>
+  </Style>
+  <Style Selector="TextBox">
+   <Setter Property="Padding" Value="8,6"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="MinHeight" Value="32"/>
+  </Style>
+  <Style Selector="ComboBox">
+   <Setter Property="Padding" Value="8,6"/>
+   <Setter Property="HorizontalAlignment" Value="Stretch"/>
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="MinHeight" Value="32"/>
+  </Style>
+  <Style Selector="DataGrid">
+   <Setter Property="AutoGenerateColumns" Value="False"/>
+   <Setter Property="HeadersVisibility" Value="Column"/>
+   <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+   <Setter Property="HorizontalGridLinesBrush" Value="#EEF1EF"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="RowHeight" Value="42"/>
+   <Setter Property="ColumnHeaderHeight" Value="36"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="SelectionMode" Value="Single"/>
+  </Style>
+  <Style Selector="DataGridCell">
+   <Setter Property="Padding" Value="8,0"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="ClipToBounds" Value="True"/>
+  </Style>
+  <Style Selector="DataGridCell TextBlock">
+   <Setter Property="VerticalAlignment" Value="Center"/>
+   <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+   <Setter Property="ToolTip.Tip" Value="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+  </Style>
+  <Style Selector="DataGridColumnHeader">
+   <Setter Property="Padding" Value="8,0"/>
+   <Setter Property="Background" Value="#F0F4F2"/>
+   <Setter Property="Foreground" Value="#53665B"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="BorderThickness" Value="0,0,0,1"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+  </Style>
+  <Style Selector="TabItem">
+   <Setter Property="Padding" Value="20,11"/>
+   <Setter Property="FontSize" Value="14"/>
+  </Style>
+  <Style Selector="TextBlock.field-label">
+   <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+   <Setter Property="Margin" Value="0,12,0,6"/>
+  </Style>
+ </Application.Styles>
+</Application>

@@ -10,7 +10,7 @@ public sealed class DiscoveredPluginRow(DiscoveredPlugin record, IReadOnlyList<P
     public string NameLabel => Record.Synth == SynthKind.Unknown ? Record.Name : SynthLabel;
     public string ArchitectureLabel => Record.Architecture switch
     {
-        PluginArchitecture.X64 => "64 位", PluginArchitecture.X86 => "32 位", PluginArchitecture.Arm64 => "ARM64", _ => "未知"
+        PluginArchitecture.X64 => "64 位", PluginArchitecture.X86 => "32 位", PluginArchitecture.Universal => "通用", PluginArchitecture.Arm64 => "ARM64", _ => "未知"
     };
     public string FormatLabel => Record.Format switch
     {
@@ -18,5 +18,5 @@ public sealed class DiscoveredPluginRow(DiscoveredPlugin record, IReadOnlyList<P
     };
     public string StatusLabel => configurations.Any(p => PluginSelectionService.Matches(p, Record)) ? "已关联"
         : Record.Synth == SynthKind.Unknown ? "未支持音源"
-        : Record.Architecture != PluginArchitecture.X64 ? "位数待适配" : "可选版本";
+        : !PluginSelectionService.IsCompatible(Record) ? "位数待适配" : "可选版本";
 }

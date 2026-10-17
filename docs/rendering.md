@@ -138,7 +138,7 @@ JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚
 
 ## 可选 DawDreamer 宿主
 
-`scripts/renderers/dawdreamer_worker.py` 随 C# Worker 发布到 `Renderers` 子目录。主界面的 DawDreamer 后端配置使用 `Plugin.ExecutablePath` 指定 Python 可执行文件，`Plugin.PluginPath` 指定 VST2 乐器 DLL。桌面应用与调度仍为 C# / WPF；Python 仅作为隔离的可选本地插件宿主。
+`scripts/renderers/dawdreamer_worker.py` 随 C# Worker 发布到 `Renderers` 子目录。主界面的 DawDreamer 后端配置使用 `Plugin.ExecutablePath` 指定 Python 可执行文件，`Plugin.PluginPath` 指定 VST2 乐器 DLL。桌面应用与调度为共用的 C# / .NET 8 / Avalonia；Python 仅作为隔离的可选本地插件宿主。
 
 固定依赖为 **DawDreamer 0.8.3、NumPy 1.26.4、x64 Python 3.11 或 3.12**。选择此组合是为了固定已核对的 VST2 FXP API 和现有 Windows wheel；不会随运行自动升级。依据 [v0.8.3 PluginProcessor 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/PluginProcessor.cpp)，`load_preset` 通过 JUCE 的 FXP 加载接口返回成功标志，桥接在返回 false 时拒绝生成。依据 [v0.8.3 RenderEngine 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/RenderEngine.cpp)，秒制 MIDI 与渲染时长按采样帧保存，脚本记录由真实输出帧数决定的时间。
 
@@ -160,7 +160,7 @@ pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
 
 `scripts/Validate-SinglePreset.ps1 -RequestPath <request.json> [-Play] [-Volume 0.15]` 经完整工作进程链只处理一个独立预制；拒绝银行槽位、覆盖已有验收输出或写入工作区 `artifacts` 以外。逐段检查三音区、记录 WAV 指纹并验证源 FXP 与 DLL 未改变。`-Play` 使用应用相同的播放器，不是系统录音。
 
-`scripts/Open-ValidatedSamples.ps1 -SummaryPath <summary.json>` 仅将通过校验的真实结果导入新建的隔离试听库并打开 WPF 应用；不覆盖原库，不添加扫描根目录，不自动生成批量预览。可加 `-NoLaunch` 只建立样本库，使用 `-DataDirectory` 指定新的 `artifacts` 子目录。
+`scripts/Open-ValidatedSamples.ps1 -SummaryPath <summary.json>` 仅将通过校验的真实结果导入新建的隔离试听库并打开桌面应用；不覆盖原库，不添加扫描根目录，不自动生成批量预览。可加 `-NoLaunch` 只建立样本库，使用 `-DataDirectory` 指定新的 `artifacts` 子目录。
 
 `scripts/Validate-InitializationBaseline.ps1 -RequestPath <已核对的普通FXP请求.json> -ArtifactDirectory <新的artifacts子目录>` 单独验证新实例无预制加载的基准合同。可用 `-WorkerPath` / `-CorePath` 指定待验收版本，`-RendererPath` 只覆盖本次请求的宿主路径。输入必须是匹配音源身份的独立普通 FXP 请求，不接受银行或把基准请求再次作为普通预制。
 
@@ -170,9 +170,9 @@ pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
 
 ## 可选 32 位 Sylenth1 宿主
 
-`src/SoundPreviewer.Vst2Host` 使用独立 x86 .NET 8 进程及固定的 [VST.NET2-Host 2.1.0](https://www.nuget.org/packages/VST.NET2-Host/2.1.0)，不需要 Python，也不把 32 位 DLL 加载进 WPF 主进程。目标电脑需安装 x86 .NET 8 Desktop Runtime。只处理 Sylenth1 的独立 `.fxp`，拒绝 `.fxb`、包内条目、其他音源和 x64 DLL。校验源 SHA256、PE 架构、FXP / 实际插件 ID；chunk 加载检查返回值与 program 状态变化，无法取得加载证据时拒绝生成。每个音高使用新插件实例，输出保留 float32 原始音量；结果始终先待确认。
+`src/SoundPreviewer.Vst2Host` 使用独立 x86 .NET 8 进程及固定的 [VST.NET2-Host 2.1.0](https://www.nuget.org/packages/VST.NET2-Host/2.1.0)，不需要 Python，也不把 32 位 DLL 加载进桌面主进程。目标电脑需安装 x86 .NET 8 Desktop Runtime。只处理 Sylenth1 的独立 `.fxp`，拒绝 `.fxb`、包内条目、其他音源和 x64 DLL。校验源 SHA256、PE 架构、FXP / 实际插件 ID；chunk 加载检查返回值与 program 状态变化，无法取得加载证据时拒绝生成。每个音高使用新插件实例，输出保留 float32 原始音量；结果始终先待确认。
 
-此可选项目不加入主解决方案，基础 WPF 构建仍无需第三方 NuGet 包。单独构建需要从官方 NuGet 恢复依赖：
+此可选项目不加入主解决方案，主界面使用 Avalonia NuGet 包，x86 宿主依赖单独恢复。单独构建需要从官方 NuGet 恢复依赖：
 
 ```powershell
 pwsh -File src/SoundPreviewer.Vst2Host/build.ps1
@@ -204,3 +204,10 @@ RMS 小于 0.00001 记为疑似静音；峰值达到 0.999 记为接近削波。
 每次任务在目标预览目录的同卷私有目录暂存请求、结果和音频。验证完成后移动 WAV 到最终缓存路径；失败 / 取消清理本次暂存文件。进程加入设置了退出清理的 Windows Job Object，主程序超时或取消会结束工作进程及其子进程，成功返回后也清理残留子进程。工作进程捕获插件失败并返回可展示原因。插件不能拖住主界面。
 
 当前 Serum 与 Sylenth1 x86 单音色均已完成真实生成及用户试听，后续需验证连续切换、外部资源、银行槽位和离线授权。用户要求先验收单音色，再推进批量；本轮不启动批量生成。源码及第三方工具的支持不能替代真实兼容性验收。
+
+
+## macOS 共用版本（2026-10-17）
+
+桌面和 Worker 统一为 .NET 8，渲染协议、三音区、快速裁剪与结果校验共用。macOS 的可选 DawDreamer 桥接支持与 Python 架构匹配的 VST2 `.vst` bundle，原先的 `.dll` / MSVC 检查仅适用于 Windows；macOS bundle 读取 Info.plist 与 Mach-O 校验架构。插件基准指纹也支持 bundle 实际二进制与元数据。Vital 使用本平台独立程序，原生采集命令采用两平台都接受的相对输入路径。
+
+本次 Mac 未安装支持的 Vital / Serum / Sylenth1，尚不能把 Windows 历史的真实插件结果延伸到 Mac。已验证范围为共用协议、基础设施、设备播放与界面；发布、输出路径及验收记录见 [双平台说明](cross-platform.md)。

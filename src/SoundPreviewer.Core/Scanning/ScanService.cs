@@ -69,8 +69,8 @@ public sealed class ScanService
         var records = existing.GroupBy(p => p.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => Clone(g.First()), StringComparer.Ordinal);
         var previousLocations = records.Values.GroupBy(LocationKey, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         var scannedIds = new HashSet<string>(StringComparer.Ordinal);
-        var scannedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var scannedFileContexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scannedFiles = new HashSet<string>(ApplicationPaths.PathComparer);
+        var scannedFileContexts = new HashSet<string>(ApplicationPaths.PathComparer);
         var completedSources = new HashSet<string>(StringComparer.Ordinal);
         var roots = new Dictionary<string, string>(StringComparer.Ordinal);
         var sourceDefinitions = sources.GroupBy(s => s.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -423,8 +423,8 @@ public sealed class ScanService
     private static string LocationKey(PresetRecord record)
     {
         string path;
-        try { path = Path.GetFullPath(record.SourcePath).ToUpperInvariant(); }
-        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { path = record.SourcePath.ToUpperInvariant(); }
+        try { path = ApplicationPaths.PathIdentity(record.SourcePath); }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { path = OperatingSystem.IsWindows() ? record.SourcePath.ToUpperInvariant() : record.SourcePath; }
         return JsonSerializer.Serialize(new { Path = path, record.InternalPath, record.BankSlot });
     }
 

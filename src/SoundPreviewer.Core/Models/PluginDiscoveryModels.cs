@@ -1,7 +1,9 @@
 namespace SoundPreviewer.Core.Models;
 
-public enum PluginArchitecture { Unknown, X86, X64, Arm64 }
+public enum PluginArchitecture { Unknown, X86, X64, Arm64, Universal }
 public enum PluginBinaryFormat { Vst2, Vst3, Standalone }
+// Zero preserves the platform of discovery records saved by the original Windows app.
+public enum PluginPlatform { Windows, MacOS }
 
 public sealed class DiscoveredPlugin
 {
@@ -11,6 +13,7 @@ public sealed class DiscoveredPlugin
     public string BinaryPath { get; set; } = "";
     public string Version { get; set; } = "";
     public PluginArchitecture Architecture { get; set; }
+    public PluginPlatform Platform { get; set; }
     public PluginBinaryFormat Format { get; set; }
     public string Name { get; set; } = "";
     public string Reason { get; set; } = "";

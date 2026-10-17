@@ -158,10 +158,11 @@ public static class InitBaselineService
     {
         settings.Template.Validate();
         if (!File.Exists(plugin.ExecutablePath)) throw new FileNotFoundException("基准渲染程序不存在。", plugin.ExecutablePath);
-        if (!File.Exists(plugin.PluginPath)) throw new FileNotFoundException("基准音源 VST2 文件不存在。", plugin.PluginPath);
+        if (!File.Exists(plugin.PluginPath) && !Directory.Exists(plugin.PluginPath)) throw new FileNotFoundException("基准音源 VST2 文件不存在。", plugin.PluginPath);
         if (string.IsNullOrWhiteSpace(plugin.Version)) throw new InvalidDataException("基准音源版本未配置。");
         string executableHash = Fingerprints.HashFile(plugin.ExecutablePath, token);
-        string pluginHash = Fingerprints.HashFile(plugin.PluginPath, token);
+        string pluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, token);
+        if (pluginHash.Length == 0) throw new InvalidDataException("无法核对基准音源的实际二进制指纹。");
         string script = Path.Combine(AppContext.BaseDirectory, "Renderers", "dawdreamer_worker.py");
         string scriptHash = plugin.Backend == RenderBackend.DawDreamer && File.Exists(script) ? Fingerprints.HashFile(script, token) : "";
         var sidecars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -178,8 +179,8 @@ public static class InitBaselineService
         }
         string key = Fingerprints.HashText(JsonSerializer.Serialize(new
         {
-            plugin.Synth, plugin.Backend, Executable = Path.GetFullPath(plugin.ExecutablePath).ToUpperInvariant(),
-            Plugin = Path.GetFullPath(plugin.PluginPath).ToUpperInvariant(), plugin.Version, executableHash, pluginHash,
+            plugin.Synth, plugin.Backend, Executable = ApplicationPaths.PathIdentity(plugin.ExecutablePath),
+            Plugin = ApplicationPaths.PathIdentity(plugin.PluginPath), plugin.Version, executableHash, pluginHash,
             Template = settings.Template, Fingerprints.AdapterVersion, Fingerprints.QuickPreviewPolicy,
             InitAudioComparer.PolicyVersion, Kind = BaselineKind, scriptHash, sidecars
         }));
@@ -216,7 +217,7 @@ public static class InitBaselineService
         return InitAudioComparer.CreateSignature(audio, reference.Result.Notes, token);
     }
 
-    private static bool SamePath(string first, string second) => string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase);
+    private static bool SamePath(string first, string second) => ApplicationPaths.SamePath(first, second);
 
     private static bool IsDiagnostic(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException or
         ArgumentException or JsonException or InvalidOperationException or OverflowException or NotSupportedException;

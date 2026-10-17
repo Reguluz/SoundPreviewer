@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-16。项目依据 [项目计划](项目计划.md)，按照用户要求采用 C#、.NET 8 与 WPF 实现 Windows 桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。
+更新日期：2026-10-17。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -8,15 +8,15 @@
 
 | 项目 / 目录 | 职责 |
 | --- | --- |
-| `SoundPreviewer.App` | WPF 音色列表、搜索与筛选、收藏和反馈、设置、任务控制、波形和本地播放、来源映射导出 |
+| `SoundPreviewer.App` | Avalonia 共用音色列表、搜索与筛选、收藏和反馈、设置、任务控制、波形和本地播放、来源映射导出 |
 | `SoundPreviewer.Core/Models` | 预制身份、来源、插件配置、试听模板、任务状态、音频指标、音区映射和 JSON 协议 |
 | `SoundPreviewer.Core/Scanning` | 递归发现、格式检查、SHA256 变更检测、MD5 重复索引、来源重叠去重、银行条目索引 |
 | `PluginScanService` / `PluginSelectionService` | 共享安装目录的只读 PE / 元数据 / 导出检查、位数与 VST3 包识别、已核对产品关联与版本选择 |
-| `SoundPreviewer.Core/Storage` | Windows SQLite 参数绑定、事务、版本化数据库、完整 JSON 元数据与设置 |
+| `SoundPreviewer.Core/Storage` | 跨平台系统 SQLite 参数绑定、事务、版本化数据库、完整 JSON 元数据与设置 |
 | `SoundPreviewer.Core/Services` | 串行渲染队列、进度、取消、有限重试、缓存与存储预算 |
 | `PresetCategoryService` | 有界 JSON 名称分类规则、完整词 / 前缀匹配、独立 `CategoryTags` 与重新应用 |
 | `InitBaselineService` / `InitAudioComparer` | 无预制加载的启动基准、版本与模板身份校验、提交前的三音区严格近似比对 |
-| `SoundPreviewer.Core/Audio` | 工作进程调用、进程生命周期、WAV 校验与指标、拼接与重采样、WinMM 本地试听 |
+| `SoundPreviewer.Core/Audio` | 工作进程调用、进程生命周期、WAV 校验与指标、拼接与重采样、WinMM / AudioQueue 本地试听 |
 | `QuickPreviewAudio` | 双声道短窗响度检测、半秒边界裁剪、静音压缩、边缘淡化；不生成替代音源音频 |
 | `SoundPreviewer.Worker` | 独立进程内执行 Vital 原生适配器，或转交实现协议的外部插件宿主 |
 | `SoundPreviewer.Vst2Host` | 可选独立 x86 .NET 8 / VST.NET 进程，加载 Sylenth1 VST2 独立 FXP；不加入基础解决方案 |
@@ -27,7 +27,7 @@
 flowchart LR
     Source[用户选择的音色来源] --> Scan[扫描与格式检查]
     Scan --> Store[(SQLite 索引)]
-    Store --> Browser[WPF 浏览器]
+    Store --> Browser[Avalonia 浏览器]
     Browser --> Queue[串行任务队列]
     Queue --> Worker[独立工作进程]
     Worker --> Vital[Vital 原生程序]
@@ -41,7 +41,7 @@ flowchart LR
 
 浏览与播放读取已生成音频，不实例化插件。音色扫描、音频读取和渲染任务在后台运行，界面展示进度与结果。
 
-试听使用 Windows `waveOut`，支持播放、暂停、继续、音区定位、拖动位置和独立音量。原始 WAV 解码后在内存转换为 PCM16 播放，原文件保留不变。此实现不依赖本机未安装的 Windows Media Player 可选组件。
+试听使用 Windows `waveOut` 或 macOS `AudioQueue`，支持播放、暂停、继续、音区定位、拖动位置和独立音量。原始 WAV 解码后在内存转换为 PCM16 播放，原文件保留不变。此实现不依赖本机未安装的 Windows Media Player 可选组件。
 
 新 `PreviewTemplate` 默认 `NoteOrder=MiddleHighLow`，即中 → 高 → 低；`Pitches` 决定实际采集、拼接和 Notes 校验顺序。缺字段的旧 JSON 回退到 `LowMiddleHigh=0`，已生成音频按保存模板及真实 MIDI 映射播放和复用，不自动重排文件。顺序作为模板的一部分进入新缓存和启动基准身份。
 
@@ -85,9 +85,9 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 存储与缓存
 
-默认数据目录为 `%LOCALAPPDATA%\SoundPreviewer`，也可通过启动参数指定独立目录。数据库为 `library.db`，预览目录可配置，运行日志为 `application.log`。应用保留原预制文件，预览存入独立目录。
+默认数据目录为 `AppContext.BaseDirectory/local-data`，也可通过启动参数指定独立目录。相对路径以可执行文件目录为基准，设置与导出均校验输出目录范围。数据库为 `library.db`，预览目录可配置，运行日志为 `application.log`。应用保留原预制文件，预览存入独立目录。
 
-数据库使用 Windows 提供的 `winsqlite3.dll`，采用 UTF8 参数绑定、WAL 和事务。`user_version` 标记数据库结构版本；v2 在 v1 基础上增补 MD5、重复代表列和索引，保留旧记录与设置。预制与设置以完整 JSON 保存，另有身份、来源、状态和反馈列供索引使用。`FindByMd5` 验证十六进制输入并进行参数绑定、大小写不敏感的索引检索。收藏、反馈时间、渲染模板、插件版本、实际音区时长及指标均随记录持久化。
+数据库使用 Windows 提供的 `winsqlite3.dll` 或 macOS 提供的 `/usr/lib/libsqlite3.dylib`，采用 UTF8 参数绑定、WAL 和事务。`user_version` 标记数据库结构版本；v2 在 v1 基础上增补 MD5、重复代表列和索引，保留旧记录与设置。预制与设置以完整 JSON 保存，另有身份、来源、状态和反馈列供索引使用。`FindByMd5` 验证十六进制输入并进行参数绑定、大小写不敏感的索引检索。收藏、反馈时间、渲染模板、插件版本、实际音区时长及指标均随记录持久化。
 
 新生成的缓存键结合预制内容、银行身份、音源配置、可执行文件与插件文件哈希、试听模板和适配器版本；VST3 包的插件指纹包括已发现的实际内部二进制。默认生成先根据记录保存的模板校验已有 WAV、采样率、适配器版本与完整三音区映射，在当前插件配置检查和重试限制之前跳过有效预览。因此模板或插件配置变化不会自动重渲染；`forceRegenerate` 显式跳过复用，源内容与归属变更仍由扫描失效旧映射。分析模型尚未接入；未来模型版本变化应只重算分析结果，不使真实预览音频无故重渲染。
 
@@ -97,7 +97,7 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 渲染与校验
 
-默认串行执行，一个任务调用一个工作进程。进程通过 JSON 的 `RenderRequest` / `RenderResult` 协议交换来源、插件、模板、目标路径、音区映射和结果。Windows Job Object 用于超时、取消和退出时结束进程树。详细参数与实际限制见 [渲染后端说明](rendering.md)。
+默认串行执行，一个任务调用一个工作进程。进程通过 JSON 的 `RenderRequest` / `RenderResult` 协议交换来源、插件、模板、目标路径、音区映射和结果。Windows Job Object 和 macOS 独立进程组用于超时、取消和退出时结束渲染子进程。详细参数与实际限制见 [渲染后端说明](rendering.md)。
 
 Vital 原生路径实现了三次单音渲染、音频拼接和实际演奏参数记录，但原生 CLI 没有可依赖的预制加载成功反馈。因此原生渲染结果进入待确认状态，须人工检查音色对应关系与外部资源。
 
@@ -115,6 +115,6 @@ WAV 校验检查格式、帧边界、采样率、长度、非有限值与三音�
 
 本版本没有 EfficientAT / CLAP、相似音色搜索、参考歌曲导入、个人推荐训练、OCR / 视觉加载流程或自定义 MIDI 模板。收藏和反馈作为真实用户数据保留，可供后续本地分析使用。
 
-当前 WPF、Windows SQLite 调用和进程管理均依赖 Windows，Core 的目标框架也包含 Windows 限制。macOS 可以复用数据结构、规则设计与协议，但不能直接运行现有桌面程序；需要另行实现界面、SQLite 和进程管理适配，并验证 Apple Silicon / Intel 插件及打包。
+App、Core、Worker 与测试共同使用 `net8.0`。App 的 Avalonia XAML、事件处理与界面模型在两端共用；平台差异收敛在原生音频、SQLite 加载、插件元数据与进程隔离。可选 x86 VST.NET 宿主仍单独使用 Windows 目标，不进入 macOS 发布。详见 [双平台实现与验证](cross-platform.md)。
 
-构建基础项目不使用第三方 NuGet 包。商业音源、用户音色包、Python 宿主依赖和模型权重不随当前应用捆绑。发布前还需核对所选宿主、源码、SDK、模型及素材的实际版本和再分发许可。
+桌面界面使用 Avalonia、Fluent 主题和 DataGrid NuGet 包。商业音源、用户音色包、Python 宿主依赖和模型权重不随当前应用捆绑。发布前还需核对所选宿主、源码、SDK、模型及素材的实际版本和再分发许可。

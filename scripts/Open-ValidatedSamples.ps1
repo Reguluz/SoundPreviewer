@@ -31,7 +31,7 @@ $previewDirectory = Join-Path $DataDirectory 'Previews'
 if ((Test-Path -LiteralPath $previewDirectory) -and ((Get-Item -LiteralPath $previewDirectory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw 'The sample preview directory cannot be a directory link.'
 }
-if (-not [IO.File]::Exists($AppPath)) { throw 'Publish the WPF application before opening the validated samples.' }
+if (-not [IO.File]::Exists($AppPath)) { throw 'Publish the desktop application before opening the validated samples.' }
 Add-Type -Path (Join-Path ([IO.Path]::GetDirectoryName($AppPath)) 'SoundPreviewer.Core.dll')
 $options = [SoundPreviewer.Core.Models.LibraryJson]::Options
 $settings = [SoundPreviewer.Core.Models.AppSettings]::new()
