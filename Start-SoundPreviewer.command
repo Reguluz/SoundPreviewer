@@ -5,6 +5,7 @@ cd "$project_dir"
 export DOTNET_CLI_HOME="$project_dir/.build/dotnet"
 export NUGET_PACKAGES="$project_dir/.build/nuget"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export AVALONIA_TELEMETRY_OPTOUT=1
 if [[ -n "${DOTNET_ROOT:-}" && -x "$DOTNET_ROOT/dotnet" ]]; then
     dotnet_command="$DOTNET_ROOT/dotnet"
 elif command -v dotnet >/dev/null 2>&1; then

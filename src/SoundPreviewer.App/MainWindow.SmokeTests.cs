@@ -20,6 +20,7 @@ public partial class MainWindow
             PluginDirectoryGrid.ItemsSource?.Cast<object>().Count() != PluginDirectories.Count ||
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
+        CheckPluginScanDefaults();
         if (PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0))
             throw new InvalidOperationException("重复音色未默认隐藏。");
         ShowDuplicates.IsChecked = true;
@@ -186,6 +187,8 @@ public partial class MainWindow
                     if (model.Backend != RenderBackend.ExternalWorker || editable.SelectedItem is not RenderBackend.ExternalWorker)
                         throw new InvalidOperationException("渲染器方式编辑未写回设置或在页面及窗口切换后丢失。");
                 }
+                if (tab == DirectorySettingsTab) CheckScanButtonVisible(DirectoryScanPluginsButton);
+                if (tab == DiscoveredSettingsTab) CheckScanButtonVisible(DiscoveredScanPluginsButton);
                 CaptureSmokeImage($"ui-settings-{suffix}-{name}.png");
             }
             SettingsPages.SelectedItem = StorageSettingsTab;
@@ -203,17 +206,45 @@ public partial class MainWindow
             editedBackendModel.Backend = originalBackend;
             RefreshGrid(PluginGrid);
         }
+        await CheckClosingCallbacksAsync();
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
         {
             Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2,
             MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
-            PluginDirectoriesChecked = true, DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
+            PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
+            ClosingCallbacksChecked = true,
+            DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
             GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked,
             DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(row => row.Record.DuplicateOfId.Length > 0),
             ForceDefaultOff = ForceGeneration.IsChecked != true, Width = Bounds.Width, Height = Bounds.Height
         }));
         App.Shutdown();
+    }
+
+    private async Task CheckClosingCallbacksAsync()
+    {
+        var preview = Presets.FirstOrDefault(row => row.HasPreview);
+        PresetGrid.SelectedItem = preview;
+        var pendingLoad = LoadSelectedPreview();
+        // Use the real teardown path while an audio read may still be awaiting its UI continuation.
+        CompleteWindowClose();
+        int generationAfterClose = _selectionGeneration;
+        PresetGrid.SelectedItem = null;
+        PresetGrid.SelectedItem = preview;
+        await pendingLoad;
+        await LoadSelectedPreview();
+        StopPlayback();
+        UpdatePlayback();
+        Play_Click(ScanPluginsButton, new RoutedEventArgs());
+        StartPlayback(0, null);
+        var volume = VolumeSlider.Value;
+        VolumeSlider.Value = volume == 1 ? .5 : 1;
+        VolumeSlider.Value = volume;
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        if (!_isClosing || _mediaOpened || _isPlaying || _playWhenOpen || _loadedPreviewPath.Length > 0 ||
+            _selectionGeneration != generationAfterClose)
+            throw new InvalidOperationException("关闭窗口后的选择、音频加载或播放回调重新启用了播放器。");
     }
 
     private async Task SettleLayoutAsync()
@@ -239,14 +270,64 @@ public partial class MainWindow
             throw new InvalidOperationException("版本标识缺失或与状态文字重叠。");
         if (!area.Contains(SmokeBounds(ForceGeneration)) || SmokeBounds(ForceGeneration).Intersects(SmokeBounds(AppBrandName)))
             throw new InvalidOperationException("全量覆盖选项不可见或与标题重叠。");
+        CheckScanButtonVisible(ScanPluginsButton);
+        CheckScanButtonVisible(ScanPresetsButton);
+        if (SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(AppBrandName)) ||
+            SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(ScanPresetsButton)) ||
+            SmokeBounds(ScanPresetsButton).Intersects(SmokeBounds(ForceGeneration)))
+            throw new InvalidOperationException("扫描音源、扫描音色与主工具栏重叠。");
         var hint = SmokeBounds(PresetFormatHint);
         if (!PresetFormatHint.IsEffectivelyVisible || hint.Width <= 0 || hint.Height <= 0 || !area.Contains(hint) || hint.Bottom > SmokeBounds(PresetGrid).Top + 1)
             throw new InvalidOperationException("文件后缀说明不可见或超出表格区域。");
-        foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
+        foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb", ".spf", ".spf2", ".sbf", ".swzip" })
             if (PresetFormatHint.Text?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
         if (TaskStatusBand.IsEffectivelyVisible && (SmokeBounds(TaskProgressTitle).Intersects(SmokeBounds(TaskProgressMetadata)) ||
             SmokeBounds(TaskProgressDetails).Bottom > SmokeBounds(GenerationProgressBar).Top || SmokeBounds(TaskStatusBand).Bottom > SmokeBounds(Pages).Top))
             throw new InvalidOperationException("任务进度区域内容重叠。");
+    }
+
+    private static void CheckPluginScanDefaults()
+    {
+        // Pure path checks: UI smoke tests must never inspect or associate the user's installed synths.
+        var defaults = ResolvePluginScanDirectories([], []);
+        if (defaults.Count == 0 || ApplicationPaths.DefaultPluginDirectories.Any(directory => !defaults.Any(value => ApplicationPaths.SamePath(value, directory))))
+            throw new InvalidOperationException("首次使用或空目录列表没有恢复平台默认安装位置。");
+        var syntheticRoot = Path.Combine(Path.GetTempPath(), "TEST-ONLY-plugin-roots");
+        var customRoots = new[] { Path.Combine(syntheticRoot, "unavailable"), Path.Combine(syntheticRoot, "custom") };
+        if (!ResolvePluginScanDirectories(customRoots, []).SequenceEqual(customRoots))
+            throw new InvalidOperationException("自定义或不可访问的音源安装目录被替换或丢弃。");
+        var vital = new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.VitalCli,
+            ExecutablePath = Path.Combine(syntheticRoot, "Vital.app", "Contents", "MacOS", "Vital") };
+        var inferred = ResolvePluginScanDirectories([], [vital]);
+        if (!inferred.Any(directory => ApplicationPaths.SamePath(directory, syntheticRoot)) ||
+            inferred.Any(directory => directory.EndsWith(Path.Combine("Contents", "MacOS"), StringComparison.Ordinal)))
+            throw new InvalidOperationException("已配置的 Vital 应用程序未使用应用程序包所在安装目录。");
+        if (vital.Backend != RenderBackend.VitalCli)
+            throw new InvalidOperationException("初始化音源目录更改了现有渲染方式。");
+
+        var unavailableRoot = Path.Combine(syntheticRoot, "unavailable");
+        var newPlugin = new DiscoveredPlugin { Id = "TEST-ONLY-new", FilePath = Path.Combine(syntheticRoot, "new", "Serum2.vst3") };
+        var offlinePlugin = new DiscoveredPlugin { Id = "TEST-ONLY-offline", FilePath = Path.Combine(unavailableRoot, "Vital.app") };
+        var otherPlugin = new DiscoveredPlugin { Id = "TEST-ONLY-other", FilePath = Path.Combine(unavailableRoot + "-other", "Vital.app") };
+        var scan = new PluginScanResult
+        {
+            Plugins = [newPlugin], UnavailableRoots = ["", "   ", "\0invalid", unavailableRoot],
+            Warnings = ["TEST ONLY: invalid installation root", "TEST ONLY: unavailable installation root"]
+        };
+        var merged = MergePluginScanResults(scan, [offlinePlugin, otherPlugin]);
+        if (merged.Count != 2 || !merged.Contains(newPlugin) || !merged.Contains(offlinePlugin) || merged.Contains(otherPlugin) ||
+            scan.Warnings.Count != 2 || scan.UnavailableRoots.Count != 4)
+            throw new InvalidOperationException("无效安装目录中断了有效扫描结果，或错误保留了其他目录的音源。");
+        if (IsWithinUnavailablePluginRoot(newPlugin.FilePath, "") || IsWithinUnavailablePluginRoot(newPlugin.FilePath, "\0invalid"))
+            throw new InvalidOperationException("无效安装目录不能作为恢复旧音源的依据。");
+    }
+
+    private void CheckScanButtonVisible(Button button)
+    {
+        var area = new Rect(((Control)Content!).Bounds.Size);
+        var bounds = SmokeBounds(button);
+        if (!button.IsEffectivelyVisible || bounds.Width <= 0 || bounds.Height <= 0 || !area.Contains(bounds))
+            throw new InvalidOperationException($"扫描按钮 {button.Name} 未完整显示。");
     }
 
     private void CaptureSmokeImage(string name)

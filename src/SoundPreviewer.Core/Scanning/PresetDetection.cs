@@ -10,7 +10,11 @@ internal sealed record SynthDetection(SynthKind Synth, string Reason);
 
 internal static partial class PresetDetection
 {
-    public static bool SupportsAny(string extension) => extension.ToLowerInvariant() is ".vital" or ".vitalbank" or ".serumpreset" or ".fxp" or ".fxb";
+    public static bool SupportsAny(string extension) => extension.ToLowerInvariant() is ".vital" or ".vitalbank" or ".serumpreset" or ".fxp" or ".fxb" || IsSpireFormat(extension);
+
+    // Reveal Sound's manual documents legacy SPF/SBF; its sound store documents SPF2/SWZIP.
+    // Recognizing a dedicated suffix only establishes indexing identity, not a verified loader.
+    public static bool IsSpireFormat(string extension) => extension.ToLowerInvariant() is ".spf" or ".spf2" or ".sbf" or ".swzip";
 
     public static string SynthName(SynthKind synth) => synth switch
     {
@@ -18,6 +22,7 @@ internal static partial class PresetDetection
         SynthKind.Serum1 => "Serum 1",
         SynthKind.Serum2 => "Serum 2",
         SynthKind.Sylenth1 => "Sylenth1",
+        SynthKind.Spire => "Spire",
         _ => "未识别"
     };
 
@@ -77,6 +82,8 @@ internal static partial class PresetDetection
             return new(SynthKind.Vital, $"依据 Vital 专用格式 {extension.ToLowerInvariant()} 识别。");
         if (extension.Equals(".SerumPreset", StringComparison.OrdinalIgnoreCase))
             return new(SynthKind.Serum2, "依据 Serum 2 专用格式 .SerumPreset 识别。");
+        if (IsSpireFormat(extension))
+            return new(SynthKind.Spire, $"依据 Spire 专用格式 {extension.ToLowerInvariant()} 识别；载荷和原生加载尚未验证。");
         var hint = FindDirectoryHint(path, root);
         string hintText = hint is null ? "" : $" 最近目录“{hint.Name}”包含{hint.Description}线索。";
         if (envelope is null || !envelope.IsValid)
@@ -124,7 +131,8 @@ internal static partial class PresetDetection
                         else if (match.Groups["version"].Value == "2") kinds.Add(SynthKind.Serum2);
                         else serumFamily = true;
                     }
-                    else kinds.Add(match.Groups["sylenth"].Success ? SynthKind.Sylenth1 : SynthKind.Vital);
+                    else if (match.Groups["sylenth"].Success) kinds.Add(SynthKind.Sylenth1);
+                    else kinds.Add(match.Groups["spire"].Success ? SynthKind.Spire : SynthKind.Vital);
                 }
                 string description = string.Join("、", kinds.OrderBy(s => s).Select(SynthName).Concat(serumFamily ? ["Serum"] : Array.Empty<string>()));
                 return new(directory.Name, kinds, serumFamily, description);
@@ -137,6 +145,6 @@ internal static partial class PresetDetection
 
     private sealed record DirectoryHint(string Name, HashSet<SynthKind> Synths, bool SerumFamily, string Description);
 
-    [GeneratedRegex(@"(?<![\p{L}\p{N}])(?:(?<serum>serum)(?:[ _.-]*(?<version>[12]))?|(?<sylenth>sylenth)(?:[ _.-]*1)?|vital)(?![\p{L}\p{N}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\p{L}\p{N}])(?:(?<serum>serum)(?:[ _.-]*(?<version>[12]))?|(?<sylenth>sylenth)(?:[ _.-]*1)?|(?<spire>spire)|vital)(?![\p{L}\p{N}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SynthTokens();
 }

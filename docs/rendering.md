@@ -1,25 +1,37 @@
 # 渲染后端与实测边界
 
-核对日期：2026-10-16。此仓库的桌面界面、调度器与工作进程使用 C# / .NET 8；插件渲染发生在独立进程。应用不会产生模拟合成器音频，也不会安装、下载或绕过插件授权。
+核对日期：2026-10-17，v1.3.0。此仓库的桌面界面、调度器与工作进程使用 C# / .NET 8；插件渲染发生在独立进程。应用不会产生模拟合成器音频，也不会安装、下载或绕过插件授权。
 
 ## 当前支持
 
 | 组合 | 已实现 | 真实插件验收状态 |
 | --- | --- | --- |
-| Vital 独立程序 + 单文件 `.vital` | 三次原生命令行渲染、拼接、WAV 检查 | 本机已生成 138 项真实预览，全部待人工确认加载对应关系与外部资源 |
+| Vital 独立程序 + 单文件 `.vital` | 三次原生命令行渲染、拼接、WAV 检查 | Windows 历史库已生成 138 项真实预览；本轮 Apple Silicon / Vital 1.6.4 使用明确标记的测试 patch 完成真实 CLI 渲染，均待人工确认加载对应关系与外部资源 |
 | Vital `.vitalbank` | 索引可保留来源；原生渲染拒绝银行 / 内部条目 | 需先在 Vital 导入并导出独立预制 |
 | Serum 1 VST2 + `.fxp` | 可选 DawDreamer 真实宿主桥接 | Serum 1.334 x64 已完成一个实际 FXP 的生成和播放，用户确认三音区正常；尚未验证批量 |
-| Serum 2 + `.SerumPreset` | 外部工作进程协议；未内置专有加载器 | 未验证 |
+| Serum 2 VST3 + `.SerumPreset` | 可选 DawDreamer 宿主、当前插件状态转换、加载后状态回读；共用队列和启动基准 | Apple Silicon / 2.0.23：两个工厂预制完成完整队列、三参考基准与 1.5 秒预览；待人工音色及外部资源确认，未验证其他版本或 Windows / Intel 实际执行 |
+| Serum 2 旧 `.fxp` | 可识别 / 保留索引；当前 VST3 后端明确拒绝直接加载 | 先在 Serum 2 中导入并另存为 `.SerumPreset` |
 | Sylenth1 VST2 + `.fxp` | 独立 x86 VST.NET 宿主；DawDreamer 仍只支持 x64 | 本机 2.2.1.2 x86 已生成、播放一个实际 FXP，用户确认三音区正常；尚未验证批量 |
 | Sylenth1 银行槽位 | 外部工作进程协议；未内置槽位选择 | 未验证，不能把整个银行当单个预制 |
+| Spire `.spf` / `.spf2` / `.sbf` / `.swzip` | 产品发现、配置入口与索引；统一标记「待适配」 | 没有真实插件或渲染测试；不展开未知银行格式，不能生成原生预览 |
 
-已检查 `C:\Program Files\Common Files\VST3`、常见 `VstPlugins` / `VST2` 目录、Program Files 顶层产品目录，未发现上述三个产品的二进制。已发现 `C:\Users\Reguluz\Documents\Xfer\Serum Presets`，目录存在不能证明插件版本或离线授权可用。检查范围有限，用户可指定其他位置的插件。
+以下 Windows 路径发现与数量为 2026-10-15 的历史记录：已检查 `C:\Program Files\Common Files\VST3`、常见 `VstPlugins` / `VST2` 目录、Program Files 顶层产品目录，未发现当时目标产品的二进制。已发现 `C:\Users\Reguluz\Documents\Xfer\Serum Presets`，目录存在不能证明插件版本或离线授权可用。检查范围有限，用户可指定其他位置的插件。
 
 随后依据用户提供的位置，检查 `D:\MusicStation\VSTi(64bit)\Sylenth1`：发现 4,260 个 `.fxp`、519 个 `.fxb`，插件 `Sylenth1.dll` 文件 / 产品版本为 2.2.1.2，PE machine 为 `0x014C`（x86 / 32 位）。目录名称中的 64bit 与二进制架构不符；未来宿主需单独的 x86 进程或真正的 x64 插件。未读取授权文件内容，未判断授权可用性。用户提供的 Serum 预制目录 `C:\Users\Reguluz\Documents\Xfer\Serum Presets\Presets` 中有 613 个 `.fxp`。这些数量表示文件数，不能等同于银行展开后的音色数。
 
 在用户提供的 MusicStation 目录顶层，进一步发现 `D:\MusicStation\VSTi(64bit)\Serum_x64.dll`，产品版本 `1,3,3,4`（对应 Serum 1.334），PE machine `0x8664`（x64）。同目录的 `SerumFX_x64.dll` 为效果器，不用于音色演奏。
 
 ## 本机验证记录
+
+### macOS Vital 与 Serum 2（v1.3.0）
+
+2026-10-17 在 Apple Silicon 上确认已安装 Vital 1.6.4 与 Serum 2 2.0.23。音源扫描默认覆盖系统和用户的 VST / VST3 / Applications 目录；修复了没有显式目录时不能扫描，以及只从 Vital `.app` 二进制推断到 `Contents/MacOS` 的问题。发现仍只解析元数据，不启动插件。
+
+Vital 使用真实 `/Applications/Vital.app/Contents/MacOS/Vital` CLI 演奏仓库验收目录中明确标记的 `TEST_ONLY_Mac_Vital.vital`。经完整 C# Worker 快速策略生成中 / 高 / 低各 0.5 秒的双声道 44100 Hz 预览，总长 1.5 秒；RMS 0.011462，峰值 0.028961，无静音、削波或非有限值。此 patch 是测试输入，声音由真实 Vital 生成；不能把它当作用户音色包或商业资源兼容性验收。CLI 仍不报告目标加载成功，结果保持 `NeedsReview`。证据位于 `artifacts/vital-compat/request.json` 和 `result.json`。
+
+Serum 2 使用本机 VST3 2.0.23、Python 3.12.13、DawDreamer 0.8.3，通过完整 .NET 队列生成两个工厂预制 `WIND - Pan Flute.SerumPreset` 与 `LD - Das EDM.SerumPreset`。每个音高从新插件实例取得状态格式与实际版本，将同一原生预制快照转换为该状态后加载，并回读核对内容；没有以能发声代替目标状态确认。两个结果均为 44100 Hz、双声道 float32、MIDI 60 / 84 / 36 各 0.5 秒，总长 1.5 秒；队列 `Generated=2`、`Failed=0`，无静音、削波或非有限值，保持待确认。证据为 `artifacts/serum2-compat/full-queue/queue-result.json`。三参考启动基准结果见下节。
+
+这些样本未覆盖其他 Serum 2 版本、全部工厂 / 用户预制、外部采样与波表、长序列连续切换或双平台波形一致性；本轮尚无用户对生成音色身份的独立试听确认。Windows 与 Intel Mac 只有发布构建验证，Spire 尚未实际加载。
 
 ### Serum 单音色已通过
 
@@ -68,9 +80,10 @@
 | 后端组合 | 基准协议实现范围 | 本轮真实插件验收 |
 | --- | --- | --- |
 | Serum 1 / DawDreamer / x64 VST2 | fresh instance，跳过 `load_preset` | 本机 1.334：v2 三参考及独立启动输出自动比对通过，正常 Pluck 区分及低音量设备播放完成；尚无本轮用户身份确认 |
+| Serum 2 / DawDreamer / 原生 VST3 | fresh instance，跳过原生预制状态转换与加载 | Apple Silicon / 2.0.23：三份独立启动参考校准成功，第四份 fresh instance holdout 命中 3/3 并拒绝提交；两个工厂预制经完整队列生成，尚无本轮用户身份确认 |
 | Sylenth1 / DawDreamer / x64 VST2 | fresh instance，跳过 `load_preset` | 尚待单独执行；本机已确认的 Sylenth1 DLL 是 x86 |
 | Sylenth1 / 内置 VST.NET / x86 VST2 | fresh instance，跳过 FXP chunk / 参数载入 | 本机 2.2.1.2：v2 三参考及独立启动输出自动比对通过，正常 Bass Saw 区分及低音量设备播放完成；尚无本轮用户身份确认 |
-| Vital 原生 CLI、Serum 2、其他外部宿主 | 尚未适配此基准协议，明确提示未启用保护 | 不宣称已支持 |
+| Vital 原生 CLI、Spire、其他外部宿主 | 尚未适配此基准协议，明确提示未启用保护 | 不宣称已支持 |
 
 对已支持后端，首次需要生成新音色且缺少有效基准时，队列先自动建立基准。设置中的「渲染与基准」可查看状态、重新生成或独立试听，无需选文件和人工批准基准。基准包含实际 WAV、三音区映射、模板、插件 / 宿主指纹、实际版本及比对策略版本；对应身份改变、文件缺失、静音或校验失败时不能继续当作有效基准。支持的宿主若无法建立有效基准，会明确失败而非悄悄关闭保护。基准文件在预览目录的 `InitializationBaselines` 子目录，与普通音色映射分开。
 
@@ -83,6 +96,8 @@
 报告分别在 `artifacts/init-v2-middle-first-serum-20261016/summary.json` 与 `artifacts/init-v2-middle-first-sylenth-20261016/summary.json`。端到端验收工具耗时分别为 40.356 秒和 3.832 秒，包含两组三参考生成及一次普通 FXP，不能视为单个预制的常规渲染耗时。早期 Sylenth1 四次独立启动的固定严格比较受调制漂移影响而不稳定，历史保留为采用三参考受限校准的原因，不把旧失败改记为通过。
 
 两份本轮 `normal.wav` 已经由应用相同的 `WavePlayer` 以音量 0.12 顺序完整播放，均到达末尾且无超时。这证明实际播放路径已执行，不等于用户人工确认本轮音色身份；已有用户试听证据仍只适用于前述较早音频。此比较只表达“结果与当前默认启动声音严格近似”，不能独立证明预制加载失败或成功。非匹配结果仍须人工核对目标预制、外部资源与授权。已有有效预览仍按保存模板默认复用，不追溯宣称已通过新基准；显式重新生成才走新提交检查。两个已知样本的自动验证不覆盖其他插件版本、Sylenth1 x64、更多预制或批量，纯合成回归也不能替代真实验收。
+
+2026-10-17 新增 Serum 2 2.0.23 / Apple Silicon / DawDreamer 验证：三份 fresh instance 参考完成有界校准，`artifacts/serum2-compat/full-queue/baseline-result.json` 记录 `CanCompare=true`。第四份独立启动实例作为 holdout，完整三音区匹配 3/3 参考，工作进程返回初始化匹配失败且 `OutputPublished=false`，证据为同目录 `holdout-result.json`。相同配置的完整队列成功生成 Pan Flute 和 Das EDM 两个工厂预制，未被误判为默认启动音色。此次没有重复 2026-10-16 Windows 脚本的两组三参考流程，不能据当前样本扩大到全部 Serum 2 版本。
 
 ## 快速预览策略
 
@@ -123,7 +138,7 @@ DawDreamer 每次 `render()` 都从头处理，不能连续调用当成无损续
 SoundPreviewer.Worker.exe --request <绝对 request.json 路径> --result <绝对 result.json 路径>
 ```
 
-JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。`PreviewNoteOrder` 为 LowMiddleHigh=0、MiddleHighLow=1，缺字段兼容旧低中高。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器须按模板 `Pitches` 的实际顺序返回三个 Notes，只能将成功结果提交到请求的输出路径。
+JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3、Unknown=4、Spire=5；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。旧枚举值保持不变。`PreviewNoteOrder` 为 LowMiddleHigh=0、MiddleHighLow=1，缺字段兼容旧低中高。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器须按模板 `Pitches` 的实际顺序返回三个 Notes，只能将成功结果提交到请求的输出路径。
 
 外部后端使用相同 `--request` / `--result` 参数，无命令行 shell。用户指定实际外部渲染器可执行文件及插件路径。外部程序须：
 
@@ -134,27 +149,40 @@ JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚
 
 主工作进程和桌面端都独立检查 WAV，不信任外部提供的指标。每个音区须按顺序且不重叠，时间必须覆盖合理范围且位于文件内。外部执行文件不能指向 SoundPreviewer.Worker 本身。外部宿主应不留后台子进程，并在授权弹窗等无法继续状态返回错误。
 
-[DawDreamer 官方 API](https://github.com/DBraun/DawDreamer/blob/main/docs/user_guide/plugin_processor.rst) 提供 VST2 `load_preset(.fxp)`、VST3 `load_vst3_preset(.vstpreset)` 与 MIDI 演奏。这不能直接证明 Serum 的 `.SerumPreset`、Sylenth1 `.fxb` 或特定版本已兼容。本项目未把第三方工具的支持声明视为真实验收。
+[DawDreamer 官方 API](https://github.com/DBraun/DawDreamer/blob/main/docs/user_guide/plugin_processor.rst) 提供 VST2 `load_preset(.fxp)`、VST3 `load_vst3_preset(.vstpreset)` 与 MIDI 演奏。`.SerumPreset` 通过本项目额外的原生状态转换与 `load_state` / `save_state` 回读适配，不直接交给 `.vstpreset` 接口。API 的存在不证明特定版本或 Sylenth1 `.fxb` 已兼容，本项目仍以明确的真实样本记录为准。
 
 ## 可选 DawDreamer 宿主
 
-`scripts/renderers/dawdreamer_worker.py` 随 C# Worker 发布到 `Renderers` 子目录。主界面的 DawDreamer 后端配置使用 `Plugin.ExecutablePath` 指定 Python 可执行文件，`Plugin.PluginPath` 指定 VST2 乐器 DLL。桌面应用与调度为共用的 C# / .NET 8 / Avalonia；Python 仅作为隔离的可选本地插件宿主。
+`scripts/renderers/dawdreamer_worker.py` 与 `serum2_state.py` 随 C# Worker 发布到 `Renderers` 子目录。主界面的 DawDreamer 后端配置使用 `Plugin.ExecutablePath` 指定 Python 可执行文件，`Plugin.PluginPath` 指定对应乐器：Serum 1 / Sylenth1 使用 Windows VST2 DLL 或 macOS `.vst`，Serum 2 使用 `.vst3`。桌面应用与调度为共用的 C# / .NET 8 / Avalonia；Python 仅作为隔离的可选本地插件宿主。
 
-固定依赖为 **DawDreamer 0.8.3、NumPy 1.26.4、x64 Python 3.11 或 3.12**。选择此组合是为了固定已核对的 VST2 FXP API 和现有 Windows wheel；不会随运行自动升级。依据 [v0.8.3 PluginProcessor 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/PluginProcessor.cpp)，`load_preset` 通过 JUCE 的 FXP 加载接口返回成功标志，桥接在返回 false 时拒绝生成。依据 [v0.8.3 RenderEngine 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/RenderEngine.cpp)，秒制 MIDI 与渲染时长按采样帧保存，脚本记录由真实输出帧数决定的时间。
+固定基础依赖为 **DawDreamer 0.8.3、NumPy 1.26.4、CPython 3.11 或 3.12**，Windows 为 x64，macOS 须与实际插件使用相同的 arm64 或 x64 架构。Serum 2 另需 `requirements-serum2.txt` 中的 **serum2-preset-loader 0.1.3、cbor2 5.6.5、zstandard 0.23.0**，该文件同时包含基础依赖。不会随运行自动升级。依据 [v0.8.3 PluginProcessor 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/PluginProcessor.cpp)，`load_preset` 通过 JUCE 的 FXP 加载接口返回成功标志，桥接在返回 false 时拒绝生成。依据 [v0.8.3 RenderEngine 源码](https://github.com/DBraun/DawDreamer/blob/v0.8.3/Source/RenderEngine.cpp)，秒制 MIDI 与渲染时长按采样帧保存，脚本记录由真实输出帧数决定的时间。
 
-桥接仅接收 Serum 1 / Sylenth1 的独立 `.fxp`，检查文件头、扫描哈希及 DLL 的 x64 PE 架构。每个音高创建新插件实例，加载同一份不变的 FXP 快照，以指定 BPM 和 MIDI 力度演奏，保留请求的释放时间与插件自身效果。输出为真实插件的 IEEE float32 WAV 数字音频，保留原始输出，包括超出 ±1 的峰值，不进行削峰 / 响度归一化，也不使用系统回录。无需打开插件界面；授权弹窗、崩溃与挂起由工作进程的时间限制处理。当前新宿主组合一律标记待确认，须人工抽查预制与资源；静音 / 削波另外记录。
+Serum 2 的结构转换使用固定版本、MIT 许可的 [serum2-preset-loader](https://github.com/wiillownet/serum2-preset-loader)。本项目根据实际插件保存的状态格式重新封装，并执行独立的内容回读核对，不直接采用转换器内置的固定插件版本标记。
 
-不支持 x86 DLL、SerumFX、VST3 下的 `.fxp`、`.SerumPreset`、`.fxb` 或银行槽位。Sylenth1 本机 x86 插件会在加载宿主前返回可理解的架构错误。
+Serum 1 / Sylenth1 路径接收独立 `.fxp`，检查文件头、扫描哈希与匹配的二进制架构。Serum 2 路径接收原生 `.SerumPreset`，检查 XferJson 产品 / 文件类型 / 版本和有界解压后的内容，使用实际 fresh state 的状态 schema，拒绝超出支持范围或加载后回读不符的结果。每个音高创建新插件实例，加载同一份不变的预制快照，以指定 BPM 和 MIDI 力度演奏，保留请求的释放时间与插件自身效果。输出为真实插件的 IEEE float32 WAV 数字音频，保留原始输出，包括超出 ±1 的峰值，不进行削峰 / 响度归一化，也不使用系统回录。无需打开插件界面；授权弹窗、崩溃与挂起由工作进程的时间限制处理。当前新宿主组合一律标记待确认，须人工抽查预制与资源；静音 / 削波另外记录。
 
-建议使用标准 CPython，而不是携带旧私有运行库的 Conda。下面的脚本仅在工作区建立独立环境，固定官方依赖并运行有 8 秒时限的空宿主自检；不加载商业插件，不修改全局 Python。示例中的 Python 路径应替换为本机标准 x64 CPython 3.11 / 3.12 的实际安装路径：
+不支持 x86 DLL、SerumFX、VST3 直接加载旧 `.fxp`、`.fxb`、银行槽位或 Spire 原生预制。Serum 2 旧 FXP 须由用户先在实际 Serum 2 中导入并另存，不能自动改扩展名。Sylenth1 本机 x86 插件会在加载宿主前返回可理解的架构错误。
+
+建议使用标准 CPython，而不是携带旧私有运行库的 Conda。下面的 Windows 脚本仅在工作区 `artifacts` 建立独立环境，固定官方依赖并运行有 8 秒时限的空宿主自检；不加载商业插件，不修改全局 Python。示例中的 Python 路径应替换为本机标准 x64 CPython 3.11 / 3.12 的实际安装路径：
 
 ```powershell
 pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
+# Serum 2 需同时安装额外的固定状态转换依赖：
+pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe' -IncludeSerum2
 # 已有环境也可单独自检，不加载插件或生成 WAV：
 & '.\artifacts\dawdreamer-cpython-x64\Scripts\python.exe' scripts/renderers/dawdreamer_worker.py --probe --result artifacts/host-probe.json
 ```
 
-脚本分开下载官方 wheel 和离线安装，缓存仅在 `artifacts` 中；已满足固定依赖的环境跳过安装。返回的 `EnvironmentPythonPath` 用于设置中的 Python 程序路径。应用运行时只导入本地依赖，不访问网络。桥接同时检查实际加载的 C++ 运行库，过旧时直接提示；自检通过仅表示空宿主可运行。DawDreamer 的 GPLv3 与所带 JUCE 等依赖许可证在发行宿主二进制时须保留并核对。应用不随发行包包含商业插件、授权文件或私人预制。
+macOS 使用相同架构的标准 CPython 3.11 / 3.12：
+
+```bash
+bash scripts/Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 \
+  --app-path ./artifacts/publish-osx-arm64 --include-serum2
+```
+
+`--app-path` 指向已存在的应用程序文件夹，Intel 发布版相应改为 `publish-osx-x64`。macOS 脚本的环境、下载缓存、临时文件与诊断均放在该文件夹的 `local-data`；在发布目录内也可运行 `bash Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 --include-serum2`，自动采用脚本所在目录。去掉 `--include-serum2` 仅准备基础 VST2 宿主。返回的 `EnvironmentPythonPath` 填入设置中的「渲染程序」，Serum 2 另关联本机 `Serum2.vst3` 并选择 DawDreamer 方式。
+
+Windows 脚本分开下载官方 wheel 和离线安装，缓存仅在 `artifacts` 中；已满足固定依赖的环境跳过安装。设置脚本只做空宿主自检，不加载商业插件或输出 WAV。应用运行时只导入本地依赖，不访问网络。Windows 桥接同时检查实际加载的 C++ 运行库，过旧时直接提示；自检通过仅表示空宿主可运行。DawDreamer 的 GPLv3 与所带 JUCE 等依赖许可证在发行宿主二进制时须保留并核对。应用不随发行包包含商业插件、授权文件或私人预制。
 
 ## 单音色验收工具
 
@@ -210,4 +238,4 @@ RMS 小于 0.00001 记为疑似静音；峰值达到 0.999 记为接近削波。
 
 桌面和 Worker 统一为 .NET 8，渲染协议、三音区、快速裁剪与结果校验共用。macOS 的可选 DawDreamer 桥接支持与 Python 架构匹配的 VST2 `.vst` bundle，原先的 `.dll` / MSVC 检查仅适用于 Windows；macOS bundle 读取 Info.plist 与 Mach-O 校验架构。插件基准指纹也支持 bundle 实际二进制与元数据。Vital 使用本平台独立程序，原生采集命令采用两平台都接受的相对输入路径。
 
-本次 Mac 未安装支持的 Vital / Serum / Sylenth1，尚不能把 Windows 历史的真实插件结果延伸到 Mac。已验证范围为共用协议、基础设施、设备播放与界面；发布、输出路径及验收记录见 [双平台说明](cross-platform.md)。
+v1.3.0 已在本机 Mac 完成 Vital 1.6.4 的测试 patch 原生渲染，以及 Serum 2 2.0.23 的两个工厂预制完整队列和三参考启动基准。此前 Windows Serum 1 / Sylenth1 的历史结果不自动延伸到 Mac；Windows / Intel Mac 的新版构建也不等于对应硬件实测。发布、输出路径和完整验收边界见 [双平台说明](cross-platform.md)。

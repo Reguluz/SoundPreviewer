@@ -153,7 +153,7 @@ internal static partial class Program
         record.Name = "alternate";
         var rebuilt = await queue.RunAsync(settings, [record], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
         Equal(1, rebuilt.Generated, "A supported backend automatically creates a missing baseline before normal rendering.");
-        Equal(plugin.InitBaselinePath, store.LoadSettings().Plugins.Single().InitBaselinePath, "An automatically generated locator is persisted for the next application session.");
+        Equal(plugin.InitBaselinePath, store.LoadSettings().Plugins.Single(item => item.Synth == plugin.Synth).InitBaselinePath, "An automatically generated locator is persisted for the next application session.");
         var wrongPath = JsonNode.Parse(await File.ReadAllTextAsync(plugin.InitBaselinePath))!;
         wrongPath["Result"]!["OutputPath"] = Path.Combine(directory, "unrelated.wav");
         await File.WriteAllTextAsync(plugin.InitBaselinePath, wrongPath.ToJsonString());

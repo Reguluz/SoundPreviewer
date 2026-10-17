@@ -13,7 +13,8 @@
      <StackPanel><TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="合成器音色库" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/></StackPanel>
     </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-     <Button Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描已配置的预制目录"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描目录"/></StackPanel></Button>
+     <Button x:Name="ScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描系统、用户和自定义安装目录，识别已安装音源" AutomationProperties.Name="扫描已安装音源"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
+     <Button x:Name="ScanPresetsButton" Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描已配置的预制目录，更新音色库" AutomationProperties.Name="扫描音色目录"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音色"/></StackPanel></Button>
      <CheckBox x:Name="ForceGeneration" Content="全量重渲染（覆盖）" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" ToolTip.Tip="重新生成全库可用音色，包括已有预览；新结果验证成功后覆盖，停止或失败时保留旧预览" AutomationProperties.Name="强制全量重新渲染并覆盖"/>
      <Button Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip.Tip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
      <Button x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip.Tip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="■" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
@@ -66,7 +67,7 @@
       <Grid Grid.Row="2" Margin="0,0,0,10">
        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
        <TextBlock x:Name="PresetFormatHint" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap" LineHeight="18" Margin="0,0,12,0" VerticalAlignment="Center"
-        Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb。音色包与银行暂仅索引。"/>
+        Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb；Spire .spf / .spf2 / .sbf / .swzip（预览待适配）。音色包与银行暂仅索引。"/>
        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
         <TextBlock Text="{Binding VisiblePresetCount, StringFormat='筛选 {0} 项'}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <Button x:Name="RenderFilteredButton" Click="RenderFiltered_Click" IsEnabled="{Binding CanRenderFiltered}" Padding="10,6" ToolTip.Tip="生成当前筛选结果，跳过已有有效预览"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="生成筛选结果"/></StackPanel></Button>
@@ -188,14 +189,15 @@
          </Grid>
          <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{StaticResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
          <Grid Grid.Column="2" Margin="0,10,0,0">
-          <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="240"/></Grid.RowDefinitions>
-          <TextBlock Text="共享 VSTi 安装目录" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <WrapPanel Grid.Row="1" Margin="0,6,0,10">
+          <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="240"/></Grid.RowDefinitions>
+          <TextBlock Text="音源安装目录" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <TextBlock Grid.Row="1" Text="首次使用已预填系统和用户的安装位置，可追加自定义目录。空列表扫描时恢复默认位置。" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
+          <WrapPanel Grid.Row="2" Margin="0,6,0,10">
            <Button Click="AddPluginDirectory_Click" IsEnabled="{Binding IsIdle}" Padding="10,6" Margin="0,0,8,8"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="添加安装目录"/></StackPanel></Button>
-           <Button Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" Padding="10,6" Margin="0,0,8,8"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
+           <Button x:Name="DirectoryScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" Padding="10,6" Margin="0,0,8,8"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
            <Button Classes="icon" Content="×" Click="RemovePluginDirectory_Click" IsEnabled="{Binding IsIdle}" Width="34" Height="32" Margin="0,0,0,8" ToolTip.Tip="移除选中的安装目录"/>
           </WrapPanel>
-          <DataGrid x:Name="PluginDirectoryGrid" Grid.Row="2" ItemsSource="{Binding PluginDirectories}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="共享 VSTi 安装目录" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+          <DataGrid x:Name="PluginDirectoryGrid" Grid.Row="3" ItemsSource="{Binding PluginDirectories}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源安装目录" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns><DataGridTextColumn Header="安装目录" Binding="{Binding}" Width="*" MinWidth="300"/></DataGrid.Columns>
           </DataGrid>
          </Grid>
@@ -206,7 +208,15 @@
        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="365">
          <Grid.RowDefinitions><RowDefinition Height="54"/><RowDefinition Height="*" MinHeight="240"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-         <Grid><TextBlock Text="音源扫描结果" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/><Button Content="使用选中版本" Click="UseDiscoveredPlugin_Click" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="{Binding IsIdle}" Margin="0"/></Grid>
+         <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="音源扫描结果" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+           <Button x:Name="DiscoveredScanPluginsButton" Content="扫描音源" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描安装目录并更新此列表"/>
+           <Button Content="安装目录" Click="ViewPluginDirectories_Click" IsEnabled="{Binding IsIdle}"/>
+           <Button Content="使用选中版本" Click="UseDiscoveredPlugin_Click" IsEnabled="{Binding IsIdle}" Margin="0"/>
+          </StackPanel>
+         </Grid>
          <DataGrid x:Name="DiscoveredPluginGrid" Grid.Row="1" ItemsSource="{Binding DiscoveredPlugins}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源扫描结果" ScrollViewer.HorizontalScrollBarVisibility="Auto">
           <DataGrid.Columns>
            <DataGridTextColumn Header="插件 / 音源" Binding="{Binding NameLabel}" Width="170"/>

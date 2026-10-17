@@ -52,6 +52,7 @@ public static class Labels
         SynthKind.Serum1 => ".fxp",
         SynthKind.Serum2 => ".SerumPreset / .fxp",
         SynthKind.Sylenth1 => ".fxp / .fxb",
+        SynthKind.Spire => ".spf / .spf2 / .sbf / .swzip / .fxp（手动指定）",
         SynthKind.Unknown => ".fxp / .fxb",
         _ => ""
     };

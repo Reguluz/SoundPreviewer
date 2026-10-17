@@ -54,12 +54,15 @@ public static class RenderReadinessService
             return Result("格式未适配", "Vital 原生渲染后端只能处理 Vital，不能用来加载其他音源。");
         if (configuration.Backend == RenderBackend.DawDreamer)
         {
-            if (configuration.Synth is not (SynthKind.Serum1 or SynthKind.Sylenth1))
-                return Result("格式未适配", "当前 DawDreamer 桥接仅适配 Serum 1 / Sylenth1 的 VST2 独立 FXP，不支持此音源及其专有预制格式。");
-            if (string.IsNullOrWhiteSpace(configuration.PluginPath)) return Result("插件缺失", mac ? "尚未关联 VST2 .vst 插件包，请先扫描并选择插件。" : "尚未关联 VST2 乐器 DLL，请先扫描并选择插件。");
-            if (selected?.Format == PluginBinaryFormat.Vst3 || !Path.GetExtension(configuration.PluginPath).Equals(mac ? ".vst" : ".dll", StringComparison.OrdinalIgnoreCase))
-                return Result("格式未适配", mac ? "当前 DawDreamer FXP 桥接需要 macOS VST2 .vst 插件包，尚未适配 VST3 或 Windows DLL。" : "当前 DawDreamer FXP 桥接需要 VST2 乐器 DLL，尚未适配 VST3 文件或插件包。");
-            if (mac ? !Directory.Exists(configuration.PluginPath) : !File.Exists(configuration.PluginPath))
+            bool serum2 = configuration.Synth == SynthKind.Serum2;
+            if (configuration.Synth is not (SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1))
+                return Result("格式未适配", "当前 DawDreamer 桥接适配 Serum 1 / Sylenth1 VST2 FXP 和 Serum 2 VST3 .SerumPreset。Spire 原生格式尚待适配，可另行配置已验证的外部工作进程。");
+            string expectedExtension = serum2 ? ".vst3" : mac ? ".vst" : ".dll";
+            PluginBinaryFormat expectedFormat = serum2 ? PluginBinaryFormat.Vst3 : PluginBinaryFormat.Vst2;
+            if (string.IsNullOrWhiteSpace(configuration.PluginPath)) return Result("插件缺失", serum2 ? "尚未关联 Serum 2 VST3，请先扫描并选择插件。" : mac ? "尚未关联 VST2 .vst 插件包，请先扫描并选择插件。" : "尚未关联 VST2 乐器 DLL，请先扫描并选择插件。");
+            if (selected is not null && selected.Format != expectedFormat || !Path.GetExtension(configuration.PluginPath).Equals(expectedExtension, StringComparison.OrdinalIgnoreCase))
+                return Result("格式未适配", serum2 ? "Serum 2 原生预制需要 VST3 插件，不能交给旧 VST2 FXP 后端。" : mac ? "当前 FXP 桥接需要 macOS VST2 .vst 插件包。" : "当前 FXP 桥接需要 VST2 乐器 DLL。");
+            if (!Directory.Exists(configuration.PluginPath) && !File.Exists(configuration.PluginPath))
                 return Result("插件缺失", "已关联的插件文件或包不存在，请检查安装目录并重新扫描。");
             if (selected is null || selected.Synth != configuration.Synth)
                 return Result("插件未确认", "所选文件尚未由扫描元数据确认为目标音源；请重新扫描，不能仅凭路径或文件名确认兼容性。");
@@ -67,8 +70,7 @@ public static class RenderReadinessService
                 return Result("位数不兼容", "所选插件是 32 位，当前 DawDreamer 桥接仅支持 x64。可配置兼容 32 位插件的独立外部宿主或桥接，不要求更换 64 位音源包。");
             if (!PluginSelectionService.IsCompatible(selected, target, architecture))
                 return Result("位数不兼容", mac ? "所选插件与当前 macOS 进程架构不一致；Python、DawDreamer 和插件必须使用同一 arm64 / x64 架构，或插件提供 Universal 二进制。" : "所选插件尚未确认为 Windows x64 架构；不能将其交给当前 x64 DawDreamer 桥接。");
-            if (mac && !File.Exists(selected.BinaryPath)) return Result("插件缺失", "已关联的 macOS 插件包缺少实际 Mach-O 文件，请重新扫描。");
-            if (selected.Format != PluginBinaryFormat.Vst2) return Result("格式未适配", "所选插件不是已识别的 VST2 乐器文件。");
+            if (!File.Exists(selected.BinaryPath)) return Result("插件缺失", "已关联的插件包缺少实际二进制文件，请重新扫描。");
         }
         if (string.IsNullOrWhiteSpace(configuration.ExecutablePath) || !File.Exists(configuration.ExecutablePath))
             return Result("程序缺失", configuration.Backend == RenderBackend.DawDreamer
@@ -95,7 +97,9 @@ public static class RenderReadinessService
                 : "Vital 独立程序和版本已配置；原生 CLI 不报告目标预制加载成功，输出仍须人工确认音色与资源。", true);
         }
         if (configuration.Backend == RenderBackend.DawDreamer)
-            return Result("可尝试", mac
+            return Result("可尝试", configuration.Synth == SynthKind.Serum2
+                ? "Serum 2 VST3、匹配架构的 Python 与插件版本已配置。安装 requirements-serum2.txt 后可加载 .SerumPreset，采用当前插件实际状态格式并回读核对；旧 FXP 请先在 Serum 2 中导入并另存。尚需实际预制与外部资源验收。"
+                : mac
                 ? "macOS VST2 插件包、Python 程序及版本已配置。Python、DawDreamer 和插件必须使用同一 arm64 / x64 架构；依赖安装、FXP 加载和宿主初始化仍须预检及单个预制试渲染，不代表已验证可用。"
                 : "x64 VST2 插件、Python 程序及版本已配置。尚未检查 x64 Python 3.11 / 3.12、DawDreamer 0.8.3、NumPy 1.26.4 的依赖安装和宿主初始化是否成功；须先完成独立宿主预检及单个预制试渲染，不代表已验证可用。", true);
         return Result("可尝试", selected?.Architecture == PluginArchitecture.X86

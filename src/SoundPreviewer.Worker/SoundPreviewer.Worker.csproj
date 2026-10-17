@@ -8,5 +8,9 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\scripts\renderers\requirements.txt" Link="Renderers\requirements.txt"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\renderers\requirements-serum2.txt" Link="Renderers\requirements-serum2.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\renderers\serum2_state.py" Link="Renderers\serum2_state.py"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

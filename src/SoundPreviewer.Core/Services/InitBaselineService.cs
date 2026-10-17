@@ -18,7 +18,7 @@ public static class InitBaselineService
     public const string RejectionPrefix = "初始化匹配：";
 
     public static bool Supports(PluginConfiguration plugin) =>
-        plugin.Synth is SynthKind.Serum1 or SynthKind.Sylenth1 && plugin.Backend == RenderBackend.DawDreamer ||
+        plugin.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1 && plugin.Backend == RenderBackend.DawDreamer ||
         plugin.Synth == SynthKind.Sylenth1 && plugin.Backend == RenderBackend.ExternalWorker &&
         string.Equals(Path.GetFileName(plugin.ExecutablePath), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase);
 
@@ -165,6 +165,9 @@ public static class InitBaselineService
         if (pluginHash.Length == 0) throw new InvalidDataException("无法核对基准音源的实际二进制指纹。");
         string script = Path.Combine(AppContext.BaseDirectory, "Renderers", "dawdreamer_worker.py");
         string scriptHash = plugin.Backend == RenderBackend.DawDreamer && File.Exists(script) ? Fingerprints.HashFile(script, token) : "";
+        string stateAdapter = Path.Combine(AppContext.BaseDirectory, "Renderers", "serum2_state.py");
+        string stateAdapterHash = plugin.Synth == SynthKind.Serum2 && plugin.Backend == RenderBackend.DawDreamer && File.Exists(stateAdapter)
+            ? Fingerprints.HashFile(stateAdapter, token) : "";
         var sidecars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (plugin.Backend == RenderBackend.ExternalWorker)
         {
@@ -182,7 +185,7 @@ public static class InitBaselineService
             plugin.Synth, plugin.Backend, Executable = ApplicationPaths.PathIdentity(plugin.ExecutablePath),
             Plugin = ApplicationPaths.PathIdentity(plugin.PluginPath), plugin.Version, executableHash, pluginHash,
             Template = settings.Template, Fingerprints.AdapterVersion, Fingerprints.QuickPreviewPolicy,
-            InitAudioComparer.PolicyVersion, Kind = BaselineKind, scriptHash, sidecars
+            InitAudioComparer.PolicyVersion, Kind = BaselineKind, scriptHash, stateAdapterHash, sidecars
         }));
         return (key, executableHash, pluginHash);
     }

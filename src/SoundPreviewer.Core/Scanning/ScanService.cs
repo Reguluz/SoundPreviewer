@@ -37,6 +37,12 @@ public sealed class ScanService
         record.SynthAssignedManually = true;
         record.DetectionReason = "用户手动指定为 " + PresetDetection.SynthName(synth) + "。";
         record.Tags = PresetDetection.MergeTags(record.Tags, synth, record.SourcePath);
+        if (PresetDetection.IsSpireFormat(extension))
+        {
+            if (record.Status != PresetStatus.Missing) record.Status = PresetStatus.Unsupported;
+            record.Message = SpireFormatMessage(extension);
+            ClearPreview(record);
+        }
         if (extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(record.InternalPath))
         {
             if (record.Status != PresetStatus.Missing) record.Status = PresetStatus.Unsupported;
@@ -249,6 +255,7 @@ public sealed class ScanService
     {
         if (synth == SynthKind.Unknown) return false;
         if (synth == SynthKind.Vital) return extension.Equals(".vital", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase);
+        if (synth == SynthKind.Spire && PresetDetection.IsSpireFormat(extension)) return true;
         if (extension.Equals(".fxp", StringComparison.OrdinalIgnoreCase)) return true;
         return synth == SynthKind.Serum2 && extension.Equals(".SerumPreset", StringComparison.OrdinalIgnoreCase) ||
             synth == SynthKind.Sylenth1 && extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase);
@@ -322,7 +329,12 @@ public sealed class ScanService
             VerifyStable(file, fileSize, lastWriteUtc);
             return [preset];
         }
-        if (extension.Equals(".vital", StringComparison.OrdinalIgnoreCase))
+        if (PresetDetection.IsSpireFormat(extension))
+        {
+            preset.Status = PresetStatus.Unsupported;
+            preset.Message = SpireFormatMessage(extension);
+        }
+        else if (extension.Equals(".vital", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -356,6 +368,10 @@ public sealed class ScanService
         VerifyStable(file, fileSize, lastWriteUtc);
         return [preset];
     }
+
+    private static string SpireFormatMessage(string extension) => extension.Equals(".sbf", StringComparison.OrdinalIgnoreCase) || extension.Equals(".swzip", StringComparison.OrdinalIgnoreCase)
+        ? "已索引 Spire 音色库；原生格式加载、音色槽位及资源依赖尚未适配，不拆分或生成预览。"
+        : "已索引 Spire 专用预设；原生格式加载尚未适配，不生成预览。";
 
     private static void VerifyStable(FileInfo file, long length, DateTime lastWriteUtc)
     {

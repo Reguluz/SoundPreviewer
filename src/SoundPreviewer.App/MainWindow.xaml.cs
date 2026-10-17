@@ -39,6 +39,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _isBusy;
     private bool _stopRequested;
     private bool _closeWhenDone;
+    private bool _isClosing;
     private bool _isPlaying;
     private bool _seeking;
     private bool _mediaOpened;
@@ -89,7 +90,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public bool HasSelection => _selected is not null;
     public bool CanEditSelection => HasSelection && IsIdle;
     public bool CanAssignSynth => CanEditSelection && _selected?.Record.Status != PresetStatus.Missing;
-    public bool CanPlay => _selected is not null && File.Exists(_selected.Record.PreviewPath);
+    public bool CanPlay => !_isClosing && _selected is not null && File.Exists(_selected.Record.PreviewPath);
     public bool CanConfirm => IsIdle && CanPlay && _selected?.Record.Status == PresetStatus.NeedsReview;
     public bool CanRenderSelection => IsIdle && _selected is not null && _selected.Record.DuplicateOfId.Length == 0 && _selected.Record.Synth != SynthKind.Unknown && _selected.Record.Status is not (PresetStatus.Unsupported or PresetStatus.Missing or PresetStatus.Unidentified);
     public bool CanViewCanonical => _selected is not null && Presets.Any(p => p.Record.Id == _selected.Record.DuplicateOfId);
@@ -134,7 +135,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         bool upgradedNoteOrder = _settings.Template.NoteOrder != PreviewNoteOrder.MiddleHighLow;
         _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
         int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath);
-        if (App.ImportedSettings is not null || refreshedHost > 0 || upgradedNoteOrder || migratedPreviewDirectory) _store.SaveSettings(_settings);
+        bool seededPluginDirectories = _settings.PluginDirectories.Count == 0;
+        if (seededPluginDirectories) _settings.PluginDirectories = ResolvePluginScanDirectories([], _settings.Plugins);
+        if (App.ImportedSettings is not null || refreshedHost > 0 || upgradedNoteOrder || migratedPreviewDirectory || seededPluginDirectories) _store.SaveSettings(_settings);
         PresetsView = new DataGridCollectionView(Presets);
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
@@ -145,6 +148,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SeekSlider.AddHandler(PointerReleasedEvent, Seek_Released, RoutingStrategies.Tunnel, handledEventsToo: true);
         VolumeSlider.PropertyChanged += Volume_Changed;
         PopulateSettings();
+        if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
         if (migratedPreviewDirectory) Log("预览输出目录已迁移到程序目录内：" + _settings.PreviewDirectory);
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
         LoadCategoryRulesEditor();
@@ -153,6 +157,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _playbackTimer.Start();
         _taskTimer.Tick += (_, _) =>
         {
+            if (_isClosing) return;
             _flushTaskProgress?.Invoke();
             NotifyTaskProgress();
         };
@@ -164,6 +169,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var restored = await Task.Run(() => _store.RecoverInterrupted());
             var records = await Task.Run(_store.LoadPresets);
+            if (_isClosing) return;
             if (_categoryService.Load().Success)
             {
                 var classified = await Task.Run(() => _categoryService.Apply(records));
@@ -171,6 +177,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             SetPresets(records);
             await RefreshInitBaselinesAsync();
+            if (_isClosing) return;
             if (GeneratedPreviewCount > 0)
             {
                 _hasTaskFeedback = true;
@@ -381,7 +388,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task RunTask(Func<CancellationToken, Task> action)
     {
-        if (_isBusy) return;
+        if (_isBusy || _isClosing) return;
         _isBusy = true;
         _stopRequested = false;
         _progressValue = 0;
@@ -518,12 +525,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void Preset_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_isClosing) return;
         _selected = PresetGrid.SelectedItem as PresetRow;
         await LoadSelectedPreview();
     }
 
     private async Task LoadSelectedPreview()
     {
+        if (_isClosing) return;
         var generation = ++_selectionGeneration;
         _loadedPreviewPath = "";
         StopPlayback();
@@ -536,7 +545,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             var audio = await Task.Run(() => WaveFile.Read(path));
-            if (generation != _selectionGeneration) return;
+            if (_isClosing || generation != _selectionGeneration) return;
             Waveform.SetAudio(audio);
             SeekSlider.Maximum = audio.DurationSeconds;
             _player.Load(audio);
@@ -544,19 +553,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (_playWhenOpen) { _player.Play(_openPosition); _isPlaying = true; }
             _loadedPreviewPath = path;
         }
-        catch (Exception ex) { if (generation == _selectionGeneration) Log("无法读取预览：" + ex.Message); }
+        catch (Exception ex) { if (!_isClosing && generation == _selectionGeneration) Log("无法读取预览：" + ex.Message); }
     }
 
     private void Preset_DoubleClick(object sender, TappedEventArgs e) { if (CanPlay) StartPlayback(0, null); }
     private void Play_Click(object sender, RoutedEventArgs e)
     {
+        if (_isClosing) return;
         if (_isPlaying) { _player.Pause(); _isPlaying = false; }
         else StartPlayback(_player.PositionSeconds, null);
     }
     private void Stop_Click(object sender, RoutedEventArgs e) => StopPlayback();
     private void PlayNote_Click(object sender, RoutedEventArgs e)
     {
-        if (_selected is null || sender is not Button button) return;
+        if (_isClosing || _selected is null || sender is not Button button) return;
         var note = FindPreviewNote(_selected.Record, button.Tag?.ToString() ?? "");
         if (note is null) { Log("此预览缺少对应音区的保存记录。"); return; }
         StartPlayback(note.StartSeconds, note.StartSeconds + note.DurationSeconds);
@@ -593,6 +603,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void StopPlayback()
     {
+        if (_isClosing) return;
         _player.Stop();
         _isPlaying = false;
         _playWhenOpen = false;
@@ -603,6 +614,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void UpdatePlayback()
     {
+        if (_isClosing) return;
         if (_isPlaying && (!_player.IsPlaying || _segmentEnd is { } end && _player.PositionSeconds >= end)) { StopPlayback(); return; }
         if (_mediaOpened && !_seeking) SeekSlider.Value = _player.PositionSeconds;
         Waveform.SetPosition(_player.PositionSeconds);
@@ -612,6 +624,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void Seek_Released(object? sender, PointerReleasedEventArgs e)
     {
+        if (_isClosing) return;
         _seeking = false;
         _segmentEnd = null;
         _openPosition = SeekSlider.Value;
@@ -619,7 +632,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void Volume_Changed(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property != RangeBase.ValueProperty) return;
+        if (_isClosing || e.Property != RangeBase.ValueProperty) return;
         _player.Volume = VolumeSlider.Value;
         if (_settings is not null) _settings.PlaybackVolume = VolumeSlider.Value;
     }
@@ -818,6 +831,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task RefreshInitBaselinesAsync()
     {
+        if (_isClosing) return;
         int generation = ++_baselineRefreshGeneration;
         foreach (var plugin in Plugins)
             plugin.InitBaselinePath = _settings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth)?.InitBaselinePath ?? "";
@@ -830,7 +844,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 InitBaselineService.Supports(plugin) && File.Exists(plugin.ExecutablePath),
                 state.CanCompare && File.Exists(state.WavPath)));
         }
-        if (generation != _baselineRefreshGeneration) return;
+        if (_isClosing || generation != _baselineRefreshGeneration) return;
         InitBaselines.Clear();
         foreach (var row in rows) InitBaselines.Add(row);
     }
@@ -894,10 +908,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Plugins.Clear(); foreach (var plugin in _settings.Plugins)
             Plugins.Add(JsonSerializer.Deserialize<PluginConfiguration>(JsonSerializer.Serialize(plugin, LibraryJson.Options), LibraryJson.Options)!);
         PluginDirectories.Clear();
-        var directories = _settings.PluginDirectories.Count > 0 ? _settings.PluginDirectories
-            : Plugins.Select(p => p.PluginPath.Length > 0 ? p.PluginPath : p.Backend == RenderBackend.VitalCli ? p.ExecutablePath : "")
-                .Where(File.Exists).Select(p => Path.GetDirectoryName(p)!).DistinctBy(ApplicationPaths.PathIdentity).ToList();
-        foreach (var directory in directories) PluginDirectories.Add(directory);
+        foreach (var directory in _settings.PluginDirectories) PluginDirectories.Add(directory);
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
         QuickPreviewMode.IsChecked = t.QuickPreview;
@@ -963,12 +974,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private async void AddPluginDirectory_Click(object sender, RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择 VSTi 安装目录", AllowMultiple = true });
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择音源安装目录", AllowMultiple = true });
         foreach (var folder in folders)
             if (folder.TryGetLocalPath() is { } directory && !PluginDirectories.Any(existing => ApplicationPaths.PathIdentity(existing) == ApplicationPaths.PathIdentity(directory))) PluginDirectories.Add(directory);
         _settings.PluginDirectories = PluginDirectories.ToList();
         _store.SaveSettings(_settings);
-        Log("VSTi 安装目录已保存。");
+        Log("音源安装目录已保存。");
     }
     private void RemovePluginDirectory_Click(object sender, RoutedEventArgs e)
     {
@@ -976,31 +987,81 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PluginDirectories.Remove(directory);
         _settings.PluginDirectories = PluginDirectories.ToList();
         _store.SaveSettings(_settings);
-        Log("已移除 VSTi 扫描目录，保留已关联的音源：" + directory);
+        Log("已移除音源扫描目录，保留已关联的音源：" + directory);
     }
-    private async void ScanPlugins_Click(object sender, RoutedEventArgs e) => await RunTask(async token =>
+    private static List<string> ResolvePluginScanDirectories(IEnumerable<string> configuredDirectories, IEnumerable<PluginConfiguration> plugins)
     {
-        if (PluginDirectories.Count == 0) throw new InvalidOperationException("请先添加 VSTi 安装目录。");
-        _statusMessage = "正在扫描已安装音源…";
-        NotifyAll();
-        var result = await new PluginScanService().ScanAsync(PluginDirectories.ToList(), token);
-        var previous = _settings.DiscoveredPlugins.Where(p => result.UnavailableRoots.Any(root =>
-            p.FilePath.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, ApplicationPaths.PathComparison)));
-        var merged = result.Plugins.Concat(previous).DistinctBy(p => p.Id).ToList();
-        var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
-        _settings.PluginDirectories = PluginDirectories.ToList();
-        _settings.DiscoveredPlugins = merged;
-        _settings.Plugins = ClonePlugins();
-        _store.SaveSettings(_settings);
-        await InvalidateChangedPreviewsAsync();
-        RefreshDiscoveredPlugins();
-        RefreshGrid(PluginGrid);
-        await RefreshInitBaselinesAsync();
-        foreach (var warning in result.Warnings) Log(warning);
-        _taskTitle = "音源扫描完成";
-        _statusMessage = $"发现 {result.Plugins.Count} 个插件 / 独立程序，自动关联 {associated} 个音源。渲染兼容性仍需验证。";
-        Log(_statusMessage);
-    });
+        var configured = configuredDirectories.ToList();
+        if (configured.Count > 0) return configured;
+        // Keep absent and inaccessible locations so installs made later are found and scan warnings remain visible.
+        return ApplicationPaths.DefaultPluginDirectories.Concat(plugins
+                .Select(plugin => plugin.PluginPath.Length > 0 ? plugin.PluginPath : plugin.Backend == RenderBackend.VitalCli ? plugin.ExecutablePath : "")
+                .Select(InferPluginScanDirectory).OfType<string>())
+            .DistinctBy(ApplicationPaths.PathIdentity).ToList();
+    }
+    private static string? InferPluginScanDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || (!OperatingSystem.IsWindows() && (path.Contains('\\') || (path.Length > 1 && path[1] == ':')))) return null;
+        try
+        {
+            var absolute = Path.GetFullPath(path);
+            for (var directory = new DirectoryInfo(absolute); directory is not null; directory = directory.Parent)
+                if (new[] { ".app", ".vst", ".vst3", ".component" }.Contains(directory.Extension, StringComparer.OrdinalIgnoreCase))
+                    return directory.Parent?.FullName;
+            return Path.GetDirectoryName(absolute);
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException) { return null; }
+    }
+    private void ViewPluginDirectories_Click(object sender, RoutedEventArgs e)
+    {
+        Pages.SelectedItem = SettingsTab;
+        SettingsPages.SelectedItem = DirectorySettingsTab;
+    }
+    private static bool IsWithinUnavailablePluginRoot(string path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return false;
+        try { return ApplicationPaths.IsWithin(path, root); }
+        catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+        { return false; }
+    }
+    private static List<DiscoveredPlugin> MergePluginScanResults(PluginScanResult result, IEnumerable<DiscoveredPlugin> previous)
+    {
+        var retained = previous.Where(plugin => result.UnavailableRoots.Any(root => IsWithinUnavailablePluginRoot(plugin.FilePath, root)));
+        return result.Plugins.Concat(retained).DistinctBy(plugin => plugin.Id).ToList();
+    }
+    private async void ScanPlugins_Click(object sender, RoutedEventArgs e)
+    {
+        Pages.SelectedItem = SettingsTab;
+        SettingsPages.SelectedItem = DiscoveredSettingsTab;
+        await RunTask(async token =>
+        {
+            if (PluginDirectories.Count == 0)
+            {
+                foreach (var directory in ResolvePluginScanDirectories([], Plugins)) PluginDirectories.Add(directory);
+                _settings.PluginDirectories = PluginDirectories.ToList();
+                _store.SaveSettings(_settings);
+            }
+            _taskTitle = "正在扫描已安装音源";
+            _statusMessage = "正在扫描系统、用户和自定义安装目录…";
+            NotifyAll();
+            var result = await new PluginScanService().ScanAsync(PluginDirectories.ToList(), token);
+            var merged = MergePluginScanResults(result, _settings.DiscoveredPlugins);
+            var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
+            _settings.PluginDirectories = PluginDirectories.ToList();
+            _settings.DiscoveredPlugins = merged;
+            _settings.Plugins = ClonePlugins();
+            _store.SaveSettings(_settings);
+            await InvalidateChangedPreviewsAsync();
+            RefreshDiscoveredPlugins();
+            RefreshGrid(PluginGrid);
+            await RefreshInitBaselinesAsync();
+            foreach (var warning in result.Warnings) Log(warning);
+            _taskTitle = "音源扫描完成";
+            _statusMessage = $"发现 {result.Plugins.Count} 个插件 / 独立程序，自动关联 {associated} 个音源。" +
+                (result.UnavailableRoots.Count > 0 ? $"{result.UnavailableRoots.Count} 个安装位置暂不可访问，详情见运行记录。" : "渲染兼容性仍需验证。");
+            Log(_statusMessage);
+        });
+    }
     private async void UseDiscoveredPlugin_Click(object sender, RoutedEventArgs e)
     {
         if (DiscoveredPluginGrid.SelectedItem is not DiscoveredPluginRow row) return;
@@ -1193,9 +1254,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void NotifyAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(""));
     private void Window_Closing(object? sender, WindowClosingEventArgs e)
     {
+        if (_isClosing) return;
         if (_isBusy) { e.Cancel = true; _closeWhenDone = true; _taskCancellation?.Cancel(); return; }
+        CompleteWindowClose();
+    }
+    private void CompleteWindowClose()
+    {
+        if (_isClosing) return;
+        // Selection and queued dispatcher callbacks can still arrive while Avalonia tears down the window.
+        _isClosing = true;
+        ++_selectionGeneration;
+        ++_baselineRefreshGeneration;
         _playbackTimer.Stop();
         _taskTimer.Stop();
+        _flushTaskProgress = null;
+        _isPlaying = false;
+        _mediaOpened = false;
+        _playWhenOpen = false;
+        _loadedPreviewPath = "";
         _player.Dispose();
         _store.SaveSettings(_settings);
     }

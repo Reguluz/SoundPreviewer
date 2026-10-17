@@ -5,7 +5,8 @@ param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
     [string]$EnvironmentName = 'dawdreamer-cpython-x64',
     [AllowEmptyString()]
-    [string]$Proxy
+    [string]$Proxy,
+    [switch]$IncludeSerum2
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $artifacts = Join-Path $workspace 'artifacts'
 $requirements = Join-Path $PSScriptRoot 'renderers/requirements.txt'
+$serum2Requirements = Join-Path $PSScriptRoot 'renderers/requirements-serum2.txt'
 $worker = Join-Path $PSScriptRoot 'renderers/dawdreamer_worker.py'
 
 function Assert-ArtifactPath([string]$Path) {
@@ -48,7 +50,7 @@ import platform
 import struct
 import sys
 versions = {}
-for name in ('dawdreamer', 'numpy'):
+for name in ('dawdreamer', 'numpy', 'serum2-preset-loader', 'cbor2', 'zstandard'):
     try:
         versions[name] = importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
@@ -64,6 +66,9 @@ print(json.dumps({
     'IsConda': (Path(sys.base_prefix) / 'conda-meta').is_dir() or 'anaconda' in sys.version.lower(),
     'HostVersion': versions['dawdreamer'],
     'NumpyVersion': versions['numpy'],
+    'Serum2ConverterVersion': versions['serum2-preset-loader'],
+    'CborVersion': versions['cbor2'],
+    'ZstandardVersion': versions['zstandard'],
 }))
 '@
     $output = & $Executable -I -c $inspection 2>&1
@@ -110,6 +115,20 @@ $pins = @(Get-Content -LiteralPath $requirements | Where-Object { $_.Trim() -and
 if ($pins.Count -ne 2 -or 'dawdreamer==0.8.3' -notin $pins -or 'numpy==1.26.4' -notin $pins) {
     throw 'Expected the audited pins dawdreamer==0.8.3 and numpy==1.26.4; review setup before changing dependencies.'
 }
+$selectedRequirements = $requirements
+if ($IncludeSerum2) {
+    if (-not (Test-Path -LiteralPath $serum2Requirements -PathType Leaf)) {
+        throw 'The optional Serum 2 requirements file is missing.'
+    }
+    $serum2Pins = @(Get-Content -LiteralPath $serum2Requirements | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
+        ForEach-Object { $_.Trim() })
+    if ($serum2Pins.Count -ne 4 -or '-r requirements.txt' -notin $serum2Pins -or
+        'serum2-preset-loader==0.1.3' -notin $serum2Pins -or 'cbor2==5.6.5' -notin $serum2Pins -or
+        'zstandard==0.23.0' -notin $serum2Pins) {
+        throw 'Expected the audited Serum 2 converter, CBOR and zstandard pins; review setup before changing dependencies.'
+    }
+    $selectedRequirements = $serum2Requirements
+}
 $environment = Assert-ArtifactPath (Join-Path $artifacts $EnvironmentName)
 $environmentPython = Assert-ArtifactPath (Join-Path $environment 'Scripts/python.exe')
 $wheelCache = Assert-ArtifactPath (Join-Path $artifacts ("dawdreamer-wheels-cp3{0}" -f $sourceInfo.Minor))
@@ -133,14 +152,19 @@ if (-not $environmentInfo.IsVenv -or
         [IO.Path]::GetFullPath($sourceInfo.Executable), [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The existing environment does not belong to the selected base Python. Choose a new EnvironmentName; nothing was replaced.'
 }
-if ($environmentInfo.HostVersion -eq '0.8.3' -and $environmentInfo.NumpyVersion -eq '1.26.4') {
+$dependenciesReady = $environmentInfo.HostVersion -eq '0.8.3' -and $environmentInfo.NumpyVersion -eq '1.26.4'
+if ($IncludeSerum2) {
+    $dependenciesReady = $dependenciesReady -and $environmentInfo.Serum2ConverterVersion -eq '0.1.3' -and
+        $environmentInfo.CborVersion -eq '5.6.5' -and $environmentInfo.ZstandardVersion -eq '0.23.0'
+}
+if ($dependenciesReady) {
     Write-Host 'The fixed dependencies are already installed; skipping package download and installation.'
 }
 else {
     [IO.Directory]::CreateDirectory($wheelCache) | Out-Null
-    $downloadArguments = @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', '--no-input',
+    $downloadArguments = @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', '--no-input', '--cache-dir', (Join-Path $wheelCache 'pip-cache'),
         'download', '--only-binary=:all:', '--index-url', 'https://pypi.org/simple',
-        '--dest', $wheelCache, '-r', $requirements)
+        '--dest', $wheelCache, '-r', $selectedRequirements)
     if ($PSBoundParameters.ContainsKey('Proxy')) {
         $downloadArguments += "--proxy=$Proxy"
     }
@@ -150,13 +174,17 @@ else {
         throw 'Official wheel download failed. Cached wheels remain available; no package installation was attempted.'
     }
     Write-Host 'Installing only from the workspace wheel cache...'
-    & $environmentPython -I -m pip --isolated --disable-pip-version-check --no-input install --no-index --find-links $wheelCache -r $requirements
+    & $environmentPython -I -m pip --isolated --disable-pip-version-check --no-input --cache-dir (Join-Path $wheelCache 'pip-cache') install --no-index --find-links $wheelCache -r $selectedRequirements
     if ($LASTEXITCODE -ne 0) {
         throw 'Offline installation into the workspace virtual environment failed.'
     }
     $environmentInfo = Get-PythonInfo $environmentPython
     if ($environmentInfo.HostVersion -ne '0.8.3' -or $environmentInfo.NumpyVersion -ne '1.26.4') {
         throw 'The environment does not contain the required fixed dependency versions after installation.'
+    }
+    if ($IncludeSerum2 -and ($environmentInfo.Serum2ConverterVersion -ne '0.1.3' -or
+        $environmentInfo.CborVersion -ne '5.6.5' -or $environmentInfo.ZstandardVersion -ne '0.23.0')) {
+        throw 'The environment does not contain the required fixed Serum 2 dependency versions after installation.'
     }
 }
 [IO.Directory]::CreateDirectory($diagnostics) | Out-Null
@@ -166,14 +194,22 @@ $probeExitCode = $LASTEXITCODE
 if (-not (Test-Path -LiteralPath $probeResult -PathType Leaf)) {
     throw "The host probe returned no report (exit $probeExitCode)."
 }
+if ((Get-Item -LiteralPath $probeResult).Length -gt 1MB) {
+    throw "The host probe returned an oversized report: $probeResult"
+}
 $probe = Get-Content -LiteralPath $probeResult -Raw | ConvertFrom-Json
+if ($probe -isnot [pscustomobject]) {
+    throw "The host probe report is not a JSON object: $probeResult"
+}
 if ($probeExitCode -ne 0 -or $probe.Success -ne $true -or $probe.CommercialPluginsLoaded -ne $false -or
-    $probe.AudioWritten -ne $false -or $probe.ProbeKind -ne 'EmptyHostDsp') {
+    $probe.AudioWritten -ne $false -or $probe.ProbeKind -ne 'EmptyHostDsp' -or $probe.Finished -ne $true -or
+    $probe.HostVersion -ne '0.8.3' -or $probe.NumpyVersion -ne '1.26.4') {
     throw "Host probe did not pass: $($probe.Message) Report: $probeResult"
 }
 [pscustomobject]@{
     Success = $true
     EnvironmentPythonPath = $environmentPython
     ProbeResultPath = $probeResult
+    IncludeSerum2 = [bool]$IncludeSerum2
     Message = 'The isolated host is ready for a separate real-plugin validation. No commercial plugin was loaded by this setup.'
 }

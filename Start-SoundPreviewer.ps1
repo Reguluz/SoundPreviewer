@@ -9,6 +9,7 @@ try {
         $env:DOTNET_CLI_HOME = Join-Path $PSScriptRoot '.build\dotnet'
         $env:APPDATA = Join-Path $PSScriptRoot '.build\AppData'
         $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+$env:AVALONIA_TELEMETRY_OPTOUT = '1'
         dotnet restore SoundPreviewer.sln --configfile NuGet.Config
         if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
         dotnet build SoundPreviewer.sln -c Release --no-restore
