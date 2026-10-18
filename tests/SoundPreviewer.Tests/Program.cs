@@ -34,8 +34,13 @@ internal static partial class Program
         var tests = new List<(string Name, Func<Task> Run)>
         {
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),
+            ("Scientific note names use C2, C4 and C6 with MIDI compatibility", TestNoteNamesAsync),
+            ("Configurable quick preview crops actual audio and preserves old cache keys", TestConfigurableQuickPreviewAsync),
+            ("Worker renders bounded configurable quick previews and delayed notes", TestConfigurableQuickWorkerAsync),
+            ("Quick duration storage budgets and existing previews stay compatible", TestQuickDurationQueueAsync),
             ("Stable user data, portable upgrades and library location recovery", TestPortablePathsAsync),
             ("Upgrade caches, WAL-safe backups, schema refusal and persistent category rules", TestUpgradeCacheCompatibilityAsync),
+            ("Preview cleanup and directory migration preserve user metadata and sources", TestPreviewStorageAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
             ("Serum 2 VST3 readiness and fresh-instance protection on both platforms", TestSerum2ReadinessAsync),
@@ -56,6 +61,7 @@ internal static partial class Program
             ("Spire indexing, conservative FXP identity and legacy configuration migration", TestSpireFoundationAsync),
             ("Manual synth assignment preserves identity and invalidates only derived data", TestManualClassificationAsync),
             ("Editable name category rules preserve metadata and survive invalid edits", TestPresetCategoriesAsync),
+            ("Manual labels and categories persist across rules, scans and legacy storage", TestManualPresetMetadataAsync),
             ("Initialization comparison rejects only strict three-note similarity", TestInitAudioComparisonAsync),
             ("Startup baselines validate identities and reject before audio replacement", TestInitBaselineWorkflowAsync),
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),

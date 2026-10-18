@@ -1,12 +1,14 @@
 # Windows / macOS 共用版本
 
-更新：2026-10-18，当前版本 v1.4.0。此页记录移植与双平台后续改进，历史实测范围按版本保留。
+更新：2026-10-18，当前为 v0.4.0 开发版。此页记录共用功能与数据约定，历史实测范围按原版本保留。直接在 `main` 开发，不自动创建分支或 PR；major 变更须用户明确确认，所有 `0.x` 标签发布均为 prerelease。
 
 ## 共用范围
 
 `SoundPreviewer.App` 改为 Avalonia / .NET 8，共用同一套 XAML、事件处理、视图模型和波形控件。三个主页面、五个设置页、组合筛选、可选列、收藏与反馈、三音区播放、任务停止和继续均沿用原有控制器。Core、Worker 和回归测试统一使用 `net8.0`。
 
-两端共用预制识别、MD5 / SHA256、SQLite schema / 迁移、分类规则、JSON 工作进程协议、队列、原子音频提交、半秒裁剪、音区映射、启动基准与结果校验。Windows 继续通过 WinMM 播放；macOS 通过 AudioQueue 播放相同 PCM16 数据。SQLite 分别加载系统的 `winsqlite3.dll` 与 `libsqlite3.dylib`。
+两端共用预制识别、MD5 / SHA256、SQLite schema / 迁移、分类规则、手工标签、JSON 工作进程协议、队列、原子音频提交、按设定时长裁剪、音区映射及加载防错检查。快速预览默认每音 0.5 秒，可设 0.1–4 秒；音高界面显示 C2 / C4 / C6，对应内部 MIDI 36 / 60 / 84，新预览按中 → 高 → 低排列。Windows 使用 WinMM，macOS 使用 AudioQueue 播放相同 PCM16 数据，SQLite 分别加载系统库。
+
+设置中的「预览生成」提供「生成方式（高级）」与「加载防错检查」：前者选择如何让本机插件演奏并保存预览，后者记录插件未加载预制时的启动声音，避免加载失败后误存默认音色。两端共用同一协议和判断；此检查不会替代人工试听。
 
 macOS 扫描只读解析 XML / binary Info.plist 和 Mach-O，识别 `.app`、`.vst`、`.vst3` 的实际可执行文件及 x64 / arm64 / Universal 架构，不通过加载插件猜测身份。Windows 保留 PE / 版本 / 导出检查；旧发现结果缺少 Platform 时仍解释为 Windows。自动关联只选本平台和当前进程兼容的已识别产品。手选 VST 插件与配置外部宿主仍是不同操作。
 
@@ -35,26 +37,32 @@ Windows 默认采用 Program Files 下的 `VstPlugins`、`Steinberg/VstPlugins` 
 
 ## 数据与升级
 
-程序目录可整体替换；新安装的数据位于独立用户目录：
+新安装默认将记录、规则和缓存集中到程序旁的 `Preview`，更新程序时须保留该目录及库定位文件：
 
 ```text
-Windows: %LOCALAPPDATA%\SoundPreviewer
-macOS:   ~/Library/Application Support/SoundPreviewer
+Windows: 应用目录\Preview
+macOS:   SoundPreviewer.app 旁的 Preview
 
-用户数据目录/
+Preview/
   library.db                     数据库及同目录 WAL
   application.log                运行日志
-  Previews/                      WAV / 启动基准 / 同卷临时目录
+  <缓存键>.wav                    已提交预览音频
+  InitializationBaselines/       加载防错声音参照
   Config/preset-categories.json   用户分类规则
-  Backups/                       数据库结构升级前的一致快照
-  renderers/                     可选 Python 宿主环境、下载与诊断
+  Backups/                       升级 / 目录迁移前的一致快照
+  renderers/                     可选 Python 宿主环境及下载缓存
+  diagnostics/                   可选宿主自检诊断
 ```
 
-程序目录只包含 App、Worker、Renderers、默认分类规则和可选 Windows x86 宿主。Windows 安装器升级和卸载均不删除用户库。可编辑规则只在首次缺失时从旧版 `Config/preset-categories.json` 导入，随后保存在用户库中；内置默认规则更新不覆盖自定义规则。自选预览磁盘和旧预览绝对路径保持不变，程序更新不触发全量重渲染。
+Windows 每用户安装目录可写；macOS 应将 `.app` 放到可写的独立目录，例如 `~/Applications/SoundPreviewer`，数据位于其旁，不写入签名 bundle。Worker、Renderers 和内置默认规则仍跟随程序资源。Windows 安装器升级及卸载保留生成的 `Preview`，macOS 只替换 `.app` 时也保留旁边的数据。发布脚本发现输出中已有 `Preview` 时拒绝清理或打包，即使该目录尚为空。
 
-默认定位顺序为：已记住的音色库 → 当前程序目录已有的 `local-data/library.db` → 平台用户目录。旧 Windows v1.1 默认库与新默认库相同，可直接使用。旧便携版在原目录运行 v1.4 后会记住库的位置；若已经更换安装目录，打开「音源与设置 → 试听与存储 → 打开已有音色库」，选择原来的 `local-data` 即可。打开成功后，稳定用户目录中的 `library-location.json` 保存定位，后续版本继续使用。若磁盘断开或原目录被移走，启动会明确提示并允许重新选择，不静默创建空库。
+程序旁 `library-location.json` 保存已选择的库位置，随程序移动的库使用相对路径；程序旁不可写时，只将小型定位文件保存到原用户目录，不静默改变数据目录。兼容读取旧定位、`local-data` 和旧平台用户库；明确选择的位置不可访问时会提示重新连接、选择或创建可写目录，不静默打开另一份空库。「打开已有音色库」只记住原位置，须继续保留该目录和旧音频。
 
-关联旧库不搬动文件；须保留该目录、原音频及外部渲染环境。需要迁移磁盘时，请先保留完整副本并重新关联；本版不自动重写 Windows 与 Mac 间的来源、插件或音频路径。显式 `--data-directory` 优先于上述定位，用于隔离测试时不会记住测试库；需永久关联可加 `--remember-data-directory`。相对参数仍以可执行文件目录为准。
+「试听与存储 → 更改目录」统一迁移数据库、设置、`Config`、手工标签 / 分类和收藏，并提供迁移或清除旧预览音频两种方式。迁移先校验 SQLite 一致快照和音频复制，再更新目标库的音频与加载防错参照路径；清除方式保留记录和个人数据，撤销旧音频映射。原数据库及 `Config` 留作回滚备份，新目录的 `Backups` 另存迁移前快照。仅处理当前记录或基准明确引用、可确认独占的缓存；共享 / 外部 / 未知音频、未知基准与源文件保留并报告，不凭文件名删除孤立缓存。「清空预览」遵守相同边界，不表示整个目录被清空。
+
+可编辑规则只在首次缺失时从旧规则或内置默认值建立，之后不覆盖。手工标签和分类保存到现有预制 JSON，明确清空也会记住；扫描、内容变更和规则重算保留手工覆盖，「恢复自动」采用最近的自动结果。数据库保持 schema 2，并保留未知 JSON 字段。
+
+跨 Windows / Mac 搬移时，来源文件与插件安装路径仍需人工关联，不能据文件复制宣称商业插件跨平台可用。显式 `--data-directory` 优先于定位，隔离测试默认不记住位置；需永久关联可加 `--remember-data-directory`。相对目录以可迁移应用目录为准，Mac `.app` 使用其父目录。
 
 数据库当前保持 schema 2。schema 0/1 的已有库升级前，使用 SQLite backup API 将包含已提交 WAL 页的完整快照保存至 `Backups`，备份失败则中止升级；迁移事务失败回滚。已有 schema 2 不重复迁移，未知更高 schema 拒绝打开。缓存键、ID、收藏、反馈、任务记录、预览路径与新旧音区映射不因应用版本更新而失效。回归测试使用旧库夹具及 WAL 数据，禁止修改真实用户库。
 
@@ -67,30 +75,30 @@ dotnet restore SoundPreviewer.sln --configfile NuGet.Config
 dotnet build SoundPreviewer.sln -c Release --no-restore
 dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build
 python3 -m unittest discover -s scripts/renderers -p 'test_*.py'
-./scripts/Publish-Desktop.sh osx-arm64
-./scripts/Publish-Desktop.sh osx-x64
+bash scripts/Publish-Desktop.sh osx-arm64
+bash scripts/Publish-Desktop.sh osx-x64
 ```
 
-Windows 发布：`pwsh -File scripts/Publish-Desktop.ps1 -Runtime win-x64`。可选 x86 宿主仍先单独构建，再发布 Windows 应用。
+Windows 发布：`pwsh -File scripts/Publish-Desktop.ps1 -Runtime win-x64`。脚本会先发布自包含 x86 宿主，再发布应用和 Worker，普通用户不需要单独安装 x86 .NET Runtime。
 
 macOS 从源码运行 `./Start-SoundPreviewer.command`；发布后双击发布目录的 `Start-SoundPreviewer.command`。Windows 双击 `SoundPreviewer.exe`。可选宿主使用匹配插件架构的本地 CPython 3.11 / 3.12，基础依赖固定在 `scripts/renderers/requirements.txt`；Serum 2 额外依赖位于 `requirements-serum2.txt`。可运行 `scripts/Prepare-DawDreamer.sh --include-serum2`（macOS，须指定 Python）或 `scripts/Prepare-DawDreamer.ps1 -IncludeSerum2`（Windows）。完整命令和边界见[宿主配置](rendering.md#可选-dawdreamer-宿主)；没有自动安装商业插件或许可证。
 
-`.github/workflows/desktop.yml` 在 Windows/macOS 运行相同的构建与测试，发布 Windows x64、macOS arm64 / x64。CI 无音频设备检查不替代实机播放和插件验收。
+`.github/workflows/desktop.yml` 在分支推送（包括 `main`）时校验批准 major 并执行 Windows x64、macOS arm64 / x64 构建、测试与安装包流程；Release 入口另核对 tag 与版本。手动运行只生成测试包，推送匹配版本 tag 才公开 Release，`0.x` 强制 prerelease。CI 无音频设备检查不替代实机播放和插件验收。
 
 ## 验收边界
 
-本次本机为 Apple Silicon。基础设施和界面测试使用明确标注的合成测试音频和文件，这些测试不作为商业音源兼容性的证据。另行执行的真实插件检查与具体样本记录在下表。
+以下 Mac 历史实测使用 Apple Silicon。基础设施和界面测试使用明确标注的合成测试音频和文件，这些测试不作为商业音源兼容性的证据。真实插件检查与具体样本按其原版本记录在下表。
 
 当前 Mac 已发现 Vital 1.6.4 和 Serum 2 2.0.23，并执行单样本渲染。Vital 样本是明确标记的 `TEST_ONLY` 测试 patch，由真实 Vital CLI 演奏；Serum 2 样本是本机安装的工厂预制。尚未在两端使用同版本插件、相同预制和外部资源逐样本比较。旧 Windows x86 Sylenth1 二进制不能在 macOS 执行；须安装 macOS 对应版本。相同算法与模板并不保证不同厂商版本、架构或随机音源的波形逐字节一致。
 
-v1.4 已在 Windows 本机完成共用 UI、原生播放、旧库兼容及只读插件扫描；本机未安装 Windows Serum 2，没有完成其真实渲染验收。Intel Mac 的真人交互与商业插件运行仍需实机确认；CI 通过不能代替音色身份核对。尚需使用同版本插件、相同预制与外部资源核对音色、音区、尾音、连续切换和授权状态。旧 FXP 在 Serum 2 中直接加载、FXB 银行、Spire 原生预制及包内条目仍不在已验收范围内。
+历史 v1.4 Windows 同步验证覆盖共用 UI、原生播放、旧库兼容和只读插件扫描；当时未安装 Windows Serum 2，没有完成其真实渲染验收。Intel Mac 的真人交互与商业插件运行仍需实机确认；CI 通过不能代替音色身份核对。尚需使用同版本插件、相同预制与外部资源核对音色、音区、尾音、连续切换和授权状态。旧 FXP 在 Serum 2 中直接加载、FXB 银行、Spire 原生预制及包内条目仍不在已验收范围内。
 
 技术依据：[Avalonia 共用架构](https://docs.avaloniaui.net/docs/fundamentals/cross-platform-architecture)、[DawDreamer 0.8.3 发行说明](https://github.com/DBraun/DawDreamer/releases/tag/v0.8.3)。
 
 
 ## 本次验证结果
 
-v1.4.0 Windows 同步与升级兼容验证（2026-10-18）：
+历史 v1.4.0 Windows 同步与升级兼容验证（2026-10-18，保留原结果）：
 
 | 检查 | 结果与边界 |
 | --- | --- |
@@ -130,4 +138,4 @@ v1.3.0 新增验证（2026-10-17）：
 | Apple Silicon 发布包 | 自包含 arm64 App / Worker；取消 DOTNET_ROOT 后仍可启动，默认数据实测在发布目录 local-data；空库界面验收退出码 0 |
 | Intel Mac / Windows 发布 | 自包含 osx-x64 / win-x64 构建成功；本机无法代替对应硬件的交互和音源验收 |
 
-v1.2.0 证据目录：`artifacts/ui-smoke-macos-final/`（带明确标识的合成音频），`artifacts/default-storage-smoke-osx-arm64/`（发布包默认路径验证）。当前发布目标目录仍为 `artifacts/publish-osx-arm64`、`artifacts/publish-osx-x64`、`artifacts/publish-win-x64`；以窗口右下角版本和该次构建日志确认是否已更新为 v1.3.0。
+v1.2.0 证据目录：`artifacts/ui-smoke-macos-final/`（带明确标识的合成音频），`artifacts/default-storage-smoke-osx-arm64/`（当时发布包默认路径验证）。构建输出目录仍为 `artifacts/publish-osx-arm64`、`artifacts/publish-osx-x64`、`artifacts/publish-win-x64`；当前构建以窗口右下角版本和当次日志核对，历史证据目录不随新版本改写。

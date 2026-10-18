@@ -85,12 +85,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
     public bool IsBusy => _isBusy;
-    public bool IsIdle => !_isBusy;
-    public bool CanStopTask => _isBusy && !_stopRequested;
+    public bool IsIdle => !_isBusy && !_storageRelocated;
+    public bool CanStopTask => _isBusy && !_stopRequested && !_isStorageMaintenance;
     public bool HasSelection => _selected is not null;
     public bool CanEditSelection => HasSelection && IsIdle;
     public bool CanAssignSynth => CanEditSelection && _selected?.Record.Status != PresetStatus.Missing;
-    public bool CanPlay => !_isClosing && _selected is not null && File.Exists(_selected.Record.PreviewPath);
+    public bool CanPlay => !_isClosing && !_isStorageMaintenance && !_storageRelocated && _selected is not null && File.Exists(_selected.Record.PreviewPath);
     public bool CanConfirm => IsIdle && CanPlay && _selected?.Record.Status == PresetStatus.NeedsReview;
     public bool CanRenderSelection => IsIdle && _selected is not null && _selected.Record.DuplicateOfId.Length == 0 && _selected.Record.Synth != SynthKind.Unknown && _selected.Record.Status is not (PresetStatus.Unsupported or PresetStatus.Missing or PresetStatus.Unidentified);
     public bool CanViewCanonical => _selected is not null && Presets.Any(p => p.Record.Id == _selected.Record.DuplicateOfId);
@@ -116,7 +116,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public double ProgressValue => _progressValue;
     public bool TaskStatusVisibility => _hasTaskFeedback;
     public bool TaskSettingsVisibility => _needsRendererSetup && IsIdle;
-    public bool TaskBandVisible => _hasTaskFeedback && (SettingsTab?.IsSelected != true || IsBusy);
+    public bool TaskBandVisible => _storageRelocated || (_hasTaskFeedback && (SettingsTab?.IsSelected != true || IsBusy));
+    public bool RelocatedLibraryVisibility => _storageRelocated;
     public string TaskTitle => _taskTitle;
     public string TaskProgressText => _taskProgressText;
     public string TaskElapsed => $"用时 {(_taskWatch.Elapsed.TotalHours >= 1 ? _taskWatch.Elapsed.ToString(@"h\:mm\:ss") : _taskWatch.Elapsed.ToString(@"m\:ss"))}";
@@ -130,7 +131,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _settings = App.ImportedSettings ?? _store.LoadSettings();
         var previousPreviewDirectory = _settings.PreviewDirectory;
         try { _settings.PreviewDirectory = ValidateOutputPath(previousPreviewDirectory); }
-        catch (ArgumentException) { _settings.PreviewDirectory = Path.Combine(App.DataDirectory, "Previews"); }
+        catch (ArgumentException) { _settings.PreviewDirectory = App.DataDirectory; }
         bool migratedPreviewDirectory = !string.Equals(previousPreviewDirectory, _settings.PreviewDirectory, StringComparison.Ordinal);
         bool upgradedNoteOrder = _settings.Template.NoteOrder != PreviewNoteOrder.MiddleHighLow;
         _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
@@ -392,7 +393,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task RunTask(Func<CancellationToken, Task> action)
     {
-        if (_isBusy || _isClosing) return;
+        if (!IsIdle || _isClosing) return;
         _isBusy = true;
         _stopRequested = false;
         _progressValue = 0;
@@ -531,6 +532,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_isClosing) return;
         _selected = PresetGrid.SelectedItem as PresetRow;
+        RefreshPresetMetadataEditors();
         await LoadSelectedPreview();
     }
 
@@ -636,14 +638,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void Volume_Changed(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (_isClosing || e.Property != RangeBase.ValueProperty) return;
+        if (_isClosing || _storageRelocated || e.Property != RangeBase.ValueProperty) return;
         _player.Volume = VolumeSlider.Value;
         if (_settings is not null) _settings.PlaybackVolume = VolumeSlider.Value;
     }
 
     private void Favorite_Click(object sender, RoutedEventArgs e)
     {
-        if (_selected is null) return;
+        if (!CanEditSelection || _selected is null) return;
         _selected.Record.Favorite = !_selected.Record.Favorite;
         SaveFeedback();
     }
@@ -651,7 +653,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void Dislike_Click(object sender, RoutedEventArgs e) => SetFeedback(-1);
     private void SetFeedback(int value)
     {
-        if (_selected is null) return;
+        if (!CanEditSelection || _selected is null) return;
         _selected.Record.Feedback = _selected.Record.Feedback == value ? 0 : value;
         _selected.Record.FeedbackUtc = DateTime.UtcNow;
         SaveFeedback();
@@ -822,8 +824,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }, token);
         var result = applied.Result;
         if (!result.Success) throw new InvalidDataException(result.Error);
-        var categories = applied.Records.ToDictionary(record => record.Id, record => record.CategoryTags);
-        foreach (var record in records) record.CategoryTags = categories[record.Id];
+        var categories = applied.Records.ToDictionary(record => record.Id);
+        foreach (var record in records)
+        {
+            record.CategoryTags = categories[record.Id].CategoryTags;
+            record.AutomaticCategories = categories[record.Id].AutomaticCategories;
+        }
+        RefreshPresetMetadataEditors();
         foreach (var row in Presets) row.Refresh();
         RefreshFilterChoices();
         PresetsView.Refresh();
@@ -916,9 +923,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
         QuickPreviewMode.IsChecked = t.QuickPreview;
-        LowNoteBox.Text = t.LowNote.ToString(CultureInfo.InvariantCulture);
-        MiddleNoteBox.Text = t.MiddleNote.ToString(CultureInfo.InvariantCulture);
-        HighNoteBox.Text = t.HighNote.ToString(CultureInfo.InvariantCulture);
+        QuickPreviewSecondsBox.Text = t.QuickPreviewSeconds.ToString(CultureInfo.InvariantCulture);
+        LowNoteBox.Text = NoteNames.Format(t.LowNote);
+        MiddleNoteBox.Text = NoteNames.Format(t.MiddleNote);
+        HighNoteBox.Text = NoteNames.Format(t.HighNote);
         VelocityBox.Text = t.Velocity.ToString(CultureInfo.InvariantCulture);
         HoldBox.Text = t.HoldSeconds.ToString(CultureInfo.InvariantCulture);
         TailBox.Text = t.TailSeconds.ToString(CultureInfo.InvariantCulture);
@@ -1102,7 +1110,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
         });
         if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
-        try { PreviewDirectoryBox.Text = ValidateOutputPath(directory); }
+        try { await ChangePreviewDirectoryAsync(directory); }
         catch (Exception error) { ShowError(error); }
     }
     private void VitalDefaults_Click(object sender, RoutedEventArgs e)
@@ -1113,16 +1121,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         TailBox.Text = (hold * 0.3).ToString("0.0", CultureInfo.InvariantCulture);
         VelocityBox.Text = "89";
     }
-    private async void SaveSettings_Click(object sender, RoutedEventArgs e) => await RunTask(async token =>
+    private async void SaveSettings_Click(object sender, RoutedEventArgs e) => await RunTask(SaveSettingsCoreAsync);
+    private async Task SaveSettingsCoreAsync(CancellationToken token)
         {
             if (!PluginGrid.CommitEdit(DataGridEditingUnit.Cell, true) || !PluginGrid.CommitEdit(DataGridEditingUnit.Row, true))
                 throw new ArgumentException("请修正渲染器设置中的输入。");
             var template = new PreviewTemplate
             {
-                LowNote = ParseInt(LowNoteBox.Text, "低音"), MiddleNote = ParseInt(MiddleNoteBox.Text, "中音"), HighNote = ParseInt(HighNoteBox.Text, "高音"),
+                LowNote = NoteNames.Parse(LowNoteBox.Text ?? ""), MiddleNote = NoteNames.Parse(MiddleNoteBox.Text ?? ""), HighNote = NoteNames.Parse(HighNoteBox.Text ?? ""),
                 Velocity = ParseInt(VelocityBox.Text, "力度"), HoldSeconds = ParseDouble(HoldBox.Text, "按键时长"), TailSeconds = ParseDouble(TailBox.Text, "尾音"),
                 Bpm = ParseInt(BpmBox.Text, "BPM"), SampleRate = SampleRateBox.SelectedIndex == 1 ? 48000 : 44100,
-                QuickPreview = QuickPreviewMode.IsChecked == true
+                QuickPreview = QuickPreviewMode.IsChecked == true,
+                QuickPreviewSeconds = ParseDouble(QuickPreviewSecondsBox.Text, "快速预览时长")
             };
             template.Validate();
             var budget = ParseDouble(BudgetBox.Text, "存储预算");
@@ -1140,7 +1150,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
             candidate.PluginDirectories = PluginDirectories.ToList();
             await Task.Run(() => RefreshBinaryHashes(candidate, token), token);
-            candidate.PreviewDirectory = ValidateOutputPath(PreviewDirectoryBox.Text?.Trim() ?? "");
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
             _store.SaveSettings(candidate);
@@ -1149,7 +1158,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             RefreshCompatibility();
             await RefreshInitBaselinesAsync();
             Log("设置已保存。");
-        });
+        }
     private async Task InvalidateChangedPreviewsAsync()
     {
         var records = Presets.Select(row => row.Record).ToList();
@@ -1289,7 +1298,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _playWhenOpen = false;
         _loadedPreviewPath = "";
         _player.Dispose();
-        _store.SaveSettings(_settings);
+        if (!_storageRelocated) _store.SaveSettings(_settings);
     }
 }
 

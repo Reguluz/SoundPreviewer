@@ -74,7 +74,7 @@ public static class InitBaselineService
             {
                 Kind = BaselineKind, PolicyVersion = InitAudioComparer.PolicyVersion, Synth = plugin.Synth,
                 Identity = identity.Key, WavPath = references[0].WavPath, WavSha256 = references[0].WavSha256,
-                TemplateJson = JsonSerializer.Serialize(settings.Template, LibraryJson.Options),
+                TemplateJson = JsonSerializer.Serialize(Fingerprints.TemplateIdentity(settings.Template), LibraryJson.Options),
                 CreatedUtc = DateTime.UtcNow, Result = references[0].Result, References = references
             };
             temporaryMetadata = metadataPath + ".tmp";
@@ -126,7 +126,7 @@ public static class InitBaselineService
                 ?? throw new InvalidDataException("默认启动基准记录无效。");
             if (metadata.Kind != BaselineKind || metadata.PolicyVersion != InitAudioComparer.PolicyVersion ||
                 metadata.Synth != plugin.Synth || metadata.Identity != identity.Key ||
-                metadata.TemplateJson != JsonSerializer.Serialize(settings.Template, LibraryJson.Options))
+                metadata.TemplateJson != JsonSerializer.Serialize(Fingerprints.TemplateIdentity(settings.Template), LibraryJson.Options))
                 return new(new(plugin.Synth, "已过期", "音源文件、渲染程序、模板或比对策略已变化，须重建默认启动基准。", false, false, ""), null);
             if (metadata.References is null || metadata.References.Count != 3 || metadata.References.Any(reference => reference is null) ||
                 metadata.References.Select(reference => Path.GetFullPath(reference.WavPath)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 3)
@@ -184,7 +184,7 @@ public static class InitBaselineService
         {
             plugin.Synth, plugin.Backend, Executable = ApplicationPaths.PathIdentity(plugin.ExecutablePath),
             Plugin = ApplicationPaths.PathIdentity(plugin.PluginPath), plugin.Version, executableHash, pluginHash,
-            Template = settings.Template, Fingerprints.AdapterVersion, Fingerprints.QuickPreviewPolicy,
+            Template = Fingerprints.TemplateIdentity(settings.Template), Fingerprints.AdapterVersion, Fingerprints.QuickPreviewPolicy,
             InitAudioComparer.PolicyVersion, Kind = BaselineKind, scriptHash, stateAdapterHash, sidecars
         }));
         return (key, executableHash, pluginHash);

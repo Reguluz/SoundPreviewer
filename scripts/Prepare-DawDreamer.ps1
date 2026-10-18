@@ -23,7 +23,7 @@ if (-not (Test-Path -LiteralPath $ApplicationPath -PathType Container)) {
 }
 $application = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ApplicationPath).ProviderPath)
 if (-not $DataDirectory) {
-    $DataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'SoundPreviewer'
+    $DataDirectory = Join-Path $application 'Preview'
 }
 if (-not [IO.Path]::IsPathRooted($DataDirectory)) {
     throw 'DataDirectory must be an absolute path to the persistent user data folder.'

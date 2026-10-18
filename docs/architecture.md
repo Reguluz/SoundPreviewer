@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-17。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。
+更新日期：2026-10-18，当前为 0.4.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -15,9 +15,11 @@
 | `SoundPreviewer.Core/Storage` | 跨平台系统 SQLite 参数绑定、事务、版本化数据库、完整 JSON 元数据与设置 |
 | `SoundPreviewer.Core/Services` | 串行渲染队列、进度、取消、有限重试、缓存与存储预算 |
 | `PresetCategoryService` | 有界 JSON 名称分类规则、完整词 / 前缀匹配、独立 `CategoryTags` 与重新应用 |
+| `PresetMetadataService` | 手工标签 / 分类、明确清空、恢复自动结果与旧有效字段兼容 |
+| `PreviewStorageService` | 统一库目录迁移、SQLite 一致快照、音频路径重写和有界缓存清理 |
 | `InitBaselineService` / `InitAudioComparer` | 无预制加载的启动基准、版本与模板身份校验、提交前的三音区严格近似比对 |
 | `SoundPreviewer.Core/Audio` | 工作进程调用、进程生命周期、WAV 校验与指标、拼接与重采样、WinMM / AudioQueue 本地试听 |
-| `QuickPreviewAudio` | 双声道短窗响度检测、半秒边界裁剪、静音压缩、边缘淡化；不生成替代音源音频 |
+| `QuickPreviewAudio` | 双声道短窗响度检测、按 0.1–4 秒目标裁剪、边界静音压缩和淡化；默认每音 0.5 秒 |
 | `SoundPreviewer.Worker` | 独立进程内执行 Vital 原生适配器，或转交实现协议的外部插件宿主 |
 | `SoundPreviewer.Vst2Host` | 可选独立 x86 .NET 8 / VST.NET 进程，加载 Sylenth1 VST2 独立 FXP；不加入基础解决方案 |
 | `scripts/renderers/dawdreamer_worker.py` | 可选 Python 宿主，用 DawDreamer 验证匹配架构的 VST2 单预制；发布时复制到工作进程的 `Renderers` 目录 |
@@ -45,15 +47,19 @@ flowchart LR
 
 新 `PreviewTemplate` 默认 `NoteOrder=MiddleHighLow`，即中 → 高 → 低；`Pitches` 决定实际采集、拼接和 Notes 校验顺序。缺字段的旧 JSON 回退到 `LowMiddleHigh=0`，已生成音频按保存模板及真实 MIDI 映射播放和复用，不自动重排文件。顺序作为模板的一部分进入新缓存和启动基准身份。
 
+界面以 C2 / C4 / C6 显示默认低 / 中 / 高音，协议仍保存 MIDI 36 / 60 / 84。`QuickPreviewSeconds` 默认 0.5、范围 0.1–4 秒；缺字段的旧模板仍解释为 0.5。默认值不额外改变旧缓存键；非默认快速时长参与新模板身份，实际裁剪与捕获上限按目标时长校验。
+
 ## 界面与分类
 
 主音色表是唯一的逐音色任务视图，包含类别、尝试次数、最近任务结果 / 原因、生成时间、音源与适配器版本等可选列。列菜单更改可见性，横向滚动保留长字段；运行记录页不再复制音色表。`LastRenderOutcome` / `LastRenderMessage` 与可试听预览状态分开，因而强制生成失败但仍有旧 `Ready` / `NeedsReview` 预览时，仍可被「最近生成失败」查出。
 
 搜索、音源、状态、来源、包、类别、标签及收藏条件以 AND 组合。来源使用来源 ID，类别与标签匹配完整条目，空值选项与「全部」分开。「生成筛选结果」读取当前视图并使用默认复用规则；主生成入口和显式全量覆盖仍使用全库代表项。清除筛选与查看已生成会一并重置新增条件。
 
-设置采用五个内部子页，目录与渲染 / 基准区域按横向分区组织，列表使用剩余高度和独立滚动，保留可调整的分隔条。设置页隐藏主播放台和闲置任务带，运行时保留任务进度；分类页仅显示规则专用保存入口。
+设置采用五个内部子页：「目录」「已发现音源」「预览生成」「试听与存储」「分类规则」。「预览生成」将高级生成方式与「加载防错检查」横向组织，列表使用剩余高度和独立滚动，保留可调整的分隔条。设置页隐藏主播放台和闲置任务带，运行时保留任务进度；分类页仅显示规则专用保存入口。
 
-`Config/preset-categories.json` 是可编辑的名称分类规则，首次缺失才从 `preset-categories.default.json` 建立，不覆盖现存用户文件。规则仅支持关键词与前缀，不执行脚本或正则表达式；限制文件大小、深度、类别数、条目数和文本长度。加载失败保留上一份有效规则及已有分类。应用时先完成所有名称分析，再更新独立的 `PresetRecord.CategoryTags`，不修改来源识别标签、稳定 ID、收藏、反馈和音频映射。扫描与显式重新分类共用此服务；规则编辑与一般音源设置分开保存。
+库目录内的 `Config/preset-categories.json` 是可编辑的名称分类规则，首次缺失才从默认规则建立，不覆盖现存文件。规则仅支持关键词与前缀，不执行脚本或正则表达式；限制大小、深度和条目长度，失败保留上一份有效规则。扫描与显式重新分类共用此服务，先分析全部名称，再更新自动分类；手工分类保持有效，不修改稳定 ID、收藏、反馈或音频映射。
+
+`PresetRecord.ManualTags` / `ManualCategories` 为 nullable 列表：`null` 表示使用自动结果，空列表表示用户明确清空。首次编辑保存 `AutomaticTags` / `AutomaticCategories` 快照，此后扫描与规则重算更新快照，`PresetMetadataService.Reset*` 恢复最近的自动结果。`Tags` / `CategoryTags` 始终镜像有效内容供既有读取方使用；源内容变化时创建新扫描候选也保留覆盖、快照与未知 JSON 字段。扩展字段保存在 schema 2 的原 JSON 中，不另建标签文件或改变缓存身份。
 
 界面重新分类在后台克隆记录、应用规则并事务持久化，成功后才在界面线程合并 `CategoryTags` 与刷新筛选选项。取消或写入失败不先改变可见记录，避免出现界面新分类与磁盘旧分类不同步。
 
@@ -77,7 +83,7 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 `AppSettings.PluginDirectories` 保存共享安装目录，`DiscoveredPlugins` 保存可核对的发现结果；旧设置默认为空，不改变既有插件配置。扫描 `.dll`、`.vst3` 文件 / 包和 Vital 独立程序，只读取 PE 架构、版本资源及 VST 入口导出，不执行插件。VST3 包分别保存用户选择的外层路径与内部实际二进制路径。无必要导出的普通 DLL 不作为插件，已知 SerumFX 效果器不作为乐器；只有产品元数据与结构证据相符时才关联实际音源，否则候选保持 `Unknown`。
 
-自动关联选择已识别的 x64 候选；若发行目录带有独立 x86 宿主，也允许 Sylenth1 x86 VST2。按当前格式偏好与版本排序，保留仍有效的用户 DLL / VST3 包选择。Vital 独立程序只能自动填入未配置或原生后端；已有自定义外部渲染程序不能被扫描替换。插件路径、发现版本与「预览渲染器（高级）」中的宿主程序是不同字段。手动选择版本仍须满足宿主位数和格式，发现或关联成功不代表实际插件可渲染。
+自动关联选择当前平台与架构兼容的已识别候选；若 Windows 发行目录带有独立 x86 宿主，也允许 Sylenth1 x86 VST2。按当前格式偏好与版本排序，保留仍有效的用户 DLL / VST3 包选择。Vital 独立程序只能自动填入未配置或原生后端；已有自定义外部渲染程序不能被扫描替换。插件路径、发现版本与「预览生成 → 生成方式（高级）」中的宿主程序是不同字段。手动选择版本仍须满足宿主位数和格式，发现或关联成功不代表实际插件可渲染。
 
 显式从 Vital 原生切换至 VST 会清除 CLI 程序及其指纹，将后端转为未配置；显式选回独立程序会恢复原生后端，清除旧 VST 路径及指纹，避免版本记录与实际执行的程序不一致。
 
@@ -85,7 +91,11 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 存储与缓存
 
-默认数据目录与安装位置分离：Windows 为 `%LOCALAPPDATA%/SoundPreviewer`，macOS 为 `~/Library/Application Support/SoundPreviewer`。已记住的旧库和当前目录的旧 `local-data/library.db` 可继续使用，定位文件使更换安装位置后仍能找到旧库；显式启动参数用于覆盖或隔离验证。数据库为 `library.db`，可编辑规则在库内 `Config`，预览支持自选磁盘，运行日志为 `application.log`。SQLite schema 0/1 升级前生成包含 WAL 的一致备份，schema 2 保持不变，未知新结构拒绝打开。应用保留原预制文件，程序升级不改变缓存键及已有预览路径。详见[数据与升级](cross-platform.md#数据与升级)。
+新库默认集中到 `ApplicationPaths.DefaultPreviewDirectory`：Windows 为程序目录下的 `Preview`，macOS 为 `.app` 旁的 `Preview`。`ApplicationDirectory` 仍指向实际程序与资源目录，`PortableApplicationDirectory` 用于可迁移数据位置。`library.db`、运行日志、缓存、加载防错参照、`Config` 与手工元数据保存在同一库根。可执行目录须可写，显式参数和已记住的旧库仍可覆盖默认路径。定位文件优先保存在程序旁，并以相对路径记录随程序移动的库；程序旁只读时可将小型定位文件写到原用户目录，数据本身不会静默改写到那里。详见[数据与升级](cross-platform.md#数据与升级)。
+
+`PreviewStorageService.RelocateLibrary` 先建立包含已提交 WAL 页的 SQLite 快照，复制 `Config` 和必要音频并校验哈希，再在目标库中事务保存设置与路径。迁移模式保留试听与基准映射；清除模式迁移记录和规则、清空派生音频映射。旧数据库和 `Config` 保留作回滚备份，迁移前快照也存入新库 `Backups`。仅处理当前记录或基准明确引用、可确认独占且不经链接的缓存；旧共享目录、外部音频、源文件和未知音频 / 基准保留并报告，不凭哈希命名清理孤立文件。独立「清空预览」同样保留标签、分类、收藏与源记录，不递归删除库根，也不保证目录完全为空。
+
+SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止、回滚；schema 2 保持不变，未知更高结构拒绝打开。程序升级不单因应用版本改变缓存键，既有有效预览仍可复用。
 
 数据库使用 Windows 提供的 `winsqlite3.dll` 或 macOS 提供的 `/usr/lib/libsqlite3.dylib`，采用 UTF8 参数绑定、WAL 和事务。`user_version` 标记数据库结构版本；v2 在 v1 基础上增补 MD5、重复代表列和索引，保留旧记录与设置。预制与设置以完整 JSON 保存，另有身份、来源、状态和反馈列供索引使用。`FindByMd5` 验证十六进制输入并进行参数绑定、大小写不敏感的索引检索。收藏、反馈时间、渲染模板、插件版本、实际音区时长及指标均随记录持久化。
 
@@ -101,11 +111,13 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 Vital 原生路径实现了三次单音渲染、音频拼接和实际演奏参数记录，但原生 CLI 没有可依赖的预制加载成功反馈。因此原生渲染结果进入待确认状态，须人工检查音色对应关系与外部资源。
 
-Serum / Sylenth1 通过可选外部宿主协议接入。DawDreamer 后端使用用户指定的 Python 和插件路径，面向 Serum 1 / Sylenth1 的独立 FXP、VST2 和 x64 组合；独立 VST.NET 后端只适配 Sylenth1 x86 VST2 FXP。Serum 2 专有预制和银行不据此视为支持。适配脚本固定 DawDreamer 0.8.3 / NumPy 1.26.4，提供已加载运行库检查和隔离空宿主自检。Serum 1.334 x64 与 Sylenth1 2.2.1.2 x86 各一个真实 FXP 已生成、播放且用户确认三音区正常；批量、外部资源及银行仍待分别验收。第三方宿主或示例项目宣称的支持不计入本项目的兼容矩阵。
+Serum / Sylenth1 通过可选外部宿主协议接入。DawDreamer 后端使用用户指定的 Python 和插件路径，支持匹配架构的 Serum 1 / Sylenth1 独立 VST2 FXP，以及 Serum 2 VST3 原生 `.SerumPreset` 的状态转换与加载回读；旧 FXP 不直接交给 Serum 2 VST3。独立 VST.NET 后端只适配 Sylenth1 x86 VST2 FXP。桥接固定 DawDreamer 0.8.3 / NumPy 1.26.4，提供运行库检查和空宿主自检。真实插件的历史样本、版本与人工确认边界保持在[渲染记录](rendering.md)，不能据第三方支持声明或测试通过扩大兼容范围。
 
 WAV 校验检查格式、帧边界、采样率、长度、非有限值与三音区时间范围。峰值、RMS、过零率及每音区指标用于排查静音和接近削波的输出；它们不是完整音色特征、模型向量或偏好评分。静音与削波线索进入待确认，异常值、截断文件或无效映射不提交。
 
-新增的默认启动基准使用 `RenderRequest.IsInitializationBaseline`，要求宿主建立新插件实例而不加载任何预制；不能选择一个名为 Init 的 FXP 冒充基准。元数据绑定插件与宿主文件指纹、实际版本、模板和比对策略，保存独立 WAV 与三音区映射。Serum 1 / Sylenth1 的 DawDreamer 后端及内置 Sylenth1 x86 宿主提供此协议；Vital CLI、Serum 2 与其他未适配后端明确不提供该保护。本机 Serum 1.334 x64 / DawDreamer 和 Sylenth1 2.2.1.2 x86 / 内置宿主已完成 v2 中高低顺序的单样本自动验证：独立启动输出均命中 3/3 参考，正常 FXP 均为 0/3；两份正常音频低音量设备播放完成。其他组合、批量及本轮用户人工音色身份确认仍不在已验收范围。
+界面的「加载防错检查」在协议中仍使用 `RenderRequest.IsInitializationBaseline`：宿主建立新实例而不加载任何预制，记录启动声音，防止加载失败后将默认声音误存为目标音色。元数据绑定插件 / 宿主指纹、实际版本、模板和策略，保存独立 WAV 与音区映射。Serum 1 / Serum 2 / Sylenth1 的 DawDreamer 后端及内置 Sylenth1 x86 宿主提供该协议；Vital CLI 和未适配后端不提供此保护。自动建立参照通常不需用户手动操作；参照不稳定时明确失败，真实版本验收仍以历史样本记录为准。
+
+历史 Windows 单样本记录：Serum 1.334 x64 / DawDreamer 与 Sylenth1 2.2.1.2 x86 / 内置宿主完成 v2 中高低顺序的自动检查，独立启动输出均命中 3/3 参考，正常 FXP 均为 0/3；两份正常音频低音量设备播放完成。该轮未覆盖批量或新的人工音色身份确认。Serum 1.334 x64 与 Sylenth1 2.2.1.2 x86 更早的各一个真实 FXP 已生成、播放，用户确认三音区正常；这两轮确认范围分别保留，不合并为更大兼容性结论。
 
 可用基准对新输出执行三音区波形相关、包络、频谱与响度的多条件检查，不能仅凭名称或单一频谱判定。严格匹配默认启动声音的结果在原子移动前被拒绝，记录最近失败；旧有效预览不被覆盖。支持的后端若无法建立有效基准会明确失败，不静默降级为已启用保护。默认复用既有完整预览仍先于新基准流程，旧缓存不会被追溯宣称已通过此检查。详见 [基准支持与验收边界](rendering.md#默认启动音色基准)。
 

@@ -36,7 +36,7 @@ public sealed class ScanService
         }
         record.SynthAssignedManually = true;
         record.DetectionReason = "用户手动指定为 " + PresetDetection.SynthName(synth) + "。";
-        record.Tags = PresetDetection.MergeTags(record.Tags, synth, record.SourcePath);
+        PresetMetadataService.UpdateAutomaticTags(record, PresetDetection.MergeTags(record.AutomaticTags ?? record.Tags, synth, record.SourcePath));
         if (PresetDetection.IsSpireFormat(extension))
         {
             if (record.Status != PresetStatus.Missing) record.Status = PresetStatus.Unsupported;
@@ -161,14 +161,14 @@ public sealed class ScanService
                                 if (previous is not null)
                                 {
                                     candidate.Id = previous.Id;
+                                    PresetMetadataService.PreserveEdits(previous, candidate);
                                     if (previous.SynthAssignedManually)
                                     {
                                         string automaticReason = candidate.DetectionReason;
                                         AssignSynth(candidate, previous.Synth);
                                         candidate.DetectionReason += " 自动识别线索：" + automaticReason;
                                     }
-                                    candidate.Tags = PresetDetection.MergeTags(previous.Tags, candidate.Synth, candidate.SourcePath);
-                                    candidate.CategoryTags = [.. (previous.CategoryTags ?? [])];
+                                    PresetMetadataService.UpdateAutomaticTags(candidate, PresetDetection.MergeTags(previous.AutomaticTags ?? previous.Tags, candidate.Synth, candidate.SourcePath));
                                     scannedIds.Add(candidate.Id);
                                     if (previous.Synth == candidate.Synth && string.Equals(previous.ContentHash, candidate.ContentHash, StringComparison.Ordinal))
                                     {
@@ -420,6 +420,7 @@ public sealed class ScanService
         previous.DetectionReason = candidate.DetectionReason;
         previous.SynthAssignedManually = candidate.SynthAssignedManually;
         previous.Tags = candidate.Tags;
+        previous.AutomaticTags = candidate.AutomaticTags;
     }
 
     private static void ClearPreview(PresetRecord preset)

@@ -96,7 +96,7 @@ public static class RenderReadinessService
                     return Result("模板不匹配", "Vital 原生渲染要求整数秒按键时长、力度 89、尾音为按键时长的 30%；请采用 Vital 原生参数。");
             }
             return Result("可尝试", template?.QuickPreview == true
-                ? "快速预览将从真实原生输出截取每音最多半秒，弱音捕获最多延长到四秒；Vital 实际按整数秒演奏，力度固定 89。仍须人工确认音色与资源。"
+                ? "快速预览将从真实原生输出按设定时长截取每音试听，慢起音会在上限内延长采集；Vital 实际按整数秒演奏，力度固定 89。仍须人工确认音色与资源。"
                 : "Vital 独立程序和版本已配置；原生 CLI 不报告目标预制加载成功，输出仍须人工确认音色与资源。", true);
         }
         if (configuration.Backend == RenderBackend.DawDreamer)

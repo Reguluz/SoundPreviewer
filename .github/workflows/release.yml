@@ -26,10 +26,13 @@ jobs:
           RELEASE_REF_NAME: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
-          import os, re, xml.etree.ElementTree as ET
+          import json, os, re, xml.etree.ElementTree as ET
           version = ET.parse('Version.props').findtext('./PropertyGroup/Version')
           if not version or not re.fullmatch(r'\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?', version):
               raise SystemExit('Version.props must contain a semantic version.')
+          approved_major = json.load(open('version-policy.json', encoding='utf-8'))['approvedMajor']
+          if int(version.split('.')[0]) != approved_major:
+              raise SystemExit('Major-version changes require explicit user confirmation and an approvedMajor policy update.')
           if os.environ['RELEASE_REF_TYPE'] == 'tag' and os.environ['RELEASE_REF_NAME'] != f'v{version}':
               raise SystemExit('The release tag must match Version.props exactly.')
           print(f'Validated v{version}; manual runs build packages without publishing a release.')
@@ -77,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           options=()
-          if [[ "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
+          if [[ "$RELEASE_TAG" == v0.* || "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
           if existing_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
             [[ "$existing_draft" == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
           else

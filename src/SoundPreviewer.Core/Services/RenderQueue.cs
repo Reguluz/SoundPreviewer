@@ -178,7 +178,7 @@ public sealed class RenderQueue(LibraryStore store)
                     continue;
                 }
                 Directory.CreateDirectory(settings.PreviewDirectory);
-                var estimatedBytes = (settings.Template.QuickPreview ? 0.5 : settings.Template.HoldSeconds + settings.Template.TailSeconds)
+                var estimatedBytes = (settings.Template.QuickPreview ? settings.Template.QuickPreviewSeconds : settings.Template.HoldSeconds + settings.Template.TailSeconds)
                     * 3 * settings.Template.SampleRate * 8 + 4096;
                 if (occupiedBytes is null)
                 {

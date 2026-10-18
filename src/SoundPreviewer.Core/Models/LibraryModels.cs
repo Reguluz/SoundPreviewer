@@ -19,6 +19,13 @@ public sealed class PresetRecord
     public bool SynthAssignedManually { get; set; }
     public List<string> Tags { get; set; } = [];
     public List<string> CategoryTags { get; set; } = [];
+    // Null keeps automatic metadata; an empty list records an explicit user clearing.
+    public List<string>? ManualTags { get; set; }
+    public List<string>? ManualCategories { get; set; }
+    public List<string>? AutomaticTags { get; set; }
+    public List<string>? AutomaticCategories { get; set; }
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     public string SourceId { get; set; } = "";
     public string SourcePath { get; set; } = "";
     public string ContentHash { get; set; } = "";
@@ -72,6 +79,7 @@ public sealed class PluginConfiguration
 
 public sealed class PreviewTemplate : IJsonOnDeserialized
 {
+    public const double DefaultQuickPreviewSeconds = 0.5;
     private PreviewNoteOrder noteOrder = PreviewNoteOrder.MiddleHighLow;
     private bool noteOrderSpecified;
     public int LowNote { get; set; } = 36;
@@ -89,6 +97,7 @@ public sealed class PreviewTemplate : IJsonOnDeserialized
         set { noteOrder = value; noteOrderSpecified = true; }
     }
     public int[] Pitches => NoteOrder == PreviewNoteOrder.MiddleHighLow ? [MiddleNote, HighNote, LowNote] : [LowNote, MiddleNote, HighNote];
+    public double QuickPreviewSeconds { get; set; } = DefaultQuickPreviewSeconds;
 
     void IJsonOnDeserialized.OnDeserialized()
     {
@@ -100,6 +109,8 @@ public sealed class PreviewTemplate : IJsonOnDeserialized
         if (!Enum.IsDefined(NoteOrder)) throw new ArgumentException("音区顺序无效。");
         if (Pitches.Any(n => n is < 0 or > 127)) throw new ArgumentException("MIDI 音高须为 0 到 127。");
         if (Velocity is < 1 or > 127) throw new ArgumentException("力度须为 1 到 127。");
+        if (!double.IsFinite(QuickPreviewSeconds) || QuickPreviewSeconds is < 0.1 or > 4)
+            throw new ArgumentException("快速预览时长须为 0.1 到 4 秒。");
         if (!double.IsFinite(HoldSeconds) || HoldSeconds is < 0.1 or > 30) throw new ArgumentException("按键时长须为 0.1 到 30 秒。");
         if (!double.IsFinite(TailSeconds) || TailSeconds is < 0 or > 30) throw new ArgumentException("尾音须为 0 到 30 秒。");
         if (Bpm is < 20 or > 300) throw new ArgumentException("BPM 须为 20 到 300。");
@@ -221,10 +232,27 @@ public static class Fingerprints
     }
     public static string PresetId(SynthKind synth, string path, string internalPath = "", int? slot = null) =>
         HashText($"{synth}|{ApplicationPaths.PathIdentity(path)}|{internalPath}|{slot}");
+    // Preserve the original field order and omit the new default, including for old startup baselines.
+    internal static Dictionary<string, object> TemplateIdentity(PreviewTemplate template)
+    {
+        var identity = new Dictionary<string, object>
+        {
+            [nameof(template.LowNote)] = template.LowNote, [nameof(template.MiddleNote)] = template.MiddleNote,
+            [nameof(template.HighNote)] = template.HighNote, [nameof(template.Velocity)] = template.Velocity,
+            [nameof(template.QuickPreview)] = template.QuickPreview, [nameof(template.HoldSeconds)] = template.HoldSeconds,
+            [nameof(template.TailSeconds)] = template.TailSeconds, [nameof(template.Bpm)] = template.Bpm,
+            [nameof(template.SampleRate)] = template.SampleRate, [nameof(template.NoteOrder)] = template.NoteOrder,
+            [nameof(template.Pitches)] = template.Pitches
+        };
+        if (template.QuickPreview && template.QuickPreviewSeconds != PreviewTemplate.DefaultQuickPreviewSeconds)
+            identity.Add(nameof(template.QuickPreviewSeconds), template.QuickPreviewSeconds);
+        return identity;
+    }
+
     public static string CacheKey(PresetRecord preset, PluginConfiguration plugin, PreviewTemplate template) =>
         HashText(JsonSerializer.Serialize(new { preset.ContentHash, preset.InternalPath, preset.BankSlot, preset.Synth,
             Plugin = new { plugin.Synth, plugin.Backend, plugin.ExecutablePath, plugin.PluginPath, plugin.Version,
-                plugin.ExecutableHash, plugin.PluginHash, plugin.TimeoutSeconds }, template, AdapterVersion,
+                plugin.ExecutableHash, plugin.PluginHash, plugin.TimeoutSeconds }, template = TemplateIdentity(template), AdapterVersion,
             PreviewPolicy = template.QuickPreview ? QuickPreviewPolicy : "fixed-v1",
             InitializationComparisonPolicy }));
 }

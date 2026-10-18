@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create an optional host in the persistent user data folder.
+# Create an optional host in the application's persistent Preview folder.
 set -euo pipefail
 
 usage() {
@@ -9,14 +9,14 @@ Usage: bash Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 [options
   --python PATH           Explicit base CPython 3.11 or 3.12 executable (required).
   --app-path PATH         Existing application folder; defaults to this source
                           project or the published folder beside this script.
-  --data-directory PATH   Persistent data folder; defaults to
-                          ~/Library/Application Support/SoundPreviewer.
+  --data-directory PATH   Persistent data folder; defaults to APP/Preview,
+                          or Preview beside a macOS .app bundle.
   --environment-name NAME Environment folder name (default: dawdreamer-cpython).
   --include-serum2        Install the additional pinned Serum 2 state converter.
   --proxy URL            Explicit pip proxy; inherited pip configuration is ignored.
   --help                 Show this usage without installing or checking anything.
 
-Environment, wheel-cache and diagnostic files survive application updates.
+Preserve the Preview folder when updating or moving the application.
 The setup probes an empty host; it never loads a commercial plugin or preset.
 USAGE
 }
@@ -115,7 +115,9 @@ def setup():
     app = Path(sys.argv[1]).expanduser().resolve(strict=True)
     name, include_serum2, proxy = sys.argv[2], sys.argv[3] == "1", sys.argv[4]
     data_argument = sys.argv[5]
-    data = Path(data_argument).expanduser() if data_argument else Path.home() / "Library" / "Application Support" / "SoundPreviewer"
+    bundle = next((parent for parent in (app, *app.parents) if parent.name.lower().endswith(".app")), None)
+    portable_app = bundle.parent if bundle is not None else app
+    data = Path(data_argument).expanduser() if data_argument else portable_app / "Preview"
     if not data.is_absolute():
         fail("--data-directory must be an absolute path to the persistent user data folder.")
     data = Path(os.path.abspath(data))

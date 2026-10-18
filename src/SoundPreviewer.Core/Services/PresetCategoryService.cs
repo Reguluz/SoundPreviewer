@@ -110,13 +110,15 @@ public sealed class PresetCategoryService
             cancellationToken.ThrowIfCancellationRequested();
             ArgumentNullException.ThrowIfNull(record);
             var categories = Classify(record.Name ?? "", snapshot, cancellationToken);
-            if (record.CategoryTags is null || !record.CategoryTags.SequenceEqual(categories, StringComparer.Ordinal))
+            if ((record.ManualCategories is not null && record.AutomaticCategories is null) ||
+                (record.AutomaticCategories is not null && !record.AutomaticCategories.SequenceEqual(categories, StringComparer.Ordinal)) ||
+                record.CategoryTags is null || !record.CategoryTags.SequenceEqual(record.ManualCategories ?? categories, StringComparer.Ordinal))
                 updates.Add((record, categories));
             processed++;
         }
         cancellationToken.ThrowIfCancellationRequested();
         // Finish analysis before changing records so invalid input or cancellation cannot apply half a ruleset.
-        foreach (var update in updates) update.Record.CategoryTags = update.Categories;
+        foreach (var update in updates) PresetMetadataService.UpdateAutomaticCategories(update.Record, update.Categories);
         return new(true, "", processed, updates.Count);
     }
 

@@ -47,7 +47,8 @@ class RendererSetupLayoutTests(unittest.TestCase):
     def run_setup(self, application, data=None, include_serum2=False):
         home = self.directory / "home"
         home.mkdir(exist_ok=True)
-        expected = data or home / "Library" / "Application Support" / "SoundPreviewer"
+        bundle = next((parent for parent in (application, *application.parents) if parent.name.lower().endswith(".app")), None)
+        expected = data or (bundle.parent if bundle else application) / "Preview"
         environment = expected / "renderers" / "TEST-ONLY-host"
         versions = {**self.namespace["BASE_PINS"], **self.namespace["SERUM2_PINS"]}
 
@@ -97,13 +98,22 @@ class RendererSetupLayoutTests(unittest.TestCase):
                 self.run_setup(app, self.directory / (app.name + "-data"), include_serum2=True)
                 self.assertEqual(before, sorted(str(path.relative_to(app)) for path in app.rglob("*")))
 
-    def test_default_environment_survives_application_folder_changes(self):
+    def test_default_environment_uses_preview_beside_the_application(self):
         old = self.directory / "old-version"
         new = self.directory / "new-version"
         for app in (old, new):
             self.resources(app, "Renderers")
         first = self.run_setup(old)
-        self.assertEqual(first, self.run_setup(new))
+        self.assertEqual(old / "Preview", first)
+        self.assertEqual(new / "Preview", self.run_setup(new))
+
+    def test_bundle_and_executable_paths_share_preview_outside_the_bundle(self):
+        bundle = self.directory / "SoundPreviewer.app"
+        self.resources(bundle, "Contents/MacOS/Renderers")
+        before = sorted(str(path.relative_to(bundle)) for path in bundle.rglob("*"))
+        self.assertEqual(self.directory / "Preview", self.run_setup(bundle))
+        self.assertEqual(self.directory / "Preview", self.run_setup(bundle / "Contents" / "MacOS"))
+        self.assertEqual(before, sorted(str(path.relative_to(bundle)) for path in bundle.rglob("*")))
 
     def test_missing_application_resources_do_not_create_user_data(self):
         app = self.directory / "missing-resources"

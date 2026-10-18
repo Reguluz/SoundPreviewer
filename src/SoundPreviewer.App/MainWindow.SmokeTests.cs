@@ -132,6 +132,7 @@ public partial class MainWindow
                 throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果。");
             generationFeedbackChecked = true;
         }
+        var editingChecked = await CheckEditingPersistenceAsync();
         PluginConfiguration? editedBackendModel = null;
         var originalBackend = RenderBackend.Unconfigured;
         var actualViewports = new List<object>();
@@ -225,6 +226,7 @@ public partial class MainWindow
             MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
+            TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
             DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
             GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked,
             DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(row => row.Record.DuplicateOfId.Length > 0),

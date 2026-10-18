@@ -35,7 +35,10 @@ public static class RenderDispatcher
     {
         const long maximumCaptureBytes = 256L * 1024 * 1024;
         bool vital = request.Plugin.Backend == RenderBackend.VitalCli;
-        double[] holds = vital ? [1, 2, 4] : [0.5, 1, 2, 4];
+        double targetSeconds = request.Template.QuickPreviewSeconds;
+        double maximumHold = QuickPreviewAudio.MaximumCaptureHoldSeconds(targetSeconds);
+        double firstHold = vital ? Math.Ceiling(targetSeconds) : targetSeconds;
+        double[] holds = new[] { firstHold, 1, 2, 4, maximumHold }.Where(hold => hold >= firstHold).Distinct().Order().ToArray();
         var segments = new WaveData?[3];
         var notes = new NotePreview?[3];
         var complete = new bool[3];
@@ -54,6 +57,7 @@ public static class RenderDispatcher
                 var captureTemplate = new PreviewTemplate
                 {
                     QuickPreview = false,
+                    QuickPreviewSeconds = targetSeconds,
                     NoteOrder = request.Template.NoteOrder,
                     LowNote = request.Template.LowNote, MiddleNote = request.Template.MiddleNote, HighNote = request.Template.HighNote,
                     Velocity = vital ? 89 : request.Template.Velocity,
@@ -95,8 +99,8 @@ public static class RenderDispatcher
                         SampleRate = audio.SampleRate, Channels = audio.Channels,
                         Samples = audio.Samples.AsSpan(first * audio.Channels, frames * audio.Channels).ToArray()
                     };
-                    var analysis = QuickPreviewAudio.Analyze(source, cancellationToken);
-                    var clip = QuickPreviewAudio.Crop(source, analysis, cancellationToken);
+                    var analysis = QuickPreviewAudio.Analyze(source, targetSeconds, cancellationToken);
+                    var clip = QuickPreviewAudio.Crop(source, analysis, targetSeconds, cancellationToken);
                     var metrics = WaveFile.Analyze(clip, cancellationToken);
                     if (metrics.HasNonFinite) throw new InvalidDataException("快速预览含非有限数值。");
                     segments[index] = clip;
@@ -133,7 +137,7 @@ public static class RenderDispatcher
                 AdapterVersion = Fingerprints.QuickPreviewPolicy + "/" + adapterVersion,
                 NeedsReview = needsReview || complete.Any(value => !value),
                 Message = $"已生成三个紧凑的真实试听片段，完成 {captures} 轮采集。" +
-                    (complete.Any(value => !value) ? " 部分音区延长到 4 秒后仍较弱或有效声音不足半秒，已保留真实片段待确认。" : "") +
+                    (complete.Any(value => !value) ? $" 部分音区延长到 {maximumHold:0.##} 秒后仍较弱或有效声音不足 {targetSeconds:0.##} 秒，已保留真实片段待确认。" : "") +
                     " " + nativeMessage
             };
             WorkerProcessClient.ValidateNotes(result, request.Template);

@@ -119,6 +119,7 @@ public sealed class WorkerProcessClient
         if (compact && (!template.QuickPreview || !quickPolicy))
             throw new InvalidDataException("裁剪预览须标明快速预览策略，不能修改旧式来源映射。");
         double frameTolerance = 1.5 / template.SampleRate;
+        double maximumHold = QuickPreviewAudio.MaximumCaptureHoldSeconds(template.QuickPreviewSeconds);
         for (int i = 0; i < 3; i++)
         {
             var note = result.Notes[i];
@@ -133,9 +134,9 @@ public sealed class WorkerProcessClient
                 Math.Abs(note.DurationSeconds + note.TrimmedLeadingSeconds + note.TrimmedTrailingSeconds -
                     note.ActualHoldSeconds - note.ActualTailSeconds) > (compact ? frameTolerance : 0.02))
                 throw new InvalidDataException("工作进程的音符映射无效或超出音频范围。");
-            if (compact && (Math.Abs(note.StartSeconds - previousEnd) > frameTolerance || note.DurationSeconds > 0.5 + frameTolerance ||
-                note.ActualHoldSeconds > 4 + 64.0 / 44100 + frameTolerance || note.ActualTailSeconds > 1.2 + 64.0 / 44100 + frameTolerance))
-                throw new InvalidDataException("快速预览存在空白间隔或超出半秒试听 / 四秒捕获上限。");
+            if (compact && (Math.Abs(note.StartSeconds - previousEnd) > frameTolerance || note.DurationSeconds > template.QuickPreviewSeconds + frameTolerance ||
+                note.ActualHoldSeconds > maximumHold + 64.0 / 44100 + frameTolerance || note.ActualTailSeconds > maximumHold * 0.3 + 64.0 / 44100 + frameTolerance))
+                throw new InvalidDataException("快速预览存在空白间隔，或超出设定试听时长 / 有界捕获上限。");
             if (note.ActualNormalizedVelocity is double normalized && (!double.IsFinite(normalized) || normalized is <= 0 or > 1))
                 throw new InvalidDataException("工作进程的 normalized 力度无效。");
             previousEnd = note.StartSeconds + note.DurationSeconds;

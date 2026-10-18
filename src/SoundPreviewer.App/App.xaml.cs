@@ -97,9 +97,9 @@ public partial class App : Application
         app._rememberLibraryOnOpen = false;
     }
 
-    public static void StartWithLibrary(string directory)
+    public static void StartWithLibrary(string directory, bool requireExistingLibrary = true)
     {
-        if (!File.Exists(Path.Combine(directory, "library.db")))
+        if (requireExistingLibrary && !File.Exists(Path.Combine(directory, "library.db")))
             throw new ArgumentException("所选目录没有 library.db，请选择原来的音色库数据目录。");
         var start = new ProcessStartInfo(Environment.ProcessPath ?? throw new InvalidOperationException("无法定位当前程序。")) { UseShellExecute = false };
         if (string.Equals(Path.GetFileNameWithoutExtension(start.FileName), "dotnet", StringComparison.OrdinalIgnoreCase))
@@ -119,19 +119,19 @@ public partial class App : Application
         var content = new StackPanel { Margin = new Thickness(24), Children = { message } };
         if (title == "无法打开本地音色库")
         {
-            var browse = new Button { Content = "打开已有音色库", Margin = new Thickness(0, 16, 0, 0) };
+            var browse = new Button { Content = "选择其他数据目录", Margin = new Thickness(0, 16, 0, 0) };
             browse.Click += async (_, _) =>
             {
                 try
                 {
-                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择包含 library.db 的音色库目录", AllowMultiple = false });
+                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择可写的数据目录：已有库会继续使用，空目录会新建音色库", AllowMultiple = false });
                     if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
                     if (Current is App app)
                     {
                         app._instanceMutex?.Dispose();
                         app._instanceMutex = null;
                     }
-                    StartWithLibrary(directory);
+                    StartWithLibrary(directory, requireExistingLibrary: false);
                     window.Close();
                 }
                 catch (Exception error) { message.Text = error.Message; }

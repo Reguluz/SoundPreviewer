@@ -1,10 +1,12 @@
+using SoundPreviewer.Core.Models;
+
 namespace SoundPreviewer.Core.Audio;
 
 public sealed record QuickPreviewAnalysis(bool Audible, int StartFrame, bool NeedsMoreAudio, int ClipEndFrame);
 
 public static class QuickPreviewAudio
 {
-    public const double TargetSeconds = 0.5;
+    public const double TargetSeconds = PreviewTemplate.DefaultQuickPreviewSeconds;
     public const double MaximumHoldSeconds = 4;
     public const double CaptureTailSeconds = 0.08;
 
@@ -17,9 +19,19 @@ public static class QuickPreviewAudio
     private const double QuietRms = 0.0001;
     private const double QuietPeak = 0.0003;
 
-    public static QuickPreviewAnalysis Analyze(WaveData audio, CancellationToken cancellationToken = default)
+    public static double MaximumCaptureHoldSeconds(double targetSeconds)
+    {
+        ValidateTarget(targetSeconds);
+        return Math.Ceiling(Math.Max(MaximumHoldSeconds, targetSeconds * 2));
+    }
+
+    public static QuickPreviewAnalysis Analyze(WaveData audio, CancellationToken cancellationToken = default) =>
+        Analyze(audio, TargetSeconds, cancellationToken);
+
+    public static QuickPreviewAnalysis Analyze(WaveData audio, double targetSeconds, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ValidateTarget(targetSeconds);
         EnsureShape(audio);
         int window = Frames(WindowSeconds, audio.SampleRate);
         int firstAudible = -1, firstNonQuiet = -1;
@@ -34,7 +46,7 @@ public static class QuickPreviewAudio
         bool audible = firstAudible >= 0;
         int onset = audible ? firstAudible : firstNonQuiet;
         int clipStart = onset < 0 ? 0 : Math.Max(0, onset - Frames(MarginSeconds, audio.SampleRate));
-        int target = Frames(TargetSeconds, audio.SampleRate);
+        int target = Frames(targetSeconds, audio.SampleRate);
         int clipEnd = (int)Math.Min(audio.Frames, (long)clipStart + target);
         bool needsMore = !audible || audio.Frames - clipStart < target;
 
@@ -56,13 +68,17 @@ public static class QuickPreviewAudio
         return new QuickPreviewAnalysis(audible, clipStart, needsMore, clipEnd);
     }
 
-    public static WaveData Crop(WaveData audio, QuickPreviewAnalysis analysis, CancellationToken cancellationToken = default)
+    public static WaveData Crop(WaveData audio, QuickPreviewAnalysis analysis, CancellationToken cancellationToken = default) =>
+        Crop(audio, analysis, TargetSeconds, cancellationToken);
+
+    public static WaveData Crop(WaveData audio, QuickPreviewAnalysis analysis, double targetSeconds, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ValidateTarget(targetSeconds);
         EnsureShape(audio);
         ArgumentNullException.ThrowIfNull(analysis);
         if (analysis.StartFrame < 0 || analysis.ClipEndFrame <= analysis.StartFrame || analysis.ClipEndFrame > audio.Frames ||
-            analysis.ClipEndFrame - analysis.StartFrame > Frames(TargetSeconds, audio.SampleRate))
+            analysis.ClipEndFrame - analysis.StartFrame > Frames(targetSeconds, audio.SampleRate))
             throw new InvalidDataException("Quick preview crop boundaries are invalid.");
 
         int frames = analysis.ClipEndFrame - analysis.StartFrame;
@@ -113,6 +129,12 @@ public static class QuickPreviewAudio
     private static bool IsNonQuiet((double Rms, double Peak) level) => level.Rms >= QuietRms || level.Peak >= QuietPeak;
 
     private static int Frames(double seconds, int sampleRate) => Math.Max(1, (int)Math.Round(seconds * sampleRate));
+
+    private static void ValidateTarget(double targetSeconds)
+    {
+        if (!double.IsFinite(targetSeconds) || targetSeconds is < 0.1 or > 4)
+            throw new ArgumentOutOfRangeException(nameof(targetSeconds), "快速预览时长须为 0.1 到 4 秒。");
+    }
 
     private static void EnsureShape(WaveData audio)
     {

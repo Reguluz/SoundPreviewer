@@ -12,6 +12,26 @@ public sealed class LibraryStore
     private readonly object gate = new();
     private bool initialized;
     public string? LastMigrationBackupPath { get; private set; }
+    public string DatabasePath => databasePath;
+
+    public void CreateBackup(string destinationPath)
+    {
+        string destination = Path.GetFullPath(destinationPath);
+        if (ApplicationPaths.SamePath(destination, databasePath)) throw new ArgumentException("备份不能覆盖当前数据库。", nameof(destinationPath));
+        lock (gate)
+        {
+            Initialize();
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            string temporary = Path.Combine(Path.GetDirectoryName(destination)!, ".spb-" + Guid.NewGuid().ToString("N")[..16] + ".db");
+            try
+            {
+                using (new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+                using (var database = new NativeSqlite(databasePath)) database.BackupTo(temporary);
+                File.Move(temporary, destination);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+    }
 
     public LibraryStore(string dbPath)
     {
@@ -121,13 +141,7 @@ public sealed class LibraryStore
             database.Execute("BEGIN IMMEDIATE;");
             try
             {
-                foreach (var preset in presets)
-                {
-                    ArgumentNullException.ThrowIfNull(preset);
-                    ArgumentException.ThrowIfNullOrWhiteSpace(preset.Id);
-                    database.Execute("INSERT OR REPLACE INTO presets (id, source_id, synth, source_path, internal_path, content_hash, content_md5, duplicate_of_id, status, favorite, feedback, json, updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                        preset.Id, preset.SourceId, (int)preset.Synth, preset.SourcePath, preset.InternalPath, preset.ContentHash, preset.ContentMd5.ToLowerInvariant(), preset.DuplicateOfId, (int)preset.Status, preset.Favorite, preset.Feedback, JsonSerializer.Serialize(preset, LibraryJson.Options), DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-                }
+                WritePresets(database, presets);
                 database.Execute("COMMIT;");
             }
             catch
@@ -135,6 +149,36 @@ public sealed class LibraryStore
                 database.Execute("ROLLBACK;");
                 throw;
             }
+        }
+    }
+
+    public void SaveState(IEnumerable<PresetRecord> presets, AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(presets);
+        ArgumentNullException.ThrowIfNull(settings);
+        lock (gate)
+        {
+            Initialize();
+            using var database = new NativeSqlite(databasePath);
+            database.Execute("BEGIN IMMEDIATE;");
+            try
+            {
+                WritePresets(database, presets);
+                database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", JsonSerializer.Serialize(settings, LibraryJson.Options));
+                database.Execute("COMMIT;");
+            }
+            catch { database.Execute("ROLLBACK;"); throw; }
+        }
+    }
+
+    private static void WritePresets(NativeSqlite database, IEnumerable<PresetRecord> presets)
+    {
+        foreach (var preset in presets)
+        {
+            ArgumentNullException.ThrowIfNull(preset);
+            ArgumentException.ThrowIfNullOrWhiteSpace(preset.Id);
+            database.Execute("INSERT OR REPLACE INTO presets (id, source_id, synth, source_path, internal_path, content_hash, content_md5, duplicate_of_id, status, favorite, feedback, json, updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                preset.Id, preset.SourceId, (int)preset.Synth, preset.SourcePath, preset.InternalPath, preset.ContentHash, preset.ContentMd5.ToLowerInvariant(), preset.DuplicateOfId, (int)preset.Status, preset.Favorite, preset.Feedback, JsonSerializer.Serialize(preset, LibraryJson.Options), DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         }
     }
 

@@ -30,6 +30,7 @@
     <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <TextBlock Text="{Binding TaskProgressText}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0"/>
      <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,12,0"/>
+     <Button Content="打开新音色库" Click="OpenRelocatedLibrary_Click" IsVisible="{Binding RelocatedLibraryVisibility}" Margin="0,0,6,0" Padding="8,4" Height="30"/>
      <Button x:Name="ViewGeneratedButton" Click="ViewGenerated_Click" IsVisible="{Binding GeneratedResultsVisibility}" ToolTip.Tip="查看已生成的预览，包含待试听确认项" Margin="0,0,6,0" Padding="8,4" Height="30"><StackPanel Orientation="Horizontal"><TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="查看已生成"/></StackPanel></Button>
      <Button Classes="icon" Content="↗" Click="ViewTasks_Click" ToolTip.Tip="查看任务与运行记录" Width="30" Height="30" Margin="0,0,6,0"/>
      <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与渲染器设置" IsVisible="{Binding TaskSettingsVisibility}" Width="30" Height="30" Margin="0"/>
@@ -113,8 +114,8 @@
       <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
      <Border Grid.Row="1" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="20,8,0,0">
-      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-       <StackPanel>
+      <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+       <StackPanel x:Name="PresetDetailsContent">
         <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
         <TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}" Margin="0,8,0,18"/>
         <StackPanel Orientation="Horizontal">
@@ -123,6 +124,15 @@
          <Button Classes="icon" Content="−" Click="Dislike_Click" ToolTip.Tip="不喜欢 / 取消反馈" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="▣" Click="Locate_Click" ToolTip.Tip="定位原预制" IsEnabled="{Binding HasSelection}"/>
         </StackPanel>
+        <Button Content="编辑标签与分类" Click="EditPresetMetadata_Click" IsEnabled="{Binding CanEditSelection}" Margin="0,8,0,0" Padding="10,6"/>
+        <Expander x:Name="PresetMetadataExpander" Header="标签与分类" IsExpanded="False" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
+         <StackPanel IsEnabled="{Binding CanEditSelection}">
+          <TextBlock Text="分类" Classes="field-label"/><TextBox x:Name="PresetCategoriesEditor" AcceptsReturn="True" MinHeight="54" MaxHeight="100" TextWrapping="Wrap" AutomationProperties.Name="编辑音色分类"/>
+          <TextBlock Text="标签" Classes="field-label"/><TextBox x:Name="PresetTagsEditor" AcceptsReturn="True" MinHeight="54" MaxHeight="100" TextWrapping="Wrap" AutomationProperties.Name="编辑音色标签"/>
+          <TextBlock Text="用逗号或换行分隔。保存为手工内容后，重新扫描和自动分类不会覆盖。" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,8"/>
+          <WrapPanel><Button Content="保存修改" Click="SavePresetMetadata_Click" Padding="10,6"/><Button Content="恢复自动" Click="ResetPresetMetadata_Click" Padding="10,6" Margin="0"/></WrapPanel>
+         </StackPanel>
+        </Expander>
         <TextBlock Text="状态" Classes="field-label"/><TextBlock Text="{Binding Selected.StatusLabel}"/>
         <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="#97632E" Margin="0,6,0,0"/>
         <TextBlock Text="最近任务" Classes="field-label"/><TextBlock Text="{Binding Selected.LastRenderOutcomeLabel}"/><TextBlock Text="{Binding Selected.LastRenderMessageLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
@@ -132,8 +142,7 @@
         <TextBlock Text="{Binding Selected.DuplicateLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
         <Button Content="查看保留项" Click="ViewCanonical_Click" IsEnabled="{Binding CanViewCanonical}" IsVisible="{Binding CanonicalVisibility}" Margin="0,6,0,0"/>
         <TextBlock Text="识别依据" Classes="field-label"/><TextBlock Text="{Binding Selected.Record.DetectionReason}" TextWrapping="Wrap"/>
-        <TextBlock Text="类别" Classes="field-label"/><TextBlock Text="{Binding Selected.CategoryTagsLabel}" TextWrapping="Wrap"/>
-        <TextBlock Text="{Binding Selected.TagsLabel}" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
         <TextBlock Text="音源归属" Classes="field-label"/>
         <ComboBox x:Name="AssignmentSynthChoice" ItemsSource="{Binding SynthChoices}" DisplayMemberBinding="{Binding Label}" SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Selected.Record.Synth, Mode=OneWay}" IsEnabled="{Binding CanAssignSynth}" AutomationProperties.Name="确认音色所属音源"/>
         <Button Content="确认音源标签" Click="AssignSynth_Click" IsEnabled="{Binding CanAssignSynth}" Margin="0,8,0,0"/>
@@ -231,12 +240,14 @@
         </Grid>
        </ScrollViewer>
       </TabItem>
-      <TabItem x:Name="RenderSettingsTab" Header="渲染与基准">
+      <TabItem x:Name="RenderSettingsTab" Header="预览生成">
        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="325">
+        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="440">
          <Grid.ColumnDefinitions><ColumnDefinition Width="5*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="4*" MinWidth="330"/></Grid.ColumnDefinitions>
-         <Expander x:Name="RendererSettings" Header="预览渲染器（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <DataGrid x:Name="PluginGrid" ItemsSource="{Binding Plugins}" MinHeight="240" Margin="0,10,0,0" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+         <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+          <Grid RowDefinitions="Auto,*" Margin="0,10,0,0">
+          <TextBlock Text="生成预览时，需要让本机音源演奏所选音色并保存为音频。先扫描并关联音源，再为它选择生成方式；已有的预览可直接试听。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
+          <DataGrid x:Name="PluginGrid" Grid.Row="1" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>
             <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="92" IsReadOnly="True"/>
             <DataGridTemplateColumn Header="方式" Width="145"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox ItemsSource="{StaticResource RenderBackendValues}" DisplayMemberBinding="{Binding Converter={StaticResource BackendLabel}}" SelectedIndex="{Binding Backend, Mode=TwoWay, Converter={StaticResource BackendIndex}}" Margin="0,2"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
@@ -246,11 +257,14 @@
             <DataGridTextColumn Header="超时 (秒)" Binding="{Binding TimeoutSeconds, UpdateSourceTrigger=PropertyChanged}" Width="95"/>
            </DataGrid.Columns>
           </DataGrid>
+          </Grid>
          </Expander>
          <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{StaticResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
          <TabControl Grid.Column="2" Margin="0,8,0,0" Background="White" BorderThickness="0">
-          <TabItem Header="初始基准">
-           <DataGrid x:Name="InitializationGrid" ItemsSource="{Binding InitBaselines}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源初始音色基准" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+          <TabItem Header="加载防错检查">
+           <Grid RowDefinitions="Auto,*">
+           <TextBlock Text="有些音源加载音色失败后仍会播放默认声音。这里记录音源刚启动时的声音作参照，避免把它误当成目标音色保存。支持的音源会在生成时自动建立参照，通常无需手动操作。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,10"/>
+           <DataGrid x:Name="InitializationGrid" Grid.Row="1" ItemsSource="{Binding InitBaselines}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源加载防错声音参照" ScrollViewer.HorizontalScrollBarVisibility="Auto">
             <DataGrid.Columns>
              <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="85"/>
              <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="100"/>
@@ -258,6 +272,7 @@
              <DataGridTemplateColumn Header="操作" Width="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Button Classes="icon" Content="↻" Click="GenerateInitBaseline_Click" Tag="{Binding}" IsEnabled="{Binding CanGenerate}" Width="32" Height="30" Margin="0,0,4,0" ToolTip.Tip="生成或更新初始音色基准"/><Button Classes="icon" Content="▶" Click="PlayInitBaseline_Click" Tag="{Binding}" IsEnabled="{Binding CanPlay}" Width="32" Height="30" Margin="0" ToolTip.Tip="试听已生成的初始音色基准"/></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             </DataGrid.Columns>
            </DataGrid>
+           </Grid>
           </TabItem>
           <TabItem Header="配置状态">
            <DataGrid x:Name="CompatibilityGrid" ItemsSource="{Binding Compatibility}" IsReadOnly="True" MinHeight="240" RowHeight="NaN" ScrollViewer.HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="90"/><DataGridTextColumn Header="配置检查" Binding="{Binding Status}" Width="110"/><DataGridTemplateColumn Header="原因与预览输出" Width="*" MinWidth="180"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Margin="4,6"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns></DataGrid>
@@ -272,13 +287,14 @@
          <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="350"/><ColumnDefinition Width="24"/><ColumnDefinition Width="*" MinWidth="350"/></Grid.ColumnDefinitions>
          <StackPanel>
           <TextBlock Text="三音区试听模板" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14"/>
-          <CheckBox x:Name="QuickPreviewMode" Content="快速预览（每音 0.5 秒）" IsChecked="True" IsEnabled="{Binding IsIdle}" Margin="0,0,0,8" ToolTip.Tip="弱音或慢起音自动延长捕获，最多四秒；压缩两端静音，不提高原始音量"/>
+          <CheckBox x:Name="QuickPreviewMode" Content="快速预览" IsChecked="True" IsEnabled="{Binding IsIdle}" Margin="0,0,0,8" ToolTip.Tip="慢起音自动延长采集，再按设定的每音时长截取，不提高原始音量"/>
+          <StackPanel IsEnabled="{Binding #QuickPreviewMode.IsChecked}" Margin="0,0,0,8"><TextBlock Text="每个音区的快速预览时长（秒）" Classes="field-label"/><TextBox x:Name="QuickPreviewSecondsBox" Text="0.5" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="快速预览每音时长"/><TextBlock Text="默认 0.5 秒，可设 0.1–4 秒；三个音区依次播放。" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel>
           <Grid IsEnabled="{Binding IsIdle}">
            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-           <StackPanel><TextBlock Text="低音 MIDI" Classes="field-label"/><TextBox x:Name="LowNoteBox"/></StackPanel>
-           <StackPanel Grid.Column="2"><TextBlock Text="中音 MIDI" Classes="field-label"/><TextBox x:Name="MiddleNoteBox"/></StackPanel>
-           <StackPanel Grid.Column="4"><TextBlock Text="高音 MIDI" Classes="field-label"/><TextBox x:Name="HighNoteBox"/></StackPanel>
+           <StackPanel><TextBlock Text="低音（C2）" Classes="field-label"/><TextBox x:Name="LowNoteBox" Watermark="C2"/></StackPanel>
+           <StackPanel Grid.Column="2"><TextBlock Text="中音（C4）" Classes="field-label"/><TextBox x:Name="MiddleNoteBox" Watermark="C4"/></StackPanel>
+           <StackPanel Grid.Column="4"><TextBlock Text="高音（C6）" Classes="field-label"/><TextBox x:Name="HighNoteBox" Watermark="C6"/></StackPanel>
            <StackPanel Grid.Row="1"><TextBlock Text="力度" Classes="field-label"/><TextBox x:Name="VelocityBox"/></StackPanel>
            <StackPanel Grid.Row="1" Grid.Column="2" IsEnabled="{Binding !#QuickPreviewMode.IsChecked}"><TextBlock Text="按键时长 (秒)" Classes="field-label"/><TextBox x:Name="HoldBox"/></StackPanel>
            <StackPanel Grid.Row="1" Grid.Column="4" IsEnabled="{Binding !#QuickPreviewMode.IsChecked}"><TextBlock Text="尾音 (秒)" Classes="field-label"/><TextBox x:Name="TailBox"/></StackPanel>
@@ -288,14 +304,16 @@
           <WrapPanel Margin="0,16,0,0"><Button Content="采用 Vital 原生参数" Click="VitalDefaults_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,8,8"/><TextBlock Text="力度 0.7 · 整秒按键 · 尾音 30%" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,0,8"/></WrapPanel>
          </StackPanel>
          <StackPanel Grid.Column="2">
-          <TextBlock Text="本地存储" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
-          <TextBlock Text="当前音色库数据目录" Classes="field-label"/>
+          <TextBlock Text="本地数据与预览" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
+          <TextBlock Text="数据库、预览音频、标签和分类默认存放在程序旁的 Preview。更改位置时统一迁移记录，并选择迁移或清除旧预览。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0"/>
+          <TextBlock Text="当前数据库与标签目录" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录"/>
-          <Button Content="打开已有音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,8,0,0" ToolTip.Tip="选择旧版 library.db 所在目录；打开成功后，后续升级继续使用该音色库"/>
           <Grid IsEnabled="{Binding IsIdle}" Margin="0,4,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
-           <StackPanel Margin="0,0,8,0"><TextBlock Text="预览目录" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox"/></StackPanel>
-           <Button Grid.Column="1" Classes="icon" Content="▣" Click="BrowsePreview_Click" ToolTip.Tip="选择预览目录" VerticalAlignment="Bottom" Width="34" Height="34" Margin="0"/>
+           <StackPanel Margin="0,0,8,0"><TextBlock Text="当前音频目录" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True"/></StackPanel>
+           <Button Grid.Column="1" Classes="icon" Content="▣" Click="BrowsePreview_Click" ToolTip.Tip="更改数据与预览目录：迁移或清除旧预览" VerticalAlignment="Bottom" Width="34" Height="34" Margin="0"/>
           </Grid>
+          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="更改目录" Click="BrowsePreview_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="使用默认 Preview" Click="UseDefaultPreviewDirectory_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="清空预览" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
+          <Button Content="打开已有音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="选择旧版 library.db 所在目录；打开成功后记住位置"/>
           <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <StackPanel><TextBlock Text="存储预算 (GB)" Classes="field-label"/><TextBox x:Name="BudgetBox"/></StackPanel>
            <StackPanel Grid.Column="2"><TextBlock Text="最大尝试次数" Classes="field-label"/><TextBox x:Name="AttemptsBox"/></StackPanel>

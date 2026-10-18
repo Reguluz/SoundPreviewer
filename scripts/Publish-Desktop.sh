@@ -13,7 +13,7 @@ export MSBUILDDISABLENODEREUSE=1
 dotnet_command="${DOTNET_ROOT:+$DOTNET_ROOT/}dotnet"
 output_dir="$project_dir/artifacts/publish-$runtime"
 [[ ! -L "$project_dir/artifacts" && ! -L "$output_dir" ]] || { echo 'Refusing a linked publish directory.' >&2; exit 2; }
-if [[ -d "$output_dir" && -n "$(find "$output_dir" \( -name local-data -o -name settings.json -o -name library-location.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
+if [[ -d "$output_dir" && -n "$(find "$output_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Existing publish output contains user data. Preserve or move the old directory before publishing; no files were deleted.' >&2; exit 2
 fi
 rm -rf -- "$output_dir"

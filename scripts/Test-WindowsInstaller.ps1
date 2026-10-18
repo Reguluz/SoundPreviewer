@@ -40,9 +40,9 @@ function Invoke-InstallerProcess([string]$Executable, [string[]]$Arguments) {
     finally { $process.Dispose() }
 }
 
-# Use only uniquely named fixtures beneath the actual stable user-data root.
+# Use only uniquely named fixtures beneath the application's default Preview root.
 # They are never opened by the UI, so the check does not require an audio device.
-$userData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'SoundPreviewer'
+$userData = Join-Path $installDirectory 'Preview'
 $fixtureDirectory = Join-Path $userData "installer-smoke-$runId"
 $marker = Join-Path $fixtureDirectory 'preserve.txt'
 $database = Join-Path $fixtureDirectory 'library.db'
