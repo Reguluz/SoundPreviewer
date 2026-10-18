@@ -3,7 +3,6 @@ name: Desktop build and packages
 on:
   push:
     branches: ['**']
-  pull_request:
   workflow_dispatch:
   workflow_call:
 

@@ -41,11 +41,11 @@ Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases
 
 ## GitHub Actions 与新版本
 
-`Desktop build and packages` 在分支推送、PR 和手动运行时执行三平台矩阵：Windows x64、macOS Apple Silicon、macOS Intel。每个目标执行 C# 回归、Python 桥接测试、独立 Worker 发布和隔离空数据的 UI 自检，然后构建安装包与 SHA-256 校验文件。Windows 另执行内置 x86 宿主的无插件自检。Mac 归档在上传前完成，保留 app 内执行权限。包作为 Actions artifacts 保留 14 天；UI 诊断保留 7 天。
+`Desktop build and packages` 在分支推送和手动运行时执行三平台矩阵；PR 由 `Release desktop` 先验证版本格式，再复用完全相同的矩阵：Windows x64、macOS Apple Silicon、macOS Intel。每个目标执行 C# 回归、Python 桥接测试、独立 Worker 发布和隔离空数据的 UI 自检，然后构建安装包与 SHA-256 校验文件。Windows 另执行内置 x86 宿主的无插件自检。Mac 归档在上传前完成，保留 app 内执行权限。包作为 Actions artifacts 保留 14 天；UI 诊断保留 7 天。
 
 Windows CI 还会真实执行当前用户安装、同一安装包覆盖升级、安装后 UI 自检及卸载，并校验稳定用户目录中专属标记文件和 SQLite 测试库的 SHA-256 始终未变。该脚本只允许在 Windows GitHub Actions runner 上运行，安装目标限定到本次 `artifacts/installer-smoke-*`；不在开发者本机执行。它验证安装器的数据保留合同；旧版真实库的迁移和缓存记录兼容另由 C# 回归覆盖。
 
-先将这些 workflow 合入默认分支，在 Actions 手动运行 `Release desktop` 可验证完整流程，只生成测试包，不创建公开 Release。首次运行仍需在真实 GitHub 托管 runner 上通过；向朋友分发前，还应在干净测试机核对真实旧版库升级和 macOS app 启动。
+PR 会自动验证 Release 的版本检查与三平台打包入口，不创建公开 Release。GitHub 的手动工作流入口须先存在于默认分支；合入后在 Actions 手动运行 `Release desktop` 也只生成测试包。首次运行仍需在真实 GitHub 托管 runner 上通过；向朋友分发前，还应在干净测试机核对真实旧版库升级和 macOS app 启动。
 
 后续发布步骤：
 
