@@ -202,7 +202,7 @@ Windows 脚本分开下载官方 wheel 和离线安装，缓存保存到上述�
 
 ## 可选 32 位 Sylenth1 宿主
 
-`src/SoundPreviewer.Vst2Host` 使用独立 x86 .NET 8 进程及固定的 [VST.NET2-Host 2.1.0](https://www.nuget.org/packages/VST.NET2-Host/2.1.0)，不需要 Python，也不把 32 位 DLL 加载进桌面主进程。目标电脑需安装 x86 .NET 8 Desktop Runtime。只处理 Sylenth1 的独立 `.fxp`，拒绝 `.fxb`、包内条目、其他音源和 x64 DLL。校验源 SHA256、PE 架构、FXP / 实际插件 ID；chunk 加载检查返回值与 program 状态变化，无法取得加载证据时拒绝生成。每个音高使用新插件实例，输出保留 float32 原始音量；结果始终先待确认。
+`src/SoundPreviewer.Vst2Host` 使用独立 x86 .NET 8 进程及固定的 [VST.NET2-Host 2.1.0](https://www.nuget.org/packages/VST.NET2-Host/2.1.0)，不需要 Python，也不把 32 位 DLL 加载进桌面主进程。Windows 发行包已自带该宿主及其 x86 .NET 运行库；仅使用独立开发构建时需另装 x86 .NET 8 Desktop Runtime。两种方式仍需 Microsoft VC++ x86 运行库。只处理 Sylenth1 的独立 `.fxp`，拒绝 `.fxb`、包内条目、其他音源和 x64 DLL。校验源 SHA256、PE 架构、FXP / 实际插件 ID；chunk 加载检查返回值与 program 状态变化，无法取得加载证据时拒绝生成。每个音高使用新插件实例，输出保留 float32 原始音量；结果始终先待确认。
 
 此可选项目不加入主解决方案，主界面使用 Avalonia NuGet 包，x86 宿主依赖单独恢复。单独构建需要从官方 NuGet 恢复依赖：
 

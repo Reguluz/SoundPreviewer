@@ -2,7 +2,7 @@
 
 This separate process supports one standalone Sylenth1 FXP per request. It does
 not support FXB banks, VST3, x64 plugins, audio recording, or batch requests.
-It requires the x86 .NET 8 Desktop Runtime and Microsoft VC++ x86 runtime.
+The standalone development build requires the x86 .NET 8 Desktop Runtime and Microsoft VC++ x86 runtime. Windows release packages include the host and its x86 .NET runtime; the Microsoft VC++ x86 runtime is still required.
 
 Build from the repository root using the official NuGet feed:
 
