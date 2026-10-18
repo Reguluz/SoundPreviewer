@@ -1,6 +1,6 @@
 # Windows / macOS 共用版本
 
-更新：2026-10-17，当前版本 v1.3.0。此页记录移植与双平台后续改进，旧 Windows 实测记录不自动视作新版双平台验收。
+更新：2026-10-18，当前版本 v1.4.0。此页记录移植与双平台后续改进，历史实测范围按版本保留。
 
 ## 共用范围
 
@@ -33,29 +33,30 @@ Spire 增加了音色文件识别、设置行和 `.spf` / `.spf2` / `.sbf` / `.s
 
 Windows 默认采用 Program Files 下的 `VstPlugins`、`Steinberg/VstPlugins` 和 Common Files 下的 `VST3`。用户已配置的扫描目录不会被默认值覆盖；不可访问目录不会被静默删除，扫描保留该位置既有发现记录并展示警告。已配置到 `Vital.app/Contents/MacOS/Vital` 的路径会推断至 `.app` 外层安装目录，避免只扫描包内 MacOS 文件夹。Vital 的版本和身份来自产品元数据，包文件名不必固定为 `Vital.app`。
 
-## 便携目录
+## 数据与升级
 
-发布目录内：
+程序目录可整体替换；新安装的数据位于独立用户目录：
 
 ```text
-SoundPreviewer[.exe]              桌面入口
-SoundPreviewer.Worker[.exe]       同平台独立工作进程
-Start-SoundPreviewer.command      macOS 双击入口
-Config/
-  preset-categories.default.json  随包默认规则
-  preset-categories.json          首次启动建立的可编辑规则
-Renderers/                       可选宿主桥接
-local-data/
+Windows: %LOCALAPPDATA%\SoundPreviewer
+macOS:   ~/Library/Application Support/SoundPreviewer
+
+用户数据目录/
   library.db                     数据库及同目录 WAL
   application.log                运行日志
   Previews/                      WAV / 启动基准 / 同卷临时目录
+  Config/preset-categories.json   用户分类规则
+  Backups/                       数据库结构升级前的一致快照
+  renderers/                     可选 Python 宿主环境、下载与诊断
 ```
 
-默认路径以 `AppContext.BaseDirectory` 为准，不受终端工作目录影响，不写入 AppData / Application Support。设置中的生成与导出路径须位于程序目录内。旧的外部预览目录在启动时调整到便携目录，旧预览记录本身仍可读取，源预制保持只读。
+程序目录只包含 App、Worker、Renderers、默认分类规则和可选 Windows x86 宿主。Windows 安装器升级和卸载均不删除用户库。可编辑规则只在首次缺失时从旧版 `Config/preset-categories.json` 导入，随后保存在用户库中；内置默认规则更新不覆盖自定义规则。自选预览磁盘和旧预览绝对路径保持不变，程序更新不触发全量重渲染。
 
-`--data-directory` 是明确的目录覆盖，可用于既有库与隔离验收；显式指定时也允许在该目录下生成文件。相对参数以程序目录为准。未传此参数时不会自动打开或搬移旧 Windows `%LOCALAPPDATA%/SoundPreviewer`。使用旧库前备份数据库，并核对程序右下角版本提示中的库路径；Windows 路径不能在 Mac 上自动映射，Mac 需重新配置本地来源与插件位置。
+默认定位顺序为：已记住的音色库 → 当前程序目录已有的 `local-data/library.db` → 平台用户目录。旧 Windows v1.1 默认库与新默认库相同，可直接使用。旧便携版在原目录运行 v1.4 后会记住库的位置；若已经更换安装目录，打开「音源与设置 → 试听与存储 → 打开已有音色库」，选择原来的 `local-data` 即可。打开成功后，稳定用户目录中的 `library-location.json` 保存定位，后续版本继续使用。若磁盘断开或原目录被移走，启动会明确提示并允许重新选择，不静默创建空库。
 
-程序文件夹须可写。复制或升级时保留 `local-data` 与自定义分类规则。macOS 当前采用可写的便携文件夹及 `.command` 启动入口，不要求把数据写入签名的 `.app` bundle。
+关联旧库不搬动文件；须保留该目录、原音频及外部渲染环境。需要迁移磁盘时，请先保留完整副本并重新关联；本版不自动重写 Windows 与 Mac 间的来源、插件或音频路径。显式 `--data-directory` 优先于上述定位，用于隔离测试时不会记住测试库；需永久关联可加 `--remember-data-directory`。相对参数仍以可执行文件目录为准。
+
+数据库当前保持 schema 2。schema 0/1 的已有库升级前，使用 SQLite backup API 将包含已提交 WAL 页的完整快照保存至 `Backups`，备份失败则中止升级；迁移事务失败回滚。已有 schema 2 不重复迁移，未知更高 schema 拒绝打开。缓存键、ID、收藏、反馈、任务记录、预览路径与新旧音区映射不因应用版本更新而失效。回归测试使用旧库夹具及 WAL 数据，禁止修改真实用户库。
 
 ## 构建与运行
 
@@ -82,12 +83,25 @@ macOS 从源码运行 `./Start-SoundPreviewer.command`；发布后双击发布�
 
 当前 Mac 已发现 Vital 1.6.4 和 Serum 2 2.0.23，并执行单样本渲染。Vital 样本是明确标记的 `TEST_ONLY` 测试 patch，由真实 Vital CLI 演奏；Serum 2 样本是本机安装的工厂预制。尚未在两端使用同版本插件、相同预制和外部资源逐样本比较。旧 Windows x86 Sylenth1 二进制不能在 macOS 执行；须安装 macOS 对应版本。相同算法与模板并不保证不同厂商版本、架构或随机音源的波形逐字节一致。
 
-Windows 实机及 Intel Mac 运行验收仍未完成；发布构建通过不能代替目标平台运行。尚需针对同版本插件、相同预制与外部资源核对音色、音区、尾音、连续切换和授权状态。Serum 2 其他版本、旧 FXP 直接加载、FXB 银行、Spire 原生预制及包内条目仍不在本轮已验收范围内。
+v1.4 已在 Windows 本机完成共用 UI、原生播放、旧库兼容及只读插件扫描；本机未安装 Windows Serum 2，没有完成其真实渲染验收。Intel Mac 的真人交互与商业插件运行仍需实机确认；CI 通过不能代替音色身份核对。尚需使用同版本插件、相同预制与外部资源核对音色、音区、尾音、连续切换和授权状态。旧 FXP 在 Serum 2 中直接加载、FXB 银行、Spire 原生预制及包内条目仍不在已验收范围内。
 
 技术依据：[Avalonia 共用架构](https://docs.avaloniaui.net/docs/fundamentals/cross-platform-architecture)、[DawDreamer 0.8.3 发行说明](https://github.com/DBraun/DawDreamer/releases/tag/v0.8.3)。
 
 
 ## 本次验证结果
+
+v1.4.0 Windows 同步与升级兼容验证（2026-10-18）：
+
+| 检查 | 结果与边界 |
+| --- | --- |
+| Windows Release / C# | 0 警告、0 错误；37/37，含 WinMM 静音播放、VST3 多架构、停止恢复和旧缓存回归 |
+| Python | 共 61 项，60 项通过；仅 Windows 无符号链接权限的检查跳过，路径穿越与 Serum 2 状态转换检查已执行 |
+| 共用 UI | 1380×900 / 1040×700、三个主页、五个设置页、试听、关闭回调、10000 项未配置反馈通过，证据 `artifacts/ui-windows-v140-fixture/ui-smoke.json` |
+| 旧 Windows 库副本 | 8859 条路径、1019 个重复副本、122 个发现结果加载并通过上述 UI 自检；逐条比对 ID、来源、收藏、反馈、缓存键、预览路径、生成时间、音区与模板均未改变。只操作副本，未扫描或渲染商业插件。证据 `artifacts/ui-windows-v140-legacy/ui-smoke.json` |
+| 只读实际插件扫描 | 识别 Serum 1.334 x64、Sylenth1 2.2.1.2 x86、Vital 1.6.4 x64；未加载插件，未发现 Windows Serum 2。证据 `artifacts/windows-parity/plugin-scan.json` |
+| 数据安全 | 当前进程库定位固定；旧便携库跨安装定位、无效定位明确失败、规则首次迁移、schema 0/1 一致备份含 WAL、备份失败不迁移、迁移失败回滚、未来 schema 拒绝均通过隔离回归 |
+
+三平台安装包、GitHub Actions 和后续标签发布流程见[版本发布](releases.md)。真实安装覆盖升级及卸载保留数据需在测试朋友的干净环境继续确认。
 
 v1.3.0 新增验证（2026-10-17）：
 

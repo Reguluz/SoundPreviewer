@@ -2,11 +2,11 @@
 
 Windows / macOS 本地合成器预制音色库，使用 C#、.NET 8 和 Avalonia 开发。两端共用完整界面与业务核心，使用各自的原生音频输出。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。界面使用 Avalonia NuGet 包，音色库与渲染在本地运行，不调用云端服务。
 
-当前版本为 **v1.3.0**。目录扫描、检索、收藏、反馈、播放、任务恢复和独立渲染进程已实现；本版恢复 macOS 的开箱音源扫描，追加两端共用的 Serum 2 VST3 原生预制加载，以及 Spire 识别与配置入口。真实音源的支持范围见 [渲染验证记录](docs/rendering.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。macOS 适配与验证范围见 [双平台说明](docs/cross-platform.md)。
+当前版本为 **v1.4.0**。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。本版修复 Windows 多架构 VST3 选择和停止任务的临时文件回收，增加可升级的数据目录、旧库关联及 GitHub 安装包流程。真实音源的支持范围见 [渲染验证记录](docs/rendering.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
 
 ## 启动
 
-支持 Windows 10/11、macOS（Apple Silicon / Intel）。从源码构建需要 .NET 8 SDK；便携发布版包含 .NET 运行时，无需额外安装 Desktop Runtime。仓库固定 SDK 8.0.425，允许更新的 .NET 8 功能版本。
+支持 Windows 10/11、macOS（Apple Silicon / Intel）。测试朋友请优先使用 [GitHub Releases](https://github.com/Reguluz/SoundPreviewer/releases) 中对应平台的安装包；尚未发布时可从 [Actions](https://github.com/Reguluz/SoundPreviewer/actions) 的成功构建下载测试包。发布版包含 .NET 运行时。安装与发布步骤见 [版本发布](docs/releases.md)。从源码构建需要 .NET 8 SDK，仓库固定 SDK 8.0.425。
 
 双击仓库中的 `Start-SoundPreviewer.cmd`，或使用下面的启动命令。
 
@@ -16,9 +16,9 @@ powershell -ExecutionPolicy Bypass -File .\Start-SoundPreviewer.ps1
 
 macOS 从源码双击 `Start-SoundPreviewer.command`，或运行 `./Start-SoundPreviewer.command`。
 
-两端默认将数据库、日志与预览保存在**应用可执行文件所在目录**的 `local-data`，分类规则位于同目录 `Config`。相对路径以程序目录为基准，不随工作目录变化。设置中的生成目录和导出位置须在程序目录内；显式 `--data-directory` 可用于隔离测试或指定旧库。程序目录必须可写。不会自动移动旧 Windows 音色库，请使用 `--data-directory` 指向旧库后核对。
+新安装将数据库、日志、预览与可编辑分类规则放在稳定的用户目录，更新程序文件不会覆盖这些数据：Windows 为 `%LOCALAPPDATA%\SoundPreviewer`，macOS 为 `~/Library/Application Support/SoundPreviewer`。预览也可保存到自选磁盘，已有缓存路径保持原样。窗口右下角版本提示和设置中的「当前音色库数据目录」可核对实际位置。
 
-旧 Windows 交付入口为 `artifacts/publish-quick/SoundPreviewer.exe`；本次源代码升级不覆盖旧发布目录。新版默认改用程序目录内的数据；若要继续使用原库，需显式指定原数据路径。窗口标题及右下角显示应用版本，悬停版本可核对程序与音色库路径。
+Windows v1.1 的默认用户库会直接复用。v1.2/v1.3 的便携 `local-data`，可在「音源与设置 → 试听与存储 → 打开已有音色库」选择含 `library.db` 的目录；打开成功后会记住位置，后续安装继续使用。若在旧便携目录内首次运行本版，会自动记住该库。请保留旧数据目录及其预览，关联操作不会搬动音频。显式 `--data-directory` 适合隔离验证，另加 `--remember-data-directory` 才会记住该位置。详见 [升级与缓存](docs/cross-platform.md#数据与升级)。
 
 ## 配置与使用
 
@@ -35,7 +35,7 @@ macOS 从源码双击 `Start-SoundPreviewer.command`，或运行 `./Start-SoundP
 2. **统一音色列表**：尝试次数、最近任务结果、失败原因、生成时间、版本、时长与类别统一在主表中，通过「列」按钮或表头菜单选择显示，支持横向滚动。「运行记录」只保留日志与维护操作。「最近生成失败」还能找到本轮失败但保留了旧有效预览的音色。
 3. **设置子页**：「目录」「已发现音源」「渲染与基准」「试听与存储」「分类规则」分开显示。目录与渲染区可调整左右宽度，列表随可用高度伸展；设置页隐藏主播放台，任务运行时仍显示进度。
 4. **默认启动基准**：支持的宿主可新建真实插件实例，不加载任何预制，自动建立三个音区的启动声音基准，无需选择所谓 Init 文件。当前代码支持 Serum 1 / Serum 2 / Sylenth1 的 DawDreamer 后端，以及内置 Sylenth1 x86 宿主；Vital CLI 和未适配的外部宿主不提供此保护。三份独立启动参考只在固定硬边界内校准漂移；新音色须同时完整匹配至少两份参考的三个音区才会被拒绝，参考不稳定则明确失败，不静默降级。新结果在提交前检查，拒绝时记录失败并保留旧预览；已有有效缓存仍默认复用。基准可在设置中生成和试听，插件、模板或策略变化后须重建。本机 Serum 1.334 x64 / DawDreamer 与 Sylenth1 2.2.1.2 x86 / 内置宿主已分别完成单样本新顺序的基准自动比对，两个正常预览均已低音量完整播放；未批量，尚无用户对本轮音色身份的人工确认。Serum 2 的本轮队列与基准结果单独记录于[实测范围](docs/rendering.md#默认启动音色基准)。
-5. **可编辑分类规则**：`Config/preset-categories.json` 保存名称关键词与前缀规则，默认文件只在首次缺失时建立。分类页可编辑 JSON、重新载入、保存并应用，或重新应用已保存规则；也可用外部编辑器修改文件。类别与来源识别标签分开保存，一个音色可有多个类别。无效规则不清空已有分类，重新分类不改变预制身份、收藏、反馈或预览文件。
+5. **可编辑分类规则**：音色库数据目录内的 `Config/preset-categories.json` 保存名称关键词与前缀规则，默认文件只在首次缺失时建立。分类页可编辑 JSON、重新载入、保存并应用，或重新应用已保存规则；也可用外部编辑器修改文件。类别与来源识别标签分开保存，一个音色可有多个类别。无效规则不清空已有分类，重新分类不改变预制身份、收藏、反馈或预览文件。
 
 默认跳过已有完整、有效预览，包括以前的长预览，即使修改了模板或插件配置。勾选顶部「全量重渲染（覆盖）」后点击「生成 / 继续」，会重新处理全库可生成的代表音色，不受当前搜索筛选限制；新结果校验成功后替换预览映射，同一缓存路径原子覆盖。该选项只作用于本次操作，重复副本不单独渲染。
 
@@ -71,13 +71,15 @@ python -m unittest discover -s scripts/renderers -p "test_*.py"
 pwsh -File scripts/Publish-Desktop.ps1 -Runtime win-x64
 ```
 
-可选 32 位 Sylenth1 宿主须另行运行 `pwsh -File src/SoundPreviewer.Vst2Host/build.ps1` 后再发布主应用；此项目单独使用官方 NuGet 依赖，基础解决方案不受影响。目标电脑需 x86 .NET 8 Desktop Runtime。真实单 FXP 已生成并播放，尚未代表批量或 FXB 验收。详见渲染记录。
+Windows 发布脚本会先构建自带 x86 .NET 运行库的 Sylenth1 宿主，再与主应用一起打包；普通用户无需另装 x86 Desktop Runtime。开发时仍可单独运行 `pwsh -File src/SoundPreviewer.Vst2Host/build.ps1` 构建依赖本机运行库的宿主。真实单 FXP 的历史验证不代表批量或 FXB 验收，详见渲染记录。
 
 新发行目录包含内置 x86 宿主时，启动会将旧发行目录下明确属于 `Vst2Host-x86\SoundPreviewer.Vst2Host.exe` 的 Sylenth1 外部配置迁移到当前内置路径，清除旧宿主指纹和旧启动基准定位，保留插件路径与实际版本。当前路径不重复迁移；自定义外部程序、其他父目录、其他音源或缺少新宿主时均不改动。
 
 测试覆盖实际 WAV 格式和异常值、SQLite 事务与 v1→v2 迁移、MD5 回填与重复代表提升、混合目录识别与冲突、手动分类和旧设置兼容、插件 PE / 导出 / 位数 / VST3 包与版本选择、扫描增量与反馈、音色包资源变化、未知音源禁止渲染、进程超时、停止后逐项恢复、默认复用与强制生成、原子提交和有限重试。测试中的声音、PE 文件和子进程仅用于基础设施验证，不能作为插件兼容性的证据。
 
 可添加 `--test-playback`，在具备默认音频设备的 Windows / macOS 上检查静音播放、暂停、跳转、继续和释放。v1.3.0 在 Apple Silicon 上 C# 35/35（含播放）、Python 57/57（含可选 Serum 2 依赖下的状态测试）通过；扫描、Spire 回归、两种窗口尺寸及真实插件样本结果单独记录于[双平台验收记录](docs/cross-platform.md#本次验证结果)。这些结果不替代全部商业插件版本或跨平台声音一致性验收。Windows 既有 x86 宿主及真实音源的历史验收仍见渲染记录。
+
+v1.4.0 Windows 本机 Release 构建 0 警告、0 错误，C# 37/37（含原生播放）通过；Python 共 61 项，60 项通过，仅符号链接权限检查在本机跳过。Serum 2 状态转换依赖已安装并执行测试；这不替代 Windows Serum 2 真实插件验收。新增测试覆盖多架构 VST3、稳定库定位、旧缓存保留、WAL 备份及未知 schema 拒绝。
 
 UI 可用隔离音色库生成两种窗口尺寸、三个主页面及设置子页的截图，检查组合筛选、列选择与布局后自动退出；是否通过以当次 `ui-smoke.json` 为准：
 
@@ -98,7 +100,7 @@ macOS 自包含发布：
 ./scripts/Publish-Desktop.sh osx-x64   # Intel
 ```
 
-在对应 `artifacts/publish-<平台>` 文件夹内双击 `Start-SoundPreviewer.command`（macOS）或 `SoundPreviewer.exe`（Windows）。复制或升级时保留整个目录及 `local-data`。构建/测试矩阵与当前验收边界见 [双平台说明](docs/cross-platform.md)。
+在对应 `artifacts/publish-<平台>` 文件夹内双击 `Start-SoundPreviewer.command`（macOS）或 `SoundPreviewer.exe`（Windows）。供朋友测试的安装包、三平台构建和标签发布操作见 [版本发布](docs/releases.md)。升级程序保留用户数据目录；关联旧便携库时也须保留原来的数据目录。构建/测试矩阵与验收边界见 [双平台说明](docs/cross-platform.md)。
 
 ## 数据与维护
 

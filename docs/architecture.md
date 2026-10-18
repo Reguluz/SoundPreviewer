@@ -85,7 +85,7 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 存储与缓存
 
-默认数据目录为 `AppContext.BaseDirectory/local-data`，也可通过启动参数指定独立目录。相对路径以可执行文件目录为基准，设置与导出均校验输出目录范围。数据库为 `library.db`，预览目录可配置，运行日志为 `application.log`。应用保留原预制文件，预览存入独立目录。
+默认数据目录与安装位置分离：Windows 为 `%LOCALAPPDATA%/SoundPreviewer`，macOS 为 `~/Library/Application Support/SoundPreviewer`。已记住的旧库和当前目录的旧 `local-data/library.db` 可继续使用，定位文件使更换安装位置后仍能找到旧库；显式启动参数用于覆盖或隔离验证。数据库为 `library.db`，可编辑规则在库内 `Config`，预览支持自选磁盘，运行日志为 `application.log`。SQLite schema 0/1 升级前生成包含 WAL 的一致备份，schema 2 保持不变，未知新结构拒绝打开。应用保留原预制文件，程序升级不改变缓存键及已有预览路径。详见[数据与升级](cross-platform.md#数据与升级)。
 
 数据库使用 Windows 提供的 `winsqlite3.dll` 或 macOS 提供的 `/usr/lib/libsqlite3.dylib`，采用 UTF8 参数绑定、WAL 和事务。`user_version` 标记数据库结构版本；v2 在 v1 基础上增补 MD5、重复代表列和索引，保留旧记录与设置。预制与设置以完整 JSON 保存，另有身份、来源、状态和反馈列供索引使用。`FindByMd5` 验证十六进制输入并进行参数绑定、大小写不敏感的索引检索。收藏、反馈时间、渲染模板、插件版本、实际音区时长及指标均随记录持久化。
 

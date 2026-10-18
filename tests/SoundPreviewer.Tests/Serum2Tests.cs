@@ -15,10 +15,12 @@ internal static partial class Program
             Synth = SynthKind.Serum2, Platform = PluginPlatform.Windows, Architecture = PluginArchitecture.X64,
             Format = PluginBinaryFormat.Vst3, FilePath = windows, BinaryPath = windows, Version = "2.0.23"
         };
+        string python = Path.Combine(directory, "TEST-ONLY-python");
+        File.WriteAllText(python, "TEST ONLY host placeholder; never executed.");
         var plugin = new PluginConfiguration
         {
             Synth = SynthKind.Serum2, Backend = RenderBackend.DawDreamer, PluginPath = windows,
-            ExecutablePath = TestExecutable, Version = "2.0.23"
+            ExecutablePath = python, Version = "2.0.23"
         };
         var ready = RenderReadinessService.Evaluate(plugin, [native], PluginPlatform.Windows, PluginArchitecture.X64);
         True(ready.CanAttemptRender && !ready.IsVerified && ready.Detail.Contains("requirements-serum2.txt", StringComparison.Ordinal),

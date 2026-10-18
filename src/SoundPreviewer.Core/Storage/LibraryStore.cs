@@ -7,10 +7,11 @@ namespace SoundPreviewer.Core.Storage;
 
 public sealed class LibraryStore
 {
-    private const int SchemaVersion = 2;
+    public const int CurrentSchemaVersion = 2;
     private readonly string databasePath;
     private readonly object gate = new();
     private bool initialized;
+    public string? LastMigrationBackupPath { get; private set; }
 
     public LibraryStore(string dbPath)
     {
@@ -26,7 +27,9 @@ public sealed class LibraryStore
             Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
             using var database = new NativeSqlite(databasePath);
             int version = int.Parse(database.QueryStrings("PRAGMA user_version;")[0], CultureInfo.InvariantCulture);
-            if (version > SchemaVersion) throw new InvalidDataException($"Database schema {version} is newer than supported schema {SchemaVersion}.");
+            if (version > CurrentSchemaVersion) throw new InvalidDataException($"Database schema {version} is newer than supported schema {CurrentSchemaVersion}. Please open this library with the newer application; the library has not been changed.");
+            if (version < CurrentSchemaVersion && database.QueryStrings("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('presets', 'settings');").Count > 0)
+                LastMigrationBackupPath = BackupBeforeMigration(database, version);
             database.Execute("PRAGMA journal_mode=WAL;");
             database.Execute("PRAGMA synchronous=NORMAL;");
             database.Execute("BEGIN IMMEDIATE;");
@@ -41,7 +44,7 @@ public sealed class LibraryStore
                 database.Execute("CREATE INDEX IF NOT EXISTS ix_presets_content_md5 ON presets(content_md5 COLLATE NOCASE);");
                 database.Execute("CREATE INDEX IF NOT EXISTS ix_presets_duplicate ON presets(duplicate_of_id);");
                 database.Execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL);");
-                if (version < SchemaVersion)
+                if (version < CurrentSchemaVersion)
                 {
                     foreach (string json in database.QueryStrings("SELECT json FROM presets;"))
                     {
@@ -49,7 +52,7 @@ public sealed class LibraryStore
                         database.Execute("UPDATE presets SET content_md5=?, duplicate_of_id=? WHERE id=?;", preset.ContentMd5.ToLowerInvariant(), preset.DuplicateOfId, preset.Id);
                     }
                 }
-                database.Execute($"PRAGMA user_version={SchemaVersion};");
+                database.Execute($"PRAGMA user_version={CurrentSchemaVersion};");
                 database.Execute("COMMIT;");
                 initialized = true;
             }
@@ -58,6 +61,26 @@ public sealed class LibraryStore
                 database.Execute("ROLLBACK;");
                 throw;
             }
+        }
+    }
+
+    private string BackupBeforeMigration(NativeSqlite database, int version)
+    {
+        string backupDirectory = Path.Combine(Path.GetDirectoryName(databasePath)!, "Backups");
+        Directory.CreateDirectory(backupDirectory);
+        string name = $"{Path.GetFileNameWithoutExtension(databasePath)}.schema-v{version}.{DateTime.UtcNow:yyyyMMddTHHmmssfffZ}.{Guid.NewGuid():N}.db";
+        string backupPath = Path.Combine(backupDirectory, name);
+        string temporary = backupPath + ".tmp";
+        try
+        {
+            // The SQLite backup API includes committed WAL pages without copying an active database file.
+            database.BackupTo(temporary);
+            File.Move(temporary, backupPath);
+            return backupPath;
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
 

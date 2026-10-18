@@ -4,7 +4,6 @@
     <TargetFramework>net8.0</TargetFramework>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>SoundPreviewer</AssemblyName>
-    <Version>1.3.0</Version>
     <X86HostDirectory Condition="'$(X86HostDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\vst2host-x86\</X86HostDirectory>
     <WorkerOutputDirectory>$(MSBuildThisFileDirectory)../SoundPreviewer.Worker/bin/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/</WorkerOutputDirectory>
     <NormalizedX86HostDirectory>$([MSBuild]::EnsureTrailingSlash('$(X86HostDirectory)'))</NormalizedX86HostDirectory>

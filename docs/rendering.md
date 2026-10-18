@@ -163,14 +163,14 @@ Serum 1 / Sylenth1 路径接收独立 `.fxp`，检查文件头、扫描哈希与
 
 不支持 x86 DLL、SerumFX、VST3 直接加载旧 `.fxp`、`.fxb`、银行槽位或 Spire 原生预制。Serum 2 旧 FXP 须由用户先在实际 Serum 2 中导入并另存，不能自动改扩展名。Sylenth1 本机 x86 插件会在加载宿主前返回可理解的架构错误。
 
-建议使用标准 CPython，而不是携带旧私有运行库的 Conda。下面的 Windows 脚本仅在工作区 `artifacts` 建立独立环境，固定官方依赖并运行有 8 秒时限的空宿主自检；不加载商业插件，不修改全局 Python。示例中的 Python 路径应替换为本机标准 x64 CPython 3.11 / 3.12 的实际安装路径：
+建议使用标准 CPython，而不是携带旧私有运行库的 Conda。准备脚本默认在稳定用户数据目录下的 `renderers` 建立独立环境，固定官方依赖并运行有 8 秒时限的空宿主自检；不加载商业插件，不修改全局 Python。示例中的 Python 路径应替换为本机标准 x64 CPython 3.11 / 3.12 的实际安装路径：
 
 ```powershell
 pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
 # Serum 2 需同时安装额外的固定状态转换依赖：
 pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe' -IncludeSerum2
-# 已有环境也可单独自检，不加载插件或生成 WAV：
-& '.\artifacts\dawdreamer-cpython-x64\Scripts\python.exe' scripts/renderers/dawdreamer_worker.py --probe --result artifacts/host-probe.json
+# 使用准备脚本返回的 EnvironmentPythonPath 配置渲染程序。
+# -ApplicationPath 可指定发布目录；-DataDirectory 可指定隔离数据目录。
 ```
 
 macOS 使用相同架构的标准 CPython 3.11 / 3.12：
@@ -180,9 +180,9 @@ bash scripts/Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 \
   --app-path ./artifacts/publish-osx-arm64 --include-serum2
 ```
 
-`--app-path` 指向已存在的应用程序文件夹，Intel 发布版相应改为 `publish-osx-x64`。macOS 脚本的环境、下载缓存、临时文件与诊断均放在该文件夹的 `local-data`；在发布目录内也可运行 `bash Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 --include-serum2`，自动采用脚本所在目录。去掉 `--include-serum2` 仅准备基础 VST2 宿主。返回的 `EnvironmentPythonPath` 填入设置中的「渲染程序」，Serum 2 另关联本机 `Serum2.vst3` 并选择 DawDreamer 方式。
+`--app-path` 指向源码根目录、发布目录或 `.app`；Intel 发布版相应改为 `publish-osx-x64`。环境、下载、临时文件与诊断默认保存在 `~/Library/Application Support/SoundPreviewer/renderers`，Windows 对应 `%LOCALAPPDATA%\SoundPreviewer\renderers`，不写入安装位置。使用 `--data-directory` / `-DataDirectory` 可指定隔离数据目录。在发布目录内也可运行 `bash Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 --include-serum2`，自动从脚本位置查找资源。去掉 `--include-serum2` 仅准备基础 VST2 宿主。返回的 `EnvironmentPythonPath` 填入设置中的「渲染程序」，Serum 2 另关联本机 `Serum2.vst3` 并选择 DawDreamer 方式。
 
-Windows 脚本分开下载官方 wheel 和离线安装，缓存仅在 `artifacts` 中；已满足固定依赖的环境跳过安装。设置脚本只做空宿主自检，不加载商业插件或输出 WAV。应用运行时只导入本地依赖，不访问网络。Windows 桥接同时检查实际加载的 C++ 运行库，过旧时直接提示；自检通过仅表示空宿主可运行。DawDreamer 的 GPLv3 与所带 JUCE 等依赖许可证在发行宿主二进制时须保留并核对。应用不随发行包包含商业插件、授权文件或私人预制。
+Windows 脚本分开下载官方 wheel 和离线安装，缓存保存到上述数据目录；已满足固定依赖的环境跳过安装。设置脚本只做空宿主自检，不加载商业插件或输出 WAV。应用运行时只导入本地依赖，不访问网络。Windows 桥接同时检查实际加载的 C++ 运行库，过旧时直接提示；自检通过仅表示空宿主可运行。DawDreamer 的 GPLv3 与所带 JUCE 等依赖许可证在发行宿主二进制时须保留并核对。应用不随发行包包含商业插件、授权文件或私人预制。
 
 ## 单音色验收工具
 

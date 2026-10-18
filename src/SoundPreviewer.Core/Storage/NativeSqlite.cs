@@ -45,6 +45,29 @@ internal sealed class NativeSqlite : IDisposable
         return result;
     }
 
+    public void BackupTo(string path)
+    {
+        using var destination = new NativeSqlite(path);
+        IntPtr backup = Native.sqlite3_backup_init(destination.database, Utf8("main"), database, Utf8("main"));
+        if (backup == IntPtr.Zero) throw new IOException($"SQLite backup could not be created: {destination.ErrorMessage()}");
+        int result;
+        try
+        {
+            var timeout = System.Diagnostics.Stopwatch.StartNew();
+            do
+            {
+                result = Native.sqlite3_backup_step(backup, -1);
+                if (result is 5 or 6) Thread.Sleep(25); // Another connection may briefly hold a write lock.
+            } while (result is 5 or 6 && timeout.Elapsed < TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            int finished = Native.sqlite3_backup_finish(backup);
+            if (finished != 0) destination.Check(finished);
+        }
+        if (result != Done) destination.Check(result);
+    }
+
     private Statement Prepare(string sql, object?[] parameters)
     {
         Check(Native.sqlite3_prepare_v2(database, Utf8(sql), -1, out IntPtr handle, out _));
@@ -133,5 +156,8 @@ internal sealed class NativeSqlite : IDisposable
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_finalize(IntPtr statement);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr sqlite3_column_text(IntPtr statement, int index);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_column_bytes(IntPtr statement, int index);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr sqlite3_backup_init(IntPtr destination, byte[] destinationName, IntPtr source, byte[] sourceName);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_backup_step(IntPtr backup, int pages);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int sqlite3_backup_finish(IntPtr backup);
     }
 }

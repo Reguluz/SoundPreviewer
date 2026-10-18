@@ -1,14 +1,19 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 
 namespace SoundPreviewer.Core.Models;
 
-/// <summary>One portable storage and executable layout for both desktop platforms.</summary>
+/// <summary>Application files are replaceable; user libraries keep a stable location across upgrades.</summary>
 public static class ApplicationPaths
 {
     private static string? dataDirectory;
     public static string ApplicationDirectory => Path.GetFullPath(AppContext.BaseDirectory);
-    public static string DataDirectory => dataDirectory ?? Path.Combine(ApplicationDirectory, "local-data");
+    public static string LegacyDataDirectory => Path.Combine(ApplicationDirectory, "local-data");
+    public static string UserDataDirectory => OperatingSystem.IsMacOS()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "SoundPreviewer")
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SoundPreviewer");
+    public static string DataDirectory => dataDirectory ??= ResolveDefaultDataDirectory(ApplicationDirectory, UserDataDirectory);
     public static string WorkerPath
     {
         get
@@ -18,8 +23,57 @@ public static class ApplicationPaths
         }
     }
 
-    public static void ConfigureDataDirectory(string? directory) => dataDirectory = string.IsNullOrWhiteSpace(directory)
-        ? null : Path.GetFullPath(directory, ApplicationDirectory);
+    public static void ConfigureDataDirectory(string? directory, string? applicationDirectory = null, string? userDataDirectory = null)
+    {
+        string application = applicationDirectory ?? ApplicationDirectory;
+        // Resolve once for this process: opening another library may update the shared locator.
+        dataDirectory = string.IsNullOrWhiteSpace(directory)
+            ? ResolveDefaultDataDirectory(application, userDataDirectory ?? UserDataDirectory)
+            : Path.GetFullPath(directory, application);
+    }
+
+    public static string ResolveDefaultDataDirectory(string applicationDirectory, string userDataDirectory)
+    {
+        string locationPath = Path.Combine(Path.GetFullPath(userDataDirectory), "library-location.json");
+        if (File.Exists(locationPath))
+        {
+            if (new FileInfo(locationPath).Length > 16 * 1024) throw new InvalidDataException("音色库位置文件过大。请重新选择已有音色库。");
+            var location = JsonSerializer.Deserialize<LibraryLocation>(File.ReadAllText(locationPath));
+            if (location is null || location.FormatVersion != 1 || string.IsNullOrWhiteSpace(location.DataDirectory) || !Path.IsPathFullyQualified(location.DataDirectory))
+                throw new InvalidDataException("音色库位置文件版本或路径无效。请重新选择已有音色库。");
+            string directory = Path.GetFullPath(location.DataDirectory);
+            if (!File.Exists(Path.Combine(directory, "library.db")))
+                throw new DirectoryNotFoundException($"已记住的音色库无法找到：{directory}。请连接原磁盘，或使用“打开已有音色库”重新选择；现有记录未更改。");
+            return directory;
+        }
+        string legacyDirectory = Path.Combine(Path.GetFullPath(applicationDirectory), "local-data");
+        return File.Exists(Path.Combine(legacyDirectory, "library.db")) ? legacyDirectory : Path.GetFullPath(userDataDirectory);
+    }
+
+    public static void RememberDataDirectory(string directory, string? userDataDirectory = null)
+    {
+        string fullPath = Path.GetFullPath(directory, ApplicationDirectory);
+        if (!File.Exists(Path.Combine(fullPath, "library.db"))) throw new DirectoryNotFoundException("只能记住已经成功打开的音色库目录。");
+        string userDirectory = Path.GetFullPath(userDataDirectory ?? UserDataDirectory);
+        Directory.CreateDirectory(userDirectory);
+        string locationPath = Path.Combine(userDirectory, "library-location.json");
+        string temporary = locationPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(stream, new LibraryLocation(1, fullPath));
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, locationPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private sealed record LibraryLocation(int FormatVersion, string DataDirectory);
 
     // Windows keeps its historical case-insensitive IDs. Unix volumes may be case-sensitive.
     public static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;

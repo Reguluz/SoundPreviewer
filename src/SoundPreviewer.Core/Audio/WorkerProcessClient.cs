@@ -94,9 +94,17 @@ public sealed class WorkerProcessClient
         }
         finally
         {
-            try { Directory.Delete(staging, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            // Windows can briefly retain the terminated process's working-directory handle
+            // after WaitForExitAsync completes. Finish cleanup before returning from Stop.
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                try { Directory.Delete(staging, recursive: true); break; }
+                catch (DirectoryNotFoundException) { break; }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    if (attempt < 9) await Task.Delay(50, CancellationToken.None);
+                }
+            }
         }
     }
 

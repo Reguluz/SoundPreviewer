@@ -50,14 +50,22 @@ class MacHostTests(unittest.TestCase):
         with mock.patch.object(worker.sys, "platform", "darwin"), self.assertRaisesRegex(ValueError, "native VST2"):
             worker.check_plugin_architecture(binary)
 
-    def test_bundle_path_traversal_and_symlink_are_rejected(self):
+    def test_bundle_path_traversal_is_rejected(self):
         plist = self.bundle / "Contents" / "Info.plist"
         plist.write_bytes(plistlib.dumps({"CFBundleExecutable": "../../outside"}))
         with self.assertRaisesRegex(ValueError, "filename"):
             self.check()
+
+    def test_bundle_symlink_is_rejected(self):
+        plist = self.bundle / "Contents" / "Info.plist"
         plist.write_bytes(plistlib.dumps({"CFBundleExecutable": "test"}))
         link = Path(self.directory.name) / "linked.vst"
-        link.symlink_to(self.bundle, target_is_directory=True)
+        try:
+            link.symlink_to(self.bundle, target_is_directory=True)
+        except OSError as error:
+            if getattr(error, "winerror", None) == 1314:
+                self.skipTest("Windows symlink privilege is unavailable; traversal validation runs separately.")
+            raise
         with self.assertRaisesRegex(ValueError, "native VST2"):
             worker.check_mac_plugin_architecture(link)
 

@@ -22,10 +22,12 @@ The unmodified x86 Ijwhost.dll supplied by the VST.NET2-Host 2.1.0 package is
 licensed MIT by the .NET Foundation and Contributors. Its source is available
 at https://github.com/dotnet/runtime. See LICENSE.Microsoft.txt.
 
-The executable is framework-dependent and requires the installed x86 .NET 8
-Desktop Runtime. Framework assemblies, including System.Configuration.ConfigurationManager,
-are resolved from that installed framework, not copied as independent packages.
-No System.Configuration.ConfigurationManager NuGet package is redistributed.
+Release packages publish this executable self-contained with the unmodified
+x86 .NET 8 Desktop Runtime. Its MIT license and third-party notices are included
+by the .NET publisher. Source builds may instead be framework-dependent and
+require the installed x86 .NET 8 Desktop Runtime. Framework assemblies, including
+System.Configuration.ConfigurationManager, come from that runtime; no separate
+System.Configuration.ConfigurationManager NuGet package is redistributed.
 
 VST.NET2-Host declares Microsoft.Extensions.Configuration.Json 6.0.0 and its
 transitive dependencies in its restore graph. This executable excludes the

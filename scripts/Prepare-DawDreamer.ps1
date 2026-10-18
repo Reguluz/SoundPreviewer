@@ -2,6 +2,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$PythonPath,
+    [string]$ApplicationPath,
+    [string]$DataDirectory,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
     [string]$EnvironmentName = 'dawdreamer-cpython-x64',
     [AllowEmptyString()]
@@ -11,31 +13,47 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$workspace = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$artifacts = Join-Path $workspace 'artifacts'
-$requirements = Join-Path $PSScriptRoot 'renderers/requirements.txt'
-$serum2Requirements = Join-Path $PSScriptRoot 'renderers/requirements-serum2.txt'
-$worker = Join-Path $PSScriptRoot 'renderers/dawdreamer_worker.py'
+if (-not $ApplicationPath) {
+    $ApplicationPath = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Renderers/dawdreamer_worker.py')) {
+        $PSScriptRoot
+    } else { Split-Path -Parent $PSScriptRoot }
+}
+if (-not (Test-Path -LiteralPath $ApplicationPath -PathType Container)) {
+    throw 'ApplicationPath must identify an existing source or published application folder.'
+}
+$application = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ApplicationPath).ProviderPath)
+if (-not $DataDirectory) {
+    $DataDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'SoundPreviewer'
+}
+if (-not [IO.Path]::IsPathRooted($DataDirectory)) {
+    throw 'DataDirectory must be an absolute path to the persistent user data folder.'
+}
+$data = [IO.Path]::GetFullPath($DataDirectory)
+$resources = Join-Path $application 'Renderers'
+if (-not (Test-Path -LiteralPath (Join-Path $resources 'dawdreamer_worker.py') -PathType Leaf)) {
+    $resources = Join-Path $application 'scripts/renderers'
+}
+$requirements = Join-Path $resources 'requirements.txt'
+$serum2Requirements = Join-Path $resources 'requirements-serum2.txt'
+$worker = Join-Path $resources 'dawdreamer_worker.py'
 
-function Assert-ArtifactPath([string]$Path) {
+function Assert-DataPath([string]$Path) {
     $full = [IO.Path]::GetFullPath($Path)
-    $prefix = $artifacts.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-    if (-not $full.Equals($artifacts, [StringComparison]::OrdinalIgnoreCase) -and
+    $prefix = $data.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $full.Equals($data, [StringComparison]::OrdinalIgnoreCase) -and
         -not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing a path outside this workspace's artifacts directory: $full"
+        throw "Refusing a path outside the selected persistent data directory: $full"
     }
     $current = $full
-    while (-not $current.Equals($workspace, [StringComparison]::OrdinalIgnoreCase)) {
+    while ($current) {
         if (Test-Path -LiteralPath $current) {
             $item = Get-Item -LiteralPath $current -Force
             if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw "Refusing a linked artifacts path: $current"
+                throw "Refusing a linked renderer data path: $current"
             }
         }
         $parent = Split-Path -Parent $current
-        if (-not $parent -or $parent -eq $current) {
-            throw "Cannot verify the artifacts path: $full"
-        }
+        if (-not $parent -or $parent -eq $current) { break }
         $current = $parent
     }
     return $full
@@ -58,6 +76,9 @@ for name in ('dawdreamer', 'numpy', 'serum2-preset-loader', 'cbor2', 'zstandard'
 print(json.dumps({
     'Executable': sys.executable,
     'BaseExecutable': getattr(sys, '_base_executable', sys.executable),
+    'Prefix': sys.prefix,
+    'Platform': sys.platform,
+    'Architecture': platform.machine(),
     'Major': sys.version_info.major,
     'Minor': sys.version_info.minor,
     'Bits': struct.calcsize('P') * 8,
@@ -71,7 +92,7 @@ print(json.dumps({
     'ZstandardVersion': versions['zstandard'],
 }))
 '@
-    $output = & $Executable -I -c $inspection 2>&1
+    $output = & $Executable -I -B -c $inspection 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Python inspection failed: $($output -join [Environment]::NewLine)"
     }
@@ -84,7 +105,8 @@ print(json.dumps({
 }
 
 function Assert-CompatiblePython($Info) {
-    if ($Info.Implementation -ne 'CPython' -or $Info.Bits -ne 64 -or
+    if ($Info.Platform -ne 'win32' -or $Info.Architecture -notin @('AMD64', 'x86_64') -or
+        $Info.Implementation -ne 'CPython' -or $Info.Bits -ne 64 -or
         $Info.Major -ne 3 -or $Info.Minor -notin @(11, 12)) {
         throw 'This bridge requires standard Windows x64 CPython 3.11 or 3.12.'
     }
@@ -108,7 +130,7 @@ if ($sourceInfo.IsVenv) {
 }
 if (-not (Test-Path -LiteralPath $requirements -PathType Leaf) -or
     -not (Test-Path -LiteralPath $worker -PathType Leaf)) {
-    throw 'The renderer requirements or worker script is missing from this workspace.'
+    throw 'The renderer requirements or worker script is missing from the selected application folder.'
 }
 $pins = @(Get-Content -LiteralPath $requirements | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
     ForEach-Object { $_.Trim() })
@@ -129,15 +151,16 @@ if ($IncludeSerum2) {
     }
     $selectedRequirements = $serum2Requirements
 }
-$environment = Assert-ArtifactPath (Join-Path $artifacts $EnvironmentName)
-$environmentPython = Assert-ArtifactPath (Join-Path $environment 'Scripts/python.exe')
-$wheelCache = Assert-ArtifactPath (Join-Path $artifacts ("dawdreamer-wheels-cp3{0}" -f $sourceInfo.Minor))
-$diagnostics = Assert-ArtifactPath (Join-Path $artifacts 'diagnostics')
-$probeResult = Assert-ArtifactPath (Join-Path $diagnostics ("host-probe-{0}.json" -f $EnvironmentName))
+$renderers = Assert-DataPath (Join-Path $data 'renderers')
+$environment = Assert-DataPath (Join-Path $renderers $EnvironmentName)
+$environmentPython = Assert-DataPath (Join-Path $environment 'Scripts/python.exe')
+$wheelCache = Assert-DataPath (Join-Path $renderers ("wheels-cp3{0}-x64" -f $sourceInfo.Minor))
+$diagnostics = Assert-DataPath (Join-Path $data 'diagnostics')
+$probeResult = Assert-DataPath (Join-Path $diagnostics ("host-probe-{0}.json" -f $EnvironmentName))
 if (-not (Test-Path -LiteralPath $environment)) {
-    [IO.Directory]::CreateDirectory((Assert-ArtifactPath $artifacts)) | Out-Null
-    Write-Host 'Creating a workspace-only virtual environment...'
-    & $sourcePython -I -m venv $environment
+    [IO.Directory]::CreateDirectory($renderers) | Out-Null
+    Write-Host 'Creating a virtual environment in the persistent user data folder...'
+    & $sourcePython -I -B -m venv $environment
     if ($LASTEXITCODE -ne 0) {
         throw 'Virtual environment creation failed; no global pip command was run.'
     }
@@ -148,6 +171,7 @@ if (-not (Test-Path -LiteralPath $environmentPython -PathType Leaf)) {
 $environmentInfo = Get-PythonInfo $environmentPython
 Assert-CompatiblePython $environmentInfo
 if (-not $environmentInfo.IsVenv -or
+    -not [IO.Path]::GetFullPath($environmentInfo.Prefix).Equals($environment, [StringComparison]::OrdinalIgnoreCase) -or
     -not [IO.Path]::GetFullPath($environmentInfo.BaseExecutable).Equals(
         [IO.Path]::GetFullPath($sourceInfo.Executable), [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The existing environment does not belong to the selected base Python. Choose a new EnvironmentName; nothing was replaced.'
@@ -162,7 +186,7 @@ if ($dependenciesReady) {
 }
 else {
     [IO.Directory]::CreateDirectory($wheelCache) | Out-Null
-    $downloadArguments = @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', '--no-input', '--cache-dir', (Join-Path $wheelCache 'pip-cache'),
+    $downloadArguments = @('-I', '-B', '-m', 'pip', '--isolated', '--disable-pip-version-check', '--no-input', '--cache-dir', (Join-Path $wheelCache 'pip-cache'),
         'download', '--only-binary=:all:', '--index-url', 'https://pypi.org/simple',
         '--dest', $wheelCache, '-r', $selectedRequirements)
     if ($PSBoundParameters.ContainsKey('Proxy')) {
@@ -173,10 +197,10 @@ else {
     if ($LASTEXITCODE -ne 0) {
         throw 'Official wheel download failed. Cached wheels remain available; no package installation was attempted.'
     }
-    Write-Host 'Installing only from the workspace wheel cache...'
-    & $environmentPython -I -m pip --isolated --disable-pip-version-check --no-input --cache-dir (Join-Path $wheelCache 'pip-cache') install --no-index --find-links $wheelCache -r $selectedRequirements
+    Write-Host 'Installing only from the persistent wheel cache...'
+    & $environmentPython -I -B -m pip --isolated --disable-pip-version-check --no-input --cache-dir (Join-Path $wheelCache 'pip-cache') install --no-index --find-links $wheelCache -r $selectedRequirements
     if ($LASTEXITCODE -ne 0) {
-        throw 'Offline installation into the workspace virtual environment failed.'
+        throw 'Offline installation into the persistent virtual environment failed.'
     }
     $environmentInfo = Get-PythonInfo $environmentPython
     if ($environmentInfo.HostVersion -ne '0.8.3' -or $environmentInfo.NumpyVersion -ne '1.26.4') {
@@ -189,7 +213,7 @@ else {
 }
 [IO.Directory]::CreateDirectory($diagnostics) | Out-Null
 Write-Host 'Running the bounded host probe without a commercial plugin...'
-& $environmentPython -I $worker --probe --result $probeResult
+& $environmentPython -I -B $worker --probe --result $probeResult
 $probeExitCode = $LASTEXITCODE
 if (-not (Test-Path -LiteralPath $probeResult -PathType Leaf)) {
     throw "The host probe returned no report (exit $probeExitCode)."
@@ -209,6 +233,7 @@ if ($probeExitCode -ne 0 -or $probe.Success -ne $true -or $probe.CommercialPlugi
 [pscustomobject]@{
     Success = $true
     EnvironmentPythonPath = $environmentPython
+    DataDirectory = $data
     ProbeResultPath = $probeResult
     IncludeSerum2 = [bool]$IncludeSerum2
     Message = 'The isolated host is ready for a separate real-plugin validation. No commercial plugin was loaded by this setup.'

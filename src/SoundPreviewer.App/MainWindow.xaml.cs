@@ -149,7 +149,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         VolumeSlider.PropertyChanged += Volume_Changed;
         PopulateSettings();
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
-        if (migratedPreviewDirectory) Log("预览输出目录已迁移到程序目录内：" + _settings.PreviewDirectory);
+        if (migratedPreviewDirectory) Log("预览保存目录：" + _settings.PreviewDirectory);
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
         LoadCategoryRulesEditor();
         _player.Volume = _settings.PlaybackVolume;
@@ -176,6 +176,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 if (classified.Changed > 0) await Task.Run(() => _store.UpsertMany(records));
             }
             SetPresets(records);
+            App.LibraryOpened();
             await RefreshInitBaselinesAsync();
             if (_isClosing) return;
             if (GeneratedPreviewCount > 0)
@@ -1094,7 +1095,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择应用程序目录内的预览保存位置", AllowMultiple = false,
+            Title = "选择预览保存位置", AllowMultiple = false,
             SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
         });
         if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
@@ -1220,14 +1221,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private static string ValidateOutputPath(string path)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("请选择应用程序目录内的保存位置。");
-        var fullPath = Path.GetFullPath(path, AppContext.BaseDirectory);
-        var relative = Path.GetRelativePath(AppContext.BaseDirectory, fullPath);
-        var dataRelative = Path.GetRelativePath(App.DataDirectory, fullPath);
-        static bool IsInside(string value) => value != ".." && !value.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) && !Path.IsPathRooted(value);
-        if (!IsInside(relative) && !IsInside(dataRelative))
-            throw new ArgumentException("生成文件须保存在应用程序所在目录内，请重新选择位置。");
-        return fullPath;
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("请选择保存位置。");
+        return Path.GetFullPath(path, App.DataDirectory);
+    }
+
+    private async void OpenExistingLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        if (!IsIdle || _isClosing) return;
+        try
+        {
+            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "选择包含 library.db 的旧音色库目录", AllowMultiple = false,
+                SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
+            });
+            if (_isClosing || folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
+            if (ApplicationPaths.SamePath(directory, App.DataDirectory)) return;
+            App.StartWithLibrary(directory);
+            Close();
+        }
+        catch (Exception error) { ShowError(error); }
     }
 
     private void OpenData_Click(object sender, RoutedEventArgs e)

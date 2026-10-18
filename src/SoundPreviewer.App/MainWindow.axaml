@@ -291,6 +291,7 @@
           <TextBlock Text="本地存储" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
           <TextBlock Text="当前音色库数据目录" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录"/>
+          <Button Content="打开已有音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,8,0,0" ToolTip.Tip="选择旧版 library.db 所在目录；打开成功后，后续升级继续使用该音色库"/>
           <Grid IsEnabled="{Binding IsIdle}" Margin="0,4,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
            <StackPanel Margin="0,0,8,0"><TextBlock Text="预览目录" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox"/></StackPanel>
            <Button Grid.Column="1" Classes="icon" Content="▣" Click="BrowsePreview_Click" ToolTip.Tip="选择预览目录" VerticalAlignment="Bottom" Width="34" Height="34" Margin="0"/>

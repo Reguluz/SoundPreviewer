@@ -16,9 +16,7 @@
     <Reference Include="Jacobi.Vst.Core"><HintPath>$(PkgVST_NET2-Host)/lib/net6.0/x86/Jacobi.Vst.Core.dll</HintPath></Reference>
     <Reference Include="Jacobi.Vst.Host.Interop"><HintPath>$(PkgVST_NET2-Host)/lib/net6.0/x86/Jacobi.Vst.Host.Interop.dll</HintPath></Reference>
     <None Include="$(PkgVST_NET2-Host)/runtimes/win10-x86/native/Ijwhost.dll" Link="Ijwhost.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Compile Include="../SoundPreviewer.Core/Models/LibraryModels.cs" Link="Shared/LibraryModels.cs" />
-    <Compile Include="../SoundPreviewer.Core/Models/PluginDiscoveryModels.cs" Link="Shared/PluginDiscoveryModels.cs" />
-    <Compile Include="../SoundPreviewer.Core/Audio/WaveFile.cs" Link="Shared/WaveFile.cs" />
+    <ProjectReference Include="../SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
     <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="LICENSE.VST.NET.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="LICENSE.Microsoft.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

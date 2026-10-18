@@ -1,10 +1,12 @@
 using System.Text.Json;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using SoundPreviewer.Core.Models;
 
@@ -13,6 +15,7 @@ namespace SoundPreviewer.App;
 public partial class App : Application
 {
     private Mutex? _instanceMutex;
+    private bool _rememberLibraryOnOpen;
     public static string DataDirectory { get; private set; } = "";
     public static bool SmokeTest { get; private set; }
     public static bool ScanOnStart { get; private set; }
@@ -31,10 +34,14 @@ public partial class App : Application
         SmokeTest = args.Contains("--smoke-test");
         ScanOnStart = args.Contains("--scan-on-start");
         var dataIndex = Array.IndexOf(args, "--data-directory");
-        ApplicationPaths.ConfigureDataDirectory(dataIndex >= 0 && dataIndex + 1 < args.Length ? args[dataIndex + 1] : null);
-        DataDirectory = ApplicationPaths.DataDirectory;
         try
         {
+            if (dataIndex >= 0 && (dataIndex + 1 >= args.Length || args[dataIndex + 1].StartsWith("--", StringComparison.Ordinal)))
+                throw new ArgumentException("--data-directory 需要指定音色库目录。");
+            ApplicationPaths.ConfigureDataDirectory(dataIndex >= 0 ? args[dataIndex + 1] : null);
+            DataDirectory = ApplicationPaths.DataDirectory;
+            _rememberLibraryOnOpen = !SmokeTest && (args.Contains("--remember-data-directory") ||
+                (dataIndex < 0 && ApplicationPaths.SamePath(DataDirectory, ApplicationPaths.LegacyDataDirectory)));
             Directory.CreateDirectory(DataDirectory);
             var identity = OperatingSystem.IsWindows() ? DataDirectory.ToUpperInvariant() : DataDirectory;
             var name = (OperatingSystem.IsWindows() ? "Local\\" : "") + "SoundPreviewer-" + Fingerprints.HashText(identity)[..20];
@@ -65,7 +72,8 @@ public partial class App : Application
         {
             if (SmokeTest)
             {
-                File.WriteAllText(Path.Combine(DataDirectory, "ui-startup-error.txt"), ex.ToString());
+                if (DataDirectory.Length > 0 && Directory.Exists(DataDirectory))
+                    File.WriteAllText(Path.Combine(DataDirectory, "ui-startup-error.txt"), ex.ToString());
                 desktop.Shutdown(1);
             }
             else ShowStartupMessage(desktop, ex.Message, "无法打开本地音色库");
@@ -73,7 +81,8 @@ public partial class App : Application
         desktop.Exit += (_, eventArgs) =>
         {
             _instanceMutex?.Dispose();
-            if (SmokeTest) File.WriteAllText(Path.Combine(DataDirectory, "ui-exit.json"), JsonSerializer.Serialize(new { ExitCode = eventArgs.ApplicationExitCode }));
+            if (SmokeTest && DataDirectory.Length > 0 && Directory.Exists(DataDirectory))
+                File.WriteAllText(Path.Combine(DataDirectory, "ui-exit.json"), JsonSerializer.Serialize(new { ExitCode = eventArgs.ApplicationExitCode }));
         };
         base.OnFrameworkInitializationCompleted();
     }
@@ -81,12 +90,56 @@ public partial class App : Application
     public static void Shutdown(int exitCode = 0) =>
         (Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(exitCode);
 
+    public static void LibraryOpened()
+    {
+        if (Current is not App { _rememberLibraryOnOpen: true } app) return;
+        ApplicationPaths.RememberDataDirectory(DataDirectory);
+        app._rememberLibraryOnOpen = false;
+    }
+
+    public static void StartWithLibrary(string directory)
+    {
+        if (!File.Exists(Path.Combine(directory, "library.db")))
+            throw new ArgumentException("所选目录没有 library.db，请选择原来的音色库数据目录。");
+        var start = new ProcessStartInfo(Environment.ProcessPath ?? throw new InvalidOperationException("无法定位当前程序。")) { UseShellExecute = false };
+        if (string.Equals(Path.GetFileNameWithoutExtension(start.FileName), "dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(typeof(App).Assembly.Location);
+        start.ArgumentList.Add("--data-directory");
+        start.ArgumentList.Add(directory);
+        start.ArgumentList.Add("--remember-data-directory");
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("无法打开音色库。");
+    }
+
     private static void ShowStartupMessage(IClassicDesktopStyleApplicationLifetime desktop, string text, string title)
     {
         var window = new Window { Title = title, Width = 460, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterScreen };
         var close = new Button { Content = "确定", IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
         close.Click += (_, _) => window.Close();
-        window.Content = new StackPanel { Margin = new Thickness(24), Children = { new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap }, close } };
+        var message = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap };
+        var content = new StackPanel { Margin = new Thickness(24), Children = { message } };
+        if (title == "无法打开本地音色库")
+        {
+            var browse = new Button { Content = "打开已有音色库", Margin = new Thickness(0, 16, 0, 0) };
+            browse.Click += async (_, _) =>
+            {
+                try
+                {
+                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择包含 library.db 的音色库目录", AllowMultiple = false });
+                    if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
+                    if (Current is App app)
+                    {
+                        app._instanceMutex?.Dispose();
+                        app._instanceMutex = null;
+                    }
+                    StartWithLibrary(directory);
+                    window.Close();
+                }
+                catch (Exception error) { message.Text = error.Message; }
+            };
+            content.Children.Add(browse);
+        }
+        content.Children.Add(close);
+        window.Content = content;
         desktop.MainWindow = window;
     }
 }

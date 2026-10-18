@@ -32,9 +32,12 @@ public static class RenderReadinessService
 
         if (!Enum.IsDefined(configuration.Synth) || configuration.Synth == SynthKind.Unknown)
             return Result("未识别", "尚不能确认目标音源，不能依据文件名启动渲染。");
-        var selected = discovered.FirstOrDefault(plugin => configuration.Backend == RenderBackend.VitalCli && plugin.Format == PluginBinaryFormat.Standalone
+        var matching = discovered.Where(plugin => configuration.Backend == RenderBackend.VitalCli && plugin.Format == PluginBinaryFormat.Standalone
             ? SamePath(plugin.FilePath, configuration.ExecutablePath) || SamePath(plugin.BinaryPath, configuration.ExecutablePath)
             : SamePath(plugin.FilePath, configuration.PluginPath) || SamePath(plugin.BinaryPath, configuration.PluginPath));
+        // A Windows VST3 bundle can expose several architecture binaries at the same selectable path.
+        var selected = matching.FirstOrDefault(plugin => plugin.Synth == configuration.Synth &&
+            PluginSelectionService.IsCompatible(plugin, target, architecture)) ?? matching.FirstOrDefault();
         var candidates = discovered.Where(plugin => plugin.Synth == configuration.Synth && plugin.Platform == target).ToList();
         if (selected is not null && selected.Platform != target)
             return Result("平台不兼容", "已关联其他操作系统的音源文件，请扫描并关联当前平台版本。");

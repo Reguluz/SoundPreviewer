@@ -14,38 +14,57 @@ public sealed class PresetCategoryService
     private const int MaximumTerms = 128;
     private const int MaximumTextLength = 64;
     private CompiledCategory[]? rules;
+    private readonly string? legacyRulesPath;
 
-    public static string DefaultRulesPath => Path.Combine(AppContext.BaseDirectory, "Config", "preset-categories.json");
+    public static string DefaultRulesPath => Path.Combine(ApplicationPaths.DataDirectory, "Config", "preset-categories.json");
     public static string BundledRulesPath => Path.Combine(AppContext.BaseDirectory, "Config", "preset-categories.default.json");
     public string RulesPath { get; }
     public string DefaultFilePath { get; }
 
-    public PresetCategoryService(string? rulesPath = null, string? bundledRulesPath = null)
+    public PresetCategoryService(string? rulesPath = null, string? bundledRulesPath = null, string? legacyRulesPath = null)
     {
         RulesPath = Path.GetFullPath(rulesPath ?? DefaultRulesPath);
         DefaultFilePath = Path.GetFullPath(bundledRulesPath ?? BundledRulesPath);
+        this.legacyRulesPath = legacyRulesPath ?? (rulesPath is null ? FindLegacyRulesPath() : null);
+    }
+
+    private static string FindLegacyRulesPath()
+    {
+        string dataDirectory = Path.TrimEndingDirectorySeparator(ApplicationPaths.DataDirectory);
+        if (Path.GetFileName(dataDirectory).Equals("local-data", ApplicationPaths.PathComparison))
+        {
+            string? parent = Path.GetDirectoryName(dataDirectory);
+            string libraryRules = Path.Combine(parent!, "Config", "preset-categories.json");
+            if (File.Exists(libraryRules)) return libraryRules;
+        }
+        return Path.Combine(AppContext.BaseDirectory, "Config", "preset-categories.json");
     }
 
     public void EnsureRulesFile()
     {
         if (File.Exists(RulesPath)) return;
-        string json = ReadBounded(DefaultFilePath);
+        string json = ReadBounded(legacyRulesPath is not null && File.Exists(legacyRulesPath) ? legacyRulesPath : DefaultFilePath);
         Parse(json);
         Directory.CreateDirectory(Path.GetDirectoryName(RulesPath)!);
-        FileStream stream;
+        string temporary = RulesPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            stream = new FileStream(RulesPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                byte[] bytes = new UTF8Encoding(false).GetBytes(json);
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, RulesPath);
         }
         catch (IOException) when (File.Exists(RulesPath))
         {
             // A concurrently created user file is never replaced by bundled defaults.
             return;
         }
-        using (stream)
-        using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+        finally
         {
-            writer.Write(json);
+            if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
 

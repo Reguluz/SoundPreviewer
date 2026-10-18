@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create an optional local host beneath the selected portable application folder.
+# Create an optional host in the persistent user data folder.
 set -euo pipefail
 
 usage() {
@@ -9,12 +9,14 @@ Usage: bash Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 [options
   --python PATH           Explicit base CPython 3.11 or 3.12 executable (required).
   --app-path PATH         Existing application folder; defaults to this source
                           project or the published folder beside this script.
+  --data-directory PATH   Persistent data folder; defaults to
+                          ~/Library/Application Support/SoundPreviewer.
   --environment-name NAME Environment folder name (default: dawdreamer-cpython).
   --include-serum2        Install the additional pinned Serum 2 state converter.
   --proxy URL            Explicit pip proxy; inherited pip configuration is ignored.
   --help                 Show this usage without installing or checking anything.
 
-All environment, wheel-cache and diagnostic files stay in APP/local-data.
+Environment, wheel-cache and diagnostic files survive application updates.
 The setup probes an empty host; it never loads a commercial plugin or preset.
 USAGE
 }
@@ -23,16 +25,18 @@ fail() { echo "$*" >&2; exit 2; }
 script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 python_path=""
 application_path=""
+data_directory=""
 environment_name="dawdreamer-cpython"
 include_serum2=0
 proxy=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --python|--app-path|--environment-name|--proxy)
+        --python|--app-path|--data-directory|--environment-name|--proxy)
             [[ $# -ge 2 && -n "$2" ]] || fail "Missing value for $1"
             case "$1" in
                 --python) python_path="$2" ;;
                 --app-path) application_path="$2" ;;
+                --data-directory) data_directory="$2" ;;
                 --environment-name) environment_name="$2" ;;
                 --proxy) proxy="$2" ;;
             esac
@@ -55,7 +59,7 @@ if [[ -z "$application_path" ]]; then
     fi
 fi
 
-exec "$python_path" -I -B - "$application_path" "$environment_name" "$include_serum2" "$proxy" "$script_dir" <<'PYTHON'
+exec "$python_path" -I -B - "$application_path" "$environment_name" "$include_serum2" "$proxy" "$data_directory" <<'PYTHON'
 import importlib.metadata
 import json
 import os
@@ -110,7 +114,11 @@ def requirement_lines(path):
 def setup():
     app = Path(sys.argv[1]).expanduser().resolve(strict=True)
     name, include_serum2, proxy = sys.argv[2], sys.argv[3] == "1", sys.argv[4]
-    script = Path(sys.argv[5])
+    data_argument = sys.argv[5]
+    data = Path(data_argument).expanduser() if data_argument else Path.home() / "Library" / "Application Support" / "SoundPreviewer"
+    if not data.is_absolute():
+        fail("--data-directory must be an absolute path to the persistent user data folder.")
+    data = Path(os.path.abspath(data))
     if not app.is_dir():
         fail("--app-path must identify an existing application folder.")
     if sys.platform != "darwin":
@@ -123,7 +131,11 @@ def setup():
     # Published copies use Renderers; repository scripts use scripts/renderers.
     resources = app / "Renderers"
     if not (resources / "dawdreamer_worker.py").is_file():
-        resources = script / "renderers"
+        resources = app / "Contents" / "MacOS" / "Renderers"
+    if not (resources / "dawdreamer_worker.py").is_file():
+        resources = app / "Contents" / "Resources" / "Renderers"
+    if not (resources / "dawdreamer_worker.py").is_file():
+        resources = app / "scripts" / "renderers"
     requirements = resources / "requirements.txt"
     worker = resources / "dawdreamer_worker.py"
     if not requirements.is_file() or not worker.is_file():
@@ -140,19 +152,19 @@ def setup():
         wanted.update(SERUM2_PINS)
 
     def local(relative):
-        path = app / relative
+        path = data / relative
         current = path
-        while current != app:
+        while current != current.parent:
             if current.is_symlink():
-                fail(f"Refusing a linked application data path: {current}")
+                fail(f"Refusing a linked renderer data path: {current}")
             current = current.parent
         return path
 
-    environment = local(Path("local-data") / "renderers" / name)
+    environment = local(Path("renderers") / name)
     architecture = source_info["Architecture"]
-    wheel_cache = local(Path("local-data") / "renderers" / f"wheels-cp3{source_info['Minor']}-{architecture}")
-    diagnostics = local(Path("local-data") / "diagnostics")
-    temporary = local(Path("local-data") / "renderers" / "tmp")
+    wheel_cache = local(Path("renderers") / f"wheels-cp3{source_info['Minor']}-{architecture}")
+    diagnostics = local(Path("diagnostics"))
+    temporary = local(Path("renderers") / "tmp")
     for directory in (wheel_cache, diagnostics, temporary):
         directory.mkdir(parents=True, exist_ok=True)
     child_environment = os.environ.copy()
@@ -160,11 +172,11 @@ def setup():
                               "PIP_CACHE_DIR": str(wheel_cache / "pip-cache")})
     environment_python = environment / "bin" / "python"
     if not environment.exists():
-        print("Creating a virtual environment inside the application folder...", flush=True)
+        print("Creating a virtual environment in the persistent user data folder...", flush=True)
         subprocess.run([sys.executable, "-I", "-B", "-m", "venv", str(environment)], check=True,
                        stdin=subprocess.DEVNULL, env=child_environment)
     # A venv's Python symlink is expected; its containing directories must stay local.
-    local(Path("local-data") / "renderers" / name / "bin")
+    local(Path("renderers") / name / "bin")
     if not environment_python.is_file():
         fail("The environment directory already exists but has no Python executable. Choose a new --environment-name; nothing was deleted.")
     info = python_info(environment_python, child_environment)
@@ -183,14 +195,14 @@ def setup():
             download.append("--proxy=" + proxy)
         print("Downloading the selected fixed wheels from the official Python package index...", flush=True)
         subprocess.run(download, check=True, stdin=subprocess.DEVNULL, env=child_environment)
-        print("Installing only from the application wheel cache...", flush=True)
+        print("Installing only from the persistent wheel cache...", flush=True)
         subprocess.run(pip + ["install", "--no-index", "--find-links", str(wheel_cache), "-r", str(requirements)],
                        check=True, stdin=subprocess.DEVNULL, env=child_environment)
         info = python_info(environment_python, child_environment)
         if not all(info["Versions"].get(package) == version for package, version in wanted.items()):
             fail("The installed versions do not match the selected fixed requirements.")
 
-    probe_result = local(Path("local-data") / "diagnostics" / f"host-probe-{name}.json")
+    probe_result = local(Path("diagnostics") / f"host-probe-{name}.json")
     print("Running the bounded empty-host probe without a commercial plugin...", flush=True)
     process = subprocess.run([str(environment_python), "-I", "-B", str(worker), "--probe", "--result", str(probe_result)],
                              stdin=subprocess.DEVNULL, env=child_environment, timeout=20)
@@ -203,6 +215,7 @@ def setup():
             probe.get("HostVersion") != BASE_PINS["dawdreamer"] or probe.get("NumpyVersion") != BASE_PINS["numpy"]):
         fail(f"The empty-host probe did not pass. Report: {probe_result}")
     print(json.dumps({"Success": True, "EnvironmentPythonPath": str(environment_python),
+                      "DataDirectory": str(data),
                       "ProbeResultPath": str(probe_result), "Architecture": architecture,
                       "IncludeSerum2": include_serum2,
                       "Message": "The isolated empty host is ready for separate real-plugin validation. No commercial plugin was loaded."},

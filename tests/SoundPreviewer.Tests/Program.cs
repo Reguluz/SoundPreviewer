@@ -30,13 +30,16 @@ internal static partial class Program
         string repository = FindRepository();
         _fixtureRoot = Path.Combine(repository, "artifacts", "tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_fixtureRoot);
+        ApplicationPaths.ConfigureDataDirectory(Path.Combine(_fixtureRoot, "application-data"));
         var tests = new List<(string Name, Func<Task> Run)>
         {
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),
-            ("Portable paths, case-sensitive identities and local output defaults", TestPortablePathsAsync),
+            ("Stable user data, portable upgrades and library location recovery", TestPortablePathsAsync),
+            ("Upgrade caches, WAL-safe backups, schema refusal and persistent category rules", TestUpgradeCacheCompatibilityAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
             ("Serum 2 VST3 readiness and fresh-instance protection on both platforms", TestSerum2ReadinessAsync),
+            ("Windows VST3 bundle architecture selection preserves native rendering", TestWindowsPlatformParityAsync),
             ("Fingerprint and WAV operations honor cancellation without changing hashes", TestCancellationAsync),
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
             ("WAV 8/24/32 bit decoding and malformed chunk rejection", TestWaveFormatsAsync),
@@ -1990,6 +1993,7 @@ internal static partial class Program
         string directory = Path.GetFullPath(requestedDirectory);
         if (!directory.StartsWith(artifacts, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("UI fixture must stay in this repository's artifacts directory.");
+        ApplicationPaths.ConfigureDataDirectory(directory);
         Directory.CreateDirectory(directory);
         string source = Path.Combine(directory, "TEST-ONLY-440Hz.vital");
         string preview = Path.Combine(directory, "TEST-ONLY-440Hz-float32.wav");
