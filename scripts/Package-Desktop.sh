@@ -34,7 +34,7 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>SoundPreviewer</string>
   <key>CFBundleExecutable</key><string>SoundPreviewer</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleShortVersionString</key><string>${version%%-*}</string>
   <key>CFBundleVersion</key><string>${version%%-*}</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>

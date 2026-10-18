@@ -167,6 +167,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            // The desktop may constrain the initial window to a smaller working area.
+            Width = ClientSize.Width;
+            Height = ClientSize.Height;
             var restored = await Task.Run(() => _store.RecoverInterrupted());
             var records = await Task.Run(_store.LoadPresets);
             if (_isClosing) return;

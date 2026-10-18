@@ -5,6 +5,9 @@
 #ifndef PublishDirectory
   #error PublishDirectory is required
 #endif
+#ifndef AppNumericVersion
+  #error AppNumericVersion is required
+#endif
 #ifndef ReleaseDirectory
   #error ReleaseDirectory is required
 #endif
@@ -13,6 +16,7 @@
 AppId={{39F6B6EE-0C06-4E99-9F2F-0397C4D32612}
 AppName=SoundPreviewer
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppNumericVersion}
 DefaultDirName={localappdata}\Programs\SoundPreviewer
 DefaultGroupName=SoundPreviewer
 PrivilegesRequired=lowest

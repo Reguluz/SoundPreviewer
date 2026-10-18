@@ -8,7 +8,7 @@ Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目�
 - Apple Silicon Mac：下载 `osx-arm64.dmg`；Intel Mac：下载 `osx-x64.dmg`。打开磁盘映像，将 `SoundPreviewer.app` 拖入 Applications。升级时退出旧版本，再替换 Applications 中的 app。ZIP 中提供相同 app。
 - 安装包尚未配置 Windows 代码签名和 Apple Developer 签名、公证。系统可能要求确认来源；发布页的 SHA-256 校验文件可用于检查下载完整性。
 
-发行包包含 UI、索引和缓存功能、独立 Worker、固定版本的 Python 桥接源文件及 requirements。Windows 另包含 Sylenth1 x86 VST2 宿主及其许可声明。商业音源、用户预制、授权文件、Python 和 DawDreamer 二进制均由使用者另行准备，不混入安装包。真实音源的已验证范围见仓库 `docs/rendering.md`；CI 空宿主或 UI 自检不扩大兼容性声明。
+发行包包含 UI、索引和缓存功能、独立 Worker、固定版本的 Python 桥接源文件及 requirements。Windows 另包含 Sylenth1 x86 VST2 宿主及其许可声明；该可选原生宿主仍需要本机 Microsoft VC++ x86 运行库。商业音源、用户预制、授权文件、Python 和 DawDreamer 二进制均由使用者另行准备，不混入安装包。真实音源的已验证范围见仓库 `docs/rendering.md`；CI 空宿主或 UI 自检不扩大兼容性声明。
 
 ## 数据与升级约定
 
@@ -43,13 +43,15 @@ Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases
 
 `Desktop build and packages` 在分支推送、PR 和手动运行时执行三平台矩阵：Windows x64、macOS Apple Silicon、macOS Intel。每个目标执行 C# 回归、Python 桥接测试、独立 Worker 发布和隔离空数据的 UI 自检，然后构建安装包与 SHA-256 校验文件。Windows 另执行内置 x86 宿主的无插件自检。Mac 归档在上传前完成，保留 app 内执行权限。包作为 Actions artifacts 保留 14 天；UI 诊断保留 7 天。
 
-先将这些 workflow 合入默认分支，在 Actions 手动运行 `Release desktop` 可验证完整流程，只生成测试包，不创建公开 Release。首次运行仍需在真实 GitHub 托管 runner 上通过，且应使用干净测试机完成 Windows 安装、覆盖升级、卸载保留缓存和 macOS app 启动检查。
+Windows CI 还会真实执行当前用户安装、同一安装包覆盖升级、安装后 UI 自检及卸载，并校验稳定用户目录中专属标记文件和 SQLite 测试库的 SHA-256 始终未变。该脚本只允许在 Windows GitHub Actions runner 上运行，安装目标限定到本次 `artifacts/installer-smoke-*`；不在开发者本机执行。它验证安装器的数据保留合同；旧版真实库的迁移和缓存记录兼容另由 C# 回归覆盖。
+
+先将这些 workflow 合入默认分支，在 Actions 手动运行 `Release desktop` 可验证完整流程，只生成测试包，不创建公开 Release。首次运行仍需在真实 GitHub 托管 runner 上通过；向朋友分发前，还应在干净测试机核对真实旧版库升级和 macOS app 启动。
 
 后续发布步骤：
 
 1. 在 `Version.props` 更新版本，补充变更和兼容性说明；提交 PR，等待三平台构建通过。
 2. 合并后为目标提交创建与版本完全一致的 tag，如 `v1.4.0` 或 `v1.4.1-beta.1`，再推送该 tag。
-3. `Release desktop` 检查 tag 与版本一致，重新运行同一套测试及打包。只有全部成功才校验三平台包并创建 GitHub Release；带预发行后缀的 tag 自动标记为 prerelease。
+3. `Release desktop` 检查 tag 与版本一致，重新运行同一套测试及打包。只有全部成功才校验三平台包，先上传至草稿，再公开 GitHub Release；中途失败可在草稿上重试，已公开版本不覆盖；带预发行后缀的 tag 自动标记为 prerelease。
 4. 从 Releases 下载对应平台安装包，核对 `SHA256SUMS.txt`，先在测试数据副本上检查旧缓存、收藏、路径和升级行为，再分发给朋友。
 
 创建 tag 会触发公开发布。当前实现提供从 GitHub 手动下载安装包的升级路径，不包含应用内自动下载或替换程序。发布 job 使用仓库的 `GITHUB_TOKEN` 和 `contents: write`；无需个人访问令牌。若组织策略限制此权限，需要在仓库 Actions 设置中允许该 workflow 写入 Releases。

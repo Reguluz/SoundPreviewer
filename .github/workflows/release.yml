@@ -77,4 +77,10 @@ jobs:
           set -euo pipefail
           options=()
           if [[ "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --title "SoundPreviewer $RELEASE_TAG" --generate-notes "${options[@]}"
+          if existing_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            [[ "$existing_draft" == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "SoundPreviewer $RELEASE_TAG" --generate-notes "${options[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false "${options[@]}"

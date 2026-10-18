@@ -11,6 +11,9 @@ namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
+    private Size? _smokeRequestedViewport;
+    private string _smokeLayoutPhase = "startup";
+
     private async Task RunSmokeTestAsync()
     {
         // Exercises the same controller, bindings and native playback on both desktop targets.
@@ -131,33 +134,41 @@ public partial class MainWindow
         }
         PluginConfiguration? editedBackendModel = null;
         var originalBackend = RenderBackend.Unconfigured;
+        var actualViewports = new List<object>();
         foreach (var (width, height, name) in new[] { (1380d, 900d, "desktop"), (1040d, 700d, "compact") })
         {
+            _smokeRequestedViewport = new Size(width, height);
+            _smokeLayoutPhase = name + "-format";
             Width = width; Height = height;
             Pages.SelectedIndex = 0;
             SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == SynthKind.Serum2);
             await SettleLayoutAsync();
             CheckSmokeLayout();
+            actualViewports.Add(new { Name = name, RequestedWidth = width, RequestedHeight = height, ActualWidth = ClientSize.Width, ActualHeight = ClientSize.Height });
+            WriteSmokeLayoutState($"ui-layout-{name}.json");
             CaptureSmokeImage($"ui-format-{name}.png");
             var feedback = _statusMessage;
+            _smokeLayoutPhase = name + "-long-feedback";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();
             await SettleLayoutAsync();
             CheckSmokeLayout();
             if (TaskProgressDetails.Bounds.Height > 48.1 || TaskStatusBand.Bounds.Height > 125)
-                throw new InvalidOperationException("长渲染错误挤占音色库内容区域。");
+                throw SmokeLayoutFailure("长渲染错误挤占音色库内容区域。");
             CaptureSmokeImage($"ui-long-feedback-{name}.png");
             _statusMessage = feedback;
             NotifyTaskProgress();
             ResetFilterControls();
             for (var page = 0; page < 3; page++)
             {
+                _smokeLayoutPhase = $"{name}-page-{page}";
                 Pages.SelectedIndex = page;
                 await SettleLayoutAsync();
                 CaptureSmokeImage($"ui-{name}-{page}.png");
             }
             foreach (var (tab, suffix) in new[] { (DirectorySettingsTab, "directories"), (DiscoveredSettingsTab, "discovered"), (RenderSettingsTab, "renderers"), (StorageSettingsTab, "storage"), (ClassificationSettingsTab, "categories") })
             {
+                _smokeLayoutPhase = $"{name}-settings-{suffix}";
                 Pages.SelectedItem = SettingsTab;
                 SettingsPages.SelectedItem = tab;
                 await SettleLayoutAsync();
@@ -210,7 +221,7 @@ public partial class MainWindow
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
         {
             Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
-            Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = 2,
+            Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = actualViewports.Count, ActualViewports = actualViewports,
             MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
@@ -249,9 +260,31 @@ public partial class MainWindow
 
     private async Task SettleLayoutAsync()
     {
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-        UpdateLayout();
-        await Task.Delay(70);
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        var previousClient = ClientSize;
+        int stableSamples = 0;
+        while (timeout.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            await Task.Delay(50);
+            var client = ClientSize;
+            stableSamples = client == previousClient && client.Width > 0 && client.Height > 0 ? stableSamples + 1 : 0;
+            previousClient = client;
+            if (stableSamples < 3) continue;
+
+            // Native desktops can reject a requested size without another resize notification.
+            // Keep subsequent invalidated measurements at the actual client size, including long text.
+            Width = client.Width;
+            Height = client.Height;
+            UpdateLayout();
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            var content = (Control)Content!;
+            if (ClientSize == client && content.IsMeasureValid && content.IsArrangeValid &&
+                Math.Abs(content.Bounds.Width - client.Width) <= .5 && Math.Abs(content.Bounds.Height - client.Height) <= .5)
+                return;
+            stableSamples = 0;
+        }
+        throw SmokeLayoutFailure("窗口客户区与布局在 3 秒内未稳定。");
     }
 
     private Rect SmokeBounds(Control control)
@@ -267,24 +300,61 @@ public partial class MainWindow
         var area = new Rect(content.Bounds.Size);
         if (BuildVersionLabel.Text != AppVersion || !BuildVersionLabel.IsEffectivelyVisible ||
             SmokeBounds(BuildVersionLabel).Intersects(SmokeBounds(StatusFooterText)))
-            throw new InvalidOperationException("版本标识缺失或与状态文字重叠。");
+            throw SmokeLayoutFailure("版本标识缺失或与状态文字重叠。");
         if (!area.Contains(SmokeBounds(ForceGeneration)) || SmokeBounds(ForceGeneration).Intersects(SmokeBounds(AppBrandName)))
-            throw new InvalidOperationException("全量覆盖选项不可见或与标题重叠。");
+            throw SmokeLayoutFailure("全量覆盖选项不可见或与标题重叠。");
         CheckScanButtonVisible(ScanPluginsButton);
         CheckScanButtonVisible(ScanPresetsButton);
         if (SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(AppBrandName)) ||
             SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(ScanPresetsButton)) ||
             SmokeBounds(ScanPresetsButton).Intersects(SmokeBounds(ForceGeneration)))
-            throw new InvalidOperationException("扫描音源、扫描音色与主工具栏重叠。");
+            throw SmokeLayoutFailure("扫描音源、扫描音色与主工具栏重叠。");
         var hint = SmokeBounds(PresetFormatHint);
         if (!PresetFormatHint.IsEffectivelyVisible || hint.Width <= 0 || hint.Height <= 0 || !area.Contains(hint) || hint.Bottom > SmokeBounds(PresetGrid).Top + 1)
-            throw new InvalidOperationException("文件后缀说明不可见或超出表格区域。");
+            throw SmokeLayoutFailure("文件后缀说明不可见或超出表格区域。");
         foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb", ".spf", ".spf2", ".sbf", ".swzip" })
             if (PresetFormatHint.Text?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
         if (TaskStatusBand.IsEffectivelyVisible && (SmokeBounds(TaskProgressTitle).Intersects(SmokeBounds(TaskProgressMetadata)) ||
             SmokeBounds(TaskProgressDetails).Bottom > SmokeBounds(GenerationProgressBar).Top || SmokeBounds(TaskStatusBand).Bottom > SmokeBounds(Pages).Top))
-            throw new InvalidOperationException("任务进度区域内容重叠。");
+            throw SmokeLayoutFailure("任务进度区域内容重叠。");
     }
+
+    private InvalidOperationException SmokeLayoutFailure(string message)
+    {
+        try
+        {
+            WriteSmokeLayoutState("ui-layout-error.json");
+            CaptureSmokeImage("ui-layout-error.png");
+        }
+        catch (Exception error) { message += " 布局诊断保存失败：" + error.Message; }
+        return new InvalidOperationException(message + $" 阶段：{_smokeLayoutPhase}；客户区：{ClientSize}；内容：{((Control)Content!).Bounds}。");
+    }
+
+    private void WriteSmokeLayoutState(string fileName)
+    {
+        var content = (Control)Content!;
+        var screen = Screens.ScreenFromWindow(this);
+        Control[] controls = [AppBrandName, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
+            StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
+            TaskProgressDetails, GenerationProgressBar, Pages];
+        var state = new
+        {
+            Phase = _smokeLayoutPhase,
+            RequestedWidth = _smokeRequestedViewport?.Width, RequestedHeight = _smokeRequestedViewport?.Height,
+            WindowWidth = Width, WindowHeight = Height, ClientWidth = ClientSize.Width, ClientHeight = ClientSize.Height,
+            ContentBounds = SmokeRect(content.Bounds), RenderScaling,
+            ScreenWorkingArea = screen?.WorkingArea.ToString(),
+            Controls = controls.Select(control => new
+            {
+                control.Name, control.IsEffectivelyVisible, control.IsMeasureValid, control.IsArrangeValid,
+                Bounds = control.TranslatePoint(default, content) is { } point ? SmokeRect(new Rect(point, control.Bounds.Size)) : null,
+                DesiredWidth = control.DesiredSize.Width, DesiredHeight = control.DesiredSize.Height
+            }).ToList()
+        };
+        File.WriteAllText(Path.Combine(App.DataDirectory, fileName), JsonSerializer.Serialize(state, LibraryJson.Options));
+    }
+
+    private static object SmokeRect(Rect rect) => new { rect.X, rect.Y, rect.Width, rect.Height };
 
     private static void CheckPluginScanDefaults()
     {
@@ -327,7 +397,7 @@ public partial class MainWindow
         var area = new Rect(((Control)Content!).Bounds.Size);
         var bounds = SmokeBounds(button);
         if (!button.IsEffectivelyVisible || bounds.Width <= 0 || bounds.Height <= 0 || !area.Contains(bounds))
-            throw new InvalidOperationException($"扫描按钮 {button.Name} 未完整显示。");
+            throw SmokeLayoutFailure($"扫描按钮 {button.Name} 未完整显示。");
     }
 
     private void CaptureSmokeImage(string name)

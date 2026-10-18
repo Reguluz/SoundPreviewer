@@ -52,7 +52,11 @@ class RendererSetupLayoutTests(unittest.TestCase):
         versions = {**self.namespace["BASE_PINS"], **self.namespace["SERUM2_PINS"]}
 
         def info(executable, _):
-            venv = Path(executable) != self.base
+            # A base Python alias and a venv's Python may both resolve to the same
+            # binary on macOS. Their environment identities follow the invoked path.
+            venv = Path(executable) == environment / "bin" / "python"
+            if not venv:
+                self.assertEqual(self.base, Path(executable).resolve())
             return {"Executable": str(executable), "BaseExecutable": str(self.base),
                     "Prefix": str(environment if venv else self.base.parent), "Platform": "darwin",
                     "Architecture": "arm64", "Implementation": "CPython", "Bits": 64,
@@ -108,6 +112,21 @@ class RendererSetupLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requirements or worker script is missing"):
             self.run_setup(app, data)
         self.assertFalse(data.exists())
+
+    def test_python_alias_and_venv_can_resolve_to_the_same_base_binary(self):
+        app = self.directory / "published"
+        self.resources(app, "Renderers")
+        data = self.directory / "data"
+        alias = self.directory / "python3"
+        venv_python = data / "renderers" / "TEST-ONLY-host" / "bin" / "python"
+        real_resolve = Path.resolve
+
+        def resolve(path, *args, **kwargs):
+            return self.base if path in (alias, venv_python) else real_resolve(path, *args, **kwargs)
+
+        with mock.patch.object(sys, "executable", str(alias)), \
+                mock.patch.object(Path, "resolve", autospec=True, side_effect=resolve):
+            self.run_setup(app, data)
 
 
 if __name__ == "__main__":

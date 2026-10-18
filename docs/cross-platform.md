@@ -95,7 +95,7 @@ v1.4.0 Windows 同步与升级兼容验证（2026-10-18）：
 | 检查 | 结果与边界 |
 | --- | --- |
 | Windows Release / C# | 0 警告、0 错误；37/37，含 WinMM 静音播放、VST3 多架构、停止恢复和旧缓存回归 |
-| Python | 共 61 项，60 项通过；仅 Windows 无符号链接权限的检查跳过，路径穿越与 Serum 2 状态转换检查已执行 |
+| Python | 共 62 项，61 项通过；仅 Windows 无符号链接权限的检查跳过，路径穿越与 Serum 2 状态转换检查已执行 |
 | 共用 UI | 1380×900 / 1040×700、三个主页、五个设置页、试听、关闭回调、10000 项未配置反馈通过，证据 `artifacts/ui-windows-v140-fixture/ui-smoke.json` |
 | 旧 Windows 库副本 | 8859 条路径、1019 个重复副本、122 个发现结果加载并通过上述 UI 自检；逐条比对 ID、来源、收藏、反馈、缓存键、预览路径、生成时间、音区与模板均未改变。只操作副本，未扫描或渲染商业插件。证据 `artifacts/ui-windows-v140-legacy/ui-smoke.json` |
 | 只读实际插件扫描 | 识别 Serum 1.334 x64、Sylenth1 2.2.1.2 x86、Vital 1.6.4 x64；未加载插件，未发现 Windows Serum 2。证据 `artifacts/windows-parity/plugin-scan.json` |
