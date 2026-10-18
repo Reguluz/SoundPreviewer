@@ -12,6 +12,8 @@ TestResults/
 *.wav
 *.log
 local-data/
+/Preview/
+library-location.json
 .build/
 __pycache__/
 *.pyc
