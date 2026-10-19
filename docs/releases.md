@@ -59,7 +59,7 @@ Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases
 
 Windows CI 还会真实执行当前用户安装、同一安装包覆盖升级、安装后 UI 自检及卸载，并校验应用默认 `Preview` 中专属标记文件和 SQLite 测试库的 SHA-256 始终未变。该脚本只允许在 Windows GitHub Actions runner 上运行，安装目标限定到本次 `artifacts/installer-smoke-*`；不在开发者本机执行。它验证安装器的数据保留合同；旧版真实库的迁移和缓存记录兼容另由 C# 回归覆盖。
 
-PR 会自动验证 Release 的版本检查与三平台打包入口，不创建公开 Release。GitHub 的手动工作流入口须先存在于默认分支；合入后在 Actions 手动运行 `Release desktop` 也只生成测试包。0.7.0（程序提交 `7a7a268`）已在 GitHub 托管 runner 上完成[三平台构建与打包](https://github.com/Reguluz/SoundPreviewer/actions/runs/39293317480)，包含 Windows 安装、同包覆盖升级及卸载保留数据、两 Mac 封装 app 自检；三平台均通过新增原音色文件拖放载荷与来源定位命令检查，这些自动检查不等同于实际 DAW 接收验证。向朋友分发前，还应在干净测试机核对真实旧版库升级和 macOS app 启动。
+PR 会自动验证 Release 的版本检查与三平台打包入口，不创建公开 Release。GitHub 的手动工作流入口须先存在于默认分支；合入后在 Actions 手动运行 `Release desktop` 也只生成测试包。0.7.1（程序提交 `5c46df4`）已在 GitHub 托管 runner 上完成[三平台构建与打包](https://github.com/Reguluz/SoundPreviewer/actions/runs/39308672278)：各平台旧库迁移专项 1/1、完整 C# 52/52、Python 63 项通过，发布程序完成旧库迁入、无参数重开及原文件哈希保留检查；Windows 安装、同包覆盖升级及卸载保留数据，两 Mac 封装 app 自检也均通过。真实音源与 DAW 接收的验收范围未因这些自动检查扩大，向朋友分发前仍应在干净测试机核对真实旧库升级与音源运行。
 
 后续发布步骤：
 
