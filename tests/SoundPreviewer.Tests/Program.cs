@@ -27,6 +27,8 @@ internal static partial class Program
         if (args.Length == 2 && args[0] == "--test-process") return await TestProcessAsync(args[1]);
         if (args.Length == 2 && args[0] == "--create-ui-fixture") return await CreateUiFixtureAsync(args[1]);
         if (args.Length == 2 && args[0] == "--benchmark-parallel") return await TestParallelBenchmarkAsync(args[1]);
+        if (args.Length == 2 && args[0] == "--resource-probe-child") return await ResourceProbeChildAsync(args[1], leaf: false);
+        if (args.Length == 2 && args[0] == "--resource-probe-leaf") return await ResourceProbeChildAsync(args[1], leaf: true);
 
         string repository = FindRepository();
         _fixtureRoot = Path.Combine(repository, "artifacts", "tests", Guid.NewGuid().ToString("N"));
@@ -80,7 +82,10 @@ internal static partial class Program
             ("Parallel shared-key rendering preserves metadata and forced shared caches", TestParallelSharedCacheAsync),
             ("Parallel cancellation drains all children and individual crashes stay isolated", TestParallelCancellationAndFailureAsync),
             ("Parallel storage reservations and startup baselines are shared safely", TestParallelBudgetAndBaselineAsync),
-            ("Parallel database failures roll back shared mappings and same-key WAV bytes", TestParallelCommitRollbackAsync)
+            ("Parallel database failures roll back shared mappings and same-key WAV bytes", TestParallelCommitRollbackAsync),
+            ("CPU tiers and conservative tree-RSS admission use deterministic resource policy", TestRenderResourcePolicyAsync),
+            ("Platform resource probes include the application, child and grandchild", TestSystemRenderResourceProbeAsync),
+            ("Injected resource pressure stops every worker and unreadable probes fail closed", TestRenderResourceStopAsync)
         };
         if (args.Contains("--test-playback", StringComparer.Ordinal))
             tests.Add(("Muted native playback, pause/seek/resume/reload and completion", TestNativePlaybackAsync));

@@ -22,6 +22,15 @@ public sealed record QueueProgress(int Completed, int Total, string PresetName, 
     public int ActiveCount { get; init; }
     public int MaxConcurrency { get; init; } = 1;
     public double ItemElapsedSeconds { get; init; }
+    public long WorkingSetBytes { get; init; }
+    public long MemoryBudgetBytes { get; init; }
+    public string ResourceMessage { get; init; } = "";
+    public int AllowedConcurrency { get; init; } = 1;
+}
+
+public sealed class RenderResourceLimitException(string message, QueueResult summary) : InvalidOperationException(message)
+{
+    public QueueResult Summary { get; } = summary;
 }
 
 public sealed class QueueResult
@@ -37,6 +46,11 @@ public sealed class QueueResult
     public int Excluded { get; internal set; }
     public double ElapsedSeconds { get; internal set; }
     public int PeakActiveCount { get; internal set; }
+    public int RequestedConcurrency { get; internal set; }
+    public int ResolvedConcurrency { get; internal set; } = 1;
+    public long MemoryBudgetBytes { get; internal set; }
+    public long PeakWorkingSetBytes { get; internal set; }
+    public bool ResourceStopped { get; internal set; }
     public int Processed => Generated + Reused + Failed + Unconfigured + RetryLimited;
     public int Remaining => Math.Max(0, Eligible - Processed);
     public IReadOnlyDictionary<SynthKind, int> UnconfiguredSynths => unconfiguredSynths;
@@ -58,11 +72,17 @@ public sealed class QueueResult
     }
 }
 
-public sealed partial class RenderQueue(LibraryStore store)
+public sealed partial class RenderQueue(LibraryStore store, IRenderResourceProbe? resourceProbe = null)
 {
     public Task<QueueResult> RunAsync(AppSettings settings, IReadOnlyList<PresetRecord> presets, string workerPath,
         IProgress<QueueProgress> progress, CancellationToken cancellationToken, bool forceRegenerate = false) =>
-        new Execution(store, settings, presets, workerPath, progress, cancellationToken, forceRegenerate).RunAsync();
+        new Execution(store, settings, presets, workerPath, progress, cancellationToken, forceRegenerate,
+            resourceProbe ?? new SystemRenderResourceProbe()).RunAsync();
+
+    public Task<InitBaselineState> GenerateInitializationBaselineAsync(AppSettings settings, PluginConfiguration plugin,
+        string workerPath, IProgress<QueueProgress> progress, CancellationToken cancellationToken) =>
+        new Execution(store, settings, [], workerPath, progress, cancellationToken, false,
+            resourceProbe ?? new SystemRenderResourceProbe()).RunBaselineAsync(plugin);
 
     private static bool HasPreviewMetadata(PresetRecord preset) => !string.IsNullOrWhiteSpace(preset.PreviewPath) &&
         !string.IsNullOrWhiteSpace(preset.CacheKey) && !string.IsNullOrWhiteSpace(preset.TemplateJson);

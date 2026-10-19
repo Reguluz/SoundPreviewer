@@ -25,7 +25,7 @@
    
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0"/>
     <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <TextBlock Text="{Binding TaskProgressText}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0"/>
@@ -36,7 +36,8 @@
      <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与渲染器设置" IsVisible="{Binding TaskSettingsVisibility}" Width="30" Height="30" Margin="0"/>
     </StackPanel>
     <TextBlock x:Name="TaskProgressDetails" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="48" LineHeight="16"  FontSize="12" Margin="0,4,0,8"/>
-    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="2" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
+    <TextBlock x:Name="TaskResourceDetails" Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" TextWrapping="Wrap" MaxHeight="32" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="3" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
    </Grid>
   </Border>
   <TabControl x:Name="Pages" Grid.Row="2" Margin="24,18,24,0" BorderThickness="0" Background="White">
@@ -104,12 +105,14 @@
          <DataGridTextColumn Header="文件 MD5" Binding="{Binding Record.ContentMd5}" Width="290" IsVisible="False"/>
         </DataGrid.Columns>
        </DataGrid>
-       <StackPanel IsVisible="{Binding EmptyVisibility}" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28">
+       <ScrollViewer x:Name="EmptyPresetState" IsVisible="{Binding EmptyVisibility}" Margin="0,36,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+       <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="16">
         <TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="38" Foreground="#A6B9AE" HorizontalAlignment="Center" Margin="0,0,0,16"/>
         <TextBlock Text="{Binding EmptyMessage}" FontSize="16" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
         <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}" IsVisible="{Binding EmptyLibraryVisibility}"/>
         <Button Content="清除筛选" Click="ClearFilters_Click" Margin="0,20,0,0" IsVisible="{Binding EmptyFilterVisibility}"/>
        </StackPanel>
+       </ScrollViewer>
       </Grid>
       <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
@@ -242,14 +245,18 @@
       </TabItem>
       <TabItem x:Name="RenderSettingsTab" Header="预览生成">
        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="560">
+        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="620">
          <Grid.ColumnDefinitions><ColumnDefinition Width="5*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="4*" MinWidth="330"/></Grid.ColumnDefinitions>
          <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
           <TextBlock Text="生成预览时，需要让本机音源演奏所选音色并保存为音频。先扫描并关联音源，再为它选择生成方式；已有的预览可直接试听。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
           <StackPanel Grid.Row="1" Margin="0,0,0,10">
-           <CheckBox x:Name="ParallelRendering" Content="并行生成（试验，最多 2 个任务）" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="启用两个并行生成任务"/>
-           <TextBlock Text="默认串行。开启后可同时处理不同音源；同一音源须在下表勾选“允许同时生成”。若插件不稳定，请恢复串行；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+           <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+            <TextBlock Text="并行数量" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ParallelRendering" ItemsSource="{Binding ParallelRenderChoices}" DisplayMemberBinding="{Binding Label}" IsEnabled="{Binding IsIdle}" MinWidth="210" AutomationProperties.Name="自动或手动选择并行生成数量"/>
+           </StackPanel>
+           <TextBlock Text="自动按机型选择，或手动设为 1 / 2 / 4 / 8 / 16 条。生成期间总内存目标 2 GiB（包含程序和全部生成进程）；先单条校准，内存紧张时限制并行，超限则停止并保留已完成结果。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+           <TextBlock Text="同一音源须在下表允许同时生成，旧设置会保留。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"/>
           </StackPanel>
           <DataGrid x:Name="PluginGrid" Grid.Row="2" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>

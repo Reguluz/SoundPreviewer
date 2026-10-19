@@ -27,7 +27,7 @@ public static class InitBaselineService
         (await Task.Run(() => Read(settings, plugin, cancellationToken), cancellationToken).ConfigureAwait(false)).State;
 
     public static async Task<InitBaselineState> GenerateAsync(AppSettings settings, PluginConfiguration plugin,
-        string workerPath, CancellationToken cancellationToken = default)
+        string workerPath, CancellationToken cancellationToken = default, Action<int>? processStarted = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Supports(plugin)) return Unsupported(plugin);
@@ -56,7 +56,7 @@ public static class InitBaselineService
                     IsInitializationBaseline = true,
                     Preset = new PresetRecord { Id = "startup-baseline-" + plugin.Synth, Name = "默认启动基准", Synth = plugin.Synth },
                     Plugin = capturePlugin, Template = settings.Template, OutputPath = wav, CacheKey = identity.Key
-                }, workerPath, cancellationToken).ConfigureAwait(false);
+                }, workerPath, cancellationToken, null, processStarted).ConfigureAwait(false);
                 if (!result.Success) throw new InvalidDataException($"默认启动基准第 {index + 1}/3 次生成失败：" + result.Message);
                 cancellationToken.ThrowIfCancellationRequested();
                 var audio = WaveFile.Read(wav, cancellationToken);
@@ -101,11 +101,11 @@ public static class InitBaselineService
     }
 
     internal static async Task<PreparedInitBaseline> PrepareAsync(AppSettings settings, PluginConfiguration plugin,
-        string workerPath, CancellationToken cancellationToken)
+        string workerPath, CancellationToken cancellationToken, Action<int>? processStarted = null)
     {
         var prepared = await Task.Run(() => Read(settings, plugin, cancellationToken), cancellationToken).ConfigureAwait(false);
         if (prepared.State.CanCompare || !Supports(plugin)) return prepared;
-        var generated = await GenerateAsync(settings, plugin, workerPath, cancellationToken).ConfigureAwait(false);
+        var generated = await GenerateAsync(settings, plugin, workerPath, cancellationToken, processStarted).ConfigureAwait(false);
         return generated.CanCompare
             ? await Task.Run(() => Read(settings, plugin, cancellationToken), cancellationToken).ConfigureAwait(false)
             : new(generated, null);

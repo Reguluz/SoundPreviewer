@@ -24,9 +24,15 @@ internal static partial class Program
         foreach (var scenario in new[] { (Global: 1, OptIn: true, Mixed: false, Expected: 1),
                      (Global: 2, OptIn: false, Mixed: false, Expected: 1),
                      (Global: 2, OptIn: true, Mixed: false, Expected: 2),
-                     (Global: 2, OptIn: false, Mixed: true, Expected: 2) })
+                     (Global: 2, OptIn: false, Mixed: true, Expected: 2),
+                     (Global: 4, OptIn: true, Mixed: false, Expected: 4),
+                     (Global: 8, OptIn: true, Mixed: false, Expected: 6),
+                     (Global: 16, OptIn: true, Mixed: false, Expected: 6),
+                     (Global: 0, OptIn: true, Mixed: false, Expected: 6) })
         {
-            var fixture = CreateParallelFixture($"parallel-schedule-{scenario.Global}-{scenario.OptIn}-{scenario.Mixed}", 4);
+            int count = Math.Max(4, scenario.Expected + 2);
+            var fixture = CreateParallelFixture($"parallel-schedule-{scenario.Global}-{scenario.OptIn}-{scenario.Mixed}", count);
+            int target = RenderResourcePolicy.ResolveMaxConcurrency(scenario.Global, new(16, 8));
             fixture.Settings.MaxParallelRenders = scenario.Global;
             fixture.Settings.Plugins[0].AllowParallelRendering = scenario.OptIn;
             if (scenario.Mixed)
@@ -35,14 +41,17 @@ internal static partial class Program
                 fixture.Presets[1].Synth = fixture.Presets[3].Synth = SynthKind.Serum1;
                 fixture.Store.UpsertMany(fixture.Presets);
             }
+            if (scenario.Expected > 1) ReleaseParallelCalibration(fixture);
             var progress = new ParallelProgress();
             using var cancellation = new CancellationTokenSource();
-            var run = new RenderQueue(fixture.Store).RunAsync(fixture.Settings, fixture.Presets, TestExecutable, progress, cancellation.Token);
+            var run = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture)).RunAsync(fixture.Settings, fixture.Presets, TestExecutable, progress, cancellation.Token);
             try
             {
-                await WaitForParallelStartsAsync(fixture, scenario.Expected, run);
+                await WaitForParallelActiveAsync(fixture, scenario.Expected, run);
                 await Task.Delay(200);
-                Equal(scenario.Expected, ParallelStarts(fixture).Count, "The held real child processes obey both global and per-synth limits.");
+                Equal(scenario.Expected, ParallelActive(fixture).Count, "After one serial calibration, held real children obey both global and per-synth limits.");
+                int calibrationCount = scenario.Expected > 1 ? fixture.Presets.Select(preset => preset.Synth).Distinct().Count() : 0;
+                Equal(scenario.Expected + calibrationCount, ParallelStarts(fixture).Count, "Each synth calibrates alone before the CPU and reserved-memory limits open more slots.");
                 var originalTemplate = JsonSerializer.Serialize(fixture.Settings.Template, LibraryJson.Options);
                 if (scenario.Expected == 2 && !scenario.Mixed)
                 {
@@ -54,11 +63,16 @@ internal static partial class Program
                 }
                 ReleaseParallel(fixture);
                 var result = await run;
-                Equal(4, result.Generated, "Every independent key completes exactly once.");
+                Equal(count, result.Generated, "Every independent key completes exactly once.");
                 Equal(scenario.Expected, ParallelPeak(fixture), "Timestamped child lifetimes prove actual concurrency independently of progress counters.");
+                var completed = ParallelFinishes(fixture).OrderBy(trace => trace.StartedTicks).ToArray();
+                for (int index = 0; index < calibrationCount; index++)
+                    True(completed[index].FinishedTicks <= completed[index + 1].StartedTicks, "Every unmeasured synth finishes an isolated calibration before any subsequent worker starts.");
                 Equal(scenario.Expected, result.PeakActiveCount, "The result exposes the observed active-worker peak.");
                 True(result.ElapsedSeconds > 0 && double.IsFinite(result.ElapsedSeconds), "A completed batch reports finite elapsed time.");
-                True(progress.Values.All(value => value.ActiveCount >= 0 && value.ActiveCount <= scenario.Global && value.MaxConcurrency == scenario.Global), "Progress never exceeds the configured batch limit.");
+                Equal(scenario.Global, result.RequestedConcurrency, "The result retains the explicit or automatic selection.");
+                Equal(target, result.ResolvedConcurrency, "The CPU target remains distinguishable from dynamic memory admission.");
+                True(progress.Values.All(value => value.ActiveCount >= 0 && value.ActiveCount <= target && value.MaxConcurrency == target), "Progress never exceeds the CPU target even when memory reduces actual admission.");
                 Equal(0, progress.Values[^1].ActiveCount, "Terminal progress has no active worker.");
                 foreach (var preset in fixture.Presets)
                 {
@@ -70,10 +84,10 @@ internal static partial class Program
             finally { await StopParallelFixtureAsync(fixture, run, cancellation); }
         }
         var invalid = CreateParallelFixture("parallel-invalid-setting", 1);
-        foreach (int limit in new[] { 0, 3 })
+        foreach (int limit in new[] { -1, 3 })
         {
             invalid.Settings.MaxParallelRenders = limit;
-            await ThrowsAsync<ArgumentException>(() => new RenderQueue(invalid.Store).RunAsync(invalid.Settings, invalid.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None));
+            await ThrowsAsync<ArgumentException>(() => new RenderQueue(invalid.Store, new TestRenderResourceProbe(invalid)).RunAsync(invalid.Settings, invalid.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None));
         }
     }
 
@@ -85,7 +99,7 @@ internal static partial class Program
         fixture.Presets[1].Tags = ["second personal tag"];
         fixture.Store.UpsertMany(fixture.Presets);
         ReleaseParallel(fixture);
-        var queue = new RenderQueue(fixture.Store);
+        var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
         var initial = await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         Equal(1, initial.Generated, "Two source records with one cache key launch one rendering operation.");
         Equal(1, initial.Reused, "The second source record consumes the single-flight result.");
@@ -135,7 +149,7 @@ internal static partial class Program
     {
         var fixture = CreateParallelFixture("parallel-default-existing-alias", 1);
         ReleaseParallel(fixture);
-        var queue = new RenderQueue(fixture.Store);
+        var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
         var existing = fixture.Presets.Single();
         await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         existing.Favorite = true;
@@ -180,7 +194,7 @@ internal static partial class Program
     {
         var fixture = CreateParallelFixture("parallel-outside-same-key-metadata", 1);
         ReleaseParallel(fixture);
-        var queue = new RenderQueue(fixture.Store);
+        var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
         await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         var main = fixture.Presets.Single();
         var outside = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(main, LibraryJson.Options), LibraryJson.Options)!;
@@ -221,31 +235,39 @@ internal static partial class Program
 
     private static async Task TestParallelCancellationAndFailureAsync()
     {
-        var fixture = CreateParallelFixture("parallel-cancel-all", 4);
+        var fixture = CreateParallelFixture("parallel-cancel-all", 5);
         ReleaseParallel(fixture);
-        var queue = new RenderQueue(fixture.Store);
-        await queue.RunAsync(fixture.Settings, fixture.Presets.Take(2).ToArray(), TestExecutable, new ParallelProgress(), CancellationToken.None);
-        var old = fixture.Presets.Take(2).ToDictionary(preset => preset.Id, preset => (preset.PreviewPath, Hash: Fingerprints.HashFile(preset.PreviewPath), preset.Attempts));
+        var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
+        await queue.RunAsync(fixture.Settings, fixture.Presets.Take(3).ToArray(), TestExecutable, new ParallelProgress(), CancellationToken.None);
+        var old = fixture.Presets.Take(3).ToDictionary(preset => preset.Id, preset => (preset.PreviewPath, Hash: Fingerprints.HashFile(preset.PreviewPath), preset.Attempts));
         int previousStarts = ParallelStarts(fixture).Count;
         File.Delete(fixture.GatePath);
+        ReleaseParallelCalibration(fixture);
         fixture.Settings.Template.Velocity++;
         var progress = new ParallelProgress();
         using var cancellation = new CancellationTokenSource();
         var run = queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, progress, cancellation.Token, forceRegenerate: true);
         try
         {
-            await WaitForParallelStartsAsync(fixture, previousStarts + 2, run);
-            var active = ParallelStarts(fixture).Skip(previousStarts).Select(trace => trace.Pid).ToArray();
+            await WaitForParallelActiveAsync(fixture, 2, run);
+            var active = ParallelActive(fixture).Select(trace => trace.Pid).ToArray();
+            var committedFirst = fixture.Store.LoadPresets().Single(preset => preset.Id == fixture.Presets[0].Id);
+            string committedHash = Fingerprints.HashFile(committedFirst.PreviewPath);
             cancellation.Cancel();
             await ThrowsAsync<OperationCanceledException>(() => run);
             True(active.All(pid => !IsRunning(pid)), "Cancellation drains every active child before returning.");
-            Equal(previousStarts + 2, ParallelStarts(fixture).Count, "Cancellation never starts queued children.");
+            Equal(previousStarts + 3, ParallelStarts(fixture).Count, "Only the completed calibration and two active children start before cancellation.");
             var stored = fixture.Store.LoadPresets();
             foreach (var preset in fixture.Presets)
             {
                 var durable = stored.Single(item => item.Id == preset.Id);
                 True(durable.Status != PresetStatus.Rendering, "No durable record remains rendering after cancellation.");
-                if (old.TryGetValue(preset.Id, out var previous))
+                if (preset.Id == committedFirst.Id)
+                {
+                    AssertParallelAudioMapping(committedFirst, durable, "Canceling siblings keeps the already committed calibration result.");
+                    Equal(committedHash, Fingerprints.HashFile(durable.PreviewPath), "Stopping later work cannot roll back already committed audio.");
+                }
+                else if (old.TryGetValue(preset.Id, out var previous))
                 {
                     Equal(previous.PreviewPath, durable.PreviewPath, "An interrupted forced item retains its previous valid mapping.");
                     Equal(previous.Hash, Fingerprints.HashFile(durable.PreviewPath), "An interrupted forced item retains byte-identical committed audio.");
@@ -262,14 +284,14 @@ internal static partial class Program
         }
         finally { await StopParallelFixtureAsync(fixture, run, cancellation); }
         var resumed = await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
-        Equal(2, resumed.Reused, "Resume reuses both preserved previews.");
+        Equal(3, resumed.Reused, "Resume reuses the completed calibration and both preserved interrupted previews.");
         Equal(2, resumed.Generated, "Resume renders only previously queued records.");
 
         var failed = CreateParallelFixture("parallel-crash-isolation", 3);
         failed.Presets[0].Name = "parallel-crash";
         failed.Store.UpsertMany(failed.Presets);
         ReleaseParallel(failed);
-        var result = await new RenderQueue(failed.Store).RunAsync(failed.Settings, failed.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
+        var result = await new RenderQueue(failed.Store, new TestRenderResourceProbe(failed)).RunAsync(failed.Settings, failed.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         Equal(1, result.Failed, "A child exiting without a result fails only its own item.");
         Equal(2, result.Generated, "Another active child and later queued work still complete after one crash.");
         True(failed.Presets.Skip(1).All(preset => File.Exists(preset.PreviewPath)), "Successful siblings retain valid committed outputs.");
@@ -282,7 +304,7 @@ internal static partial class Program
         double estimated = (budget.Settings.Template.HoldSeconds + budget.Settings.Template.TailSeconds) * 3 * budget.Settings.Template.SampleRate * 8 + 4096;
         budget.Settings.StorageBudgetGb = (estimated + 1024) / (1024 * 1024 * 1024.0);
         ReleaseParallel(budget);
-        try { await new RenderQueue(budget.Store).RunAsync(budget.Settings, budget.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None); }
+        try { await new RenderQueue(budget.Store, new TestRenderResourceProbe(budget)).RunAsync(budget.Settings, budget.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None); }
         catch (IOException error) { True(error.Message.Contains("预算", StringComparison.Ordinal), "Exhausting the shared output budget leaves an actionable reason."); }
         True(budget.Presets.Any(preset => File.Exists(preset.PreviewPath)), "A budget fitting one preview still permits useful work before reporting exhaustion.");
         True(ParallelPeak(budget) <= 1, "Two independent jobs cannot both reserve the same remaining output budget.");
@@ -291,7 +313,7 @@ internal static partial class Program
         var one = budget.Presets.First(preset => File.Exists(preset.PreviewPath));
         int before = ParallelStarts(budget).Count;
         var samePath = one.PreviewPath;
-        var replacement = await new RenderQueue(budget.Store).RunAsync(budget.Settings, [one], TestExecutable, new ParallelProgress(), CancellationToken.None, forceRegenerate: true);
+        var replacement = await new RenderQueue(budget.Store, new TestRenderResourceProbe(budget)).RunAsync(budget.Settings, [one], TestExecutable, new ParallelProgress(), CancellationToken.None, forceRegenerate: true);
         Equal(1, replacement.Generated, "Replacing the same cache path grants its old byte credit once rather than charging both copies to final storage.");
         Equal(before + 1, ParallelStarts(budget).Count, "A same-key forced replacement actually reaches the child.");
         Equal(samePath, one.PreviewPath, "Same-key force commits back to the same owned path.");
@@ -313,7 +335,7 @@ internal static partial class Program
         baseline.Store.SaveSettings(baseline.Settings);
         baseline.Store.UpsertMany(baseline.Presets);
         ReleaseParallel(baseline);
-        var generated = await new RenderQueue(baseline.Store).RunAsync(baseline.Settings, baseline.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
+        var generated = await new RenderQueue(baseline.Store, new TestRenderResourceProbe(baseline)).RunAsync(baseline.Settings, baseline.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         Equal(2, generated.Generated, "Both normal presets use the prepared startup protection.");
         Equal(3, ParallelStarts(baseline).Count(trace => trace.IsBaseline), "One synth prepares one baseline with three reference renders even when two jobs require it.");
         Equal(2, ParallelStarts(baseline).Count(trace => !trace.IsBaseline), "Baseline preparation does not replace or duplicate normal preset work.");
@@ -333,7 +355,7 @@ internal static partial class Program
             fixture.Presets[1].ContentHash = fixture.Presets[0].ContentHash;
             fixture.Store.UpsertMany(fixture.Presets);
             ReleaseParallel(fixture);
-            var queue = new RenderQueue(fixture.Store);
+            var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
             if (replaceExisting)
                 await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
             var before = fixture.Store.LoadPresets().ToDictionary(preset => preset.Id);
@@ -372,7 +394,7 @@ internal static partial class Program
         conflict.Presets[1].ContentHash = conflict.Presets[0].ContentHash;
         conflict.Store.UpsertMany(conflict.Presets);
         ReleaseParallel(conflict);
-        var conflictQueue = new RenderQueue(conflict.Store);
+        var conflictQueue = new RenderQueue(conflict.Store, new TestRenderResourceProbe(conflict));
         await conflictQueue.RunAsync(conflict.Settings, conflict.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
         var previousFirst = conflict.Store.LoadPresets().Single(preset => preset.Id == conflict.Presets[0].Id);
         byte[] previousAudio = File.ReadAllBytes(previousFirst.PreviewPath);
@@ -563,6 +585,36 @@ internal static partial class Program
     }
 
     private static void ReleaseParallel(ParallelFixture fixture) => File.WriteAllText(fixture.GatePath, "TEST ONLY release waiting fixture children");
+
+    private static void ReleaseParallelCalibration(ParallelFixture fixture)
+    {
+        foreach (var preset in fixture.Presets.GroupBy(preset => preset.Synth).Select(group => group.First()))
+        {
+            string source = preset.SourcePath;
+            var control = JsonSerializer.Deserialize<ParallelChildControl>(File.ReadAllText(source), LibraryJson.Options)!;
+            control.GatePath = "";
+            control.DelayMilliseconds = 350;
+            File.WriteAllText(source, JsonSerializer.Serialize(control, LibraryJson.Options));
+        }
+    }
+
+    private static List<ParallelChildTrace> ParallelActive(ParallelFixture fixture)
+    {
+        var finished = ParallelFinishes(fixture).Select(trace => (trace.Pid, trace.StartedTicks)).ToHashSet();
+        return ParallelStarts(fixture).Where(trace => !trace.IsBaseline && !finished.Contains((trace.Pid, trace.StartedTicks))).ToList();
+    }
+
+    private static async Task WaitForParallelActiveAsync(ParallelFixture fixture, int expected, Task run)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            if (ParallelActive(fixture).Count >= expected) return;
+            if (run.IsCompleted) { await run; throw new InvalidOperationException("TEST ONLY calibrated workers did not reach the active barrier."); }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException("TEST ONLY calibrated workers did not reach the active barrier within fifteen seconds.");
+    }
 
     private static async Task StopParallelFixtureAsync(ParallelFixture fixture, Task run, CancellationTokenSource cancellation)
     {

@@ -20,7 +20,7 @@ public sealed partial class RenderQueue
     private sealed record RenderJob(string Key, PluginConfiguration Plugin, List<QueueItem> Items);
     private sealed record Reservation(long OutputBytes, long ReplacedBytes, long BudgetBytes, List<OwnedCache> OldCaches);
 
-    private sealed class Execution
+    private sealed partial class Execution
     {
         private readonly LibraryStore store;
         private readonly AppSettings originalSettings;
@@ -50,7 +50,7 @@ public sealed partial class RenderQueue
         private CancellationToken token;
 
         public Execution(LibraryStore store, AppSettings settings, IReadOnlyList<PresetRecord> originals,
-            string workerPath, IProgress<QueueProgress> progress, CancellationToken token, bool force)
+            string workerPath, IProgress<QueueProgress> progress, CancellationToken token, bool force, IRenderResourceProbe resourceProbe)
         {
             this.store = store;
             originalSettings = settings;
@@ -60,12 +60,21 @@ public sealed partial class RenderQueue
             this.progress = progress;
             callerToken = token;
             this.force = force;
-            summary = new() { Requested = originals.Count };
+            this.resourceProbe = resourceProbe;
+            targetConcurrency = RenderResourcePolicy.ResolveMaxConcurrency(this.settings.MaxParallelRenders, resourceProbe.Hardware);
+            summary = new()
+            {
+                Requested = originals.Count, RequestedConcurrency = this.settings.MaxParallelRenders,
+                ResolvedConcurrency = targetConcurrency, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes
+            };
         }
 
         public async Task<QueueResult> RunAsync()
         {
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+            using var monitorCancellation = new CancellationTokenSource();
+            Task monitor = Task.CompletedTask;
+            batchCancellation = cancellation;
             token = cancellation.Token;
             var running = new Dictionary<Task, RenderJob>();
             Report(QueueStages.Preparing, "正在准备生成队列...", indeterminate: true);
@@ -73,9 +82,11 @@ public sealed partial class RenderQueue
             {
                 token.ThrowIfCancellationRequested();
                 if (settings.MaxAttempts is < 1 or > 5) throw new ArgumentException("重试上限须为 1 到 5。");
-                if (settings.MaxParallelRenders is not (1 or 2)) throw new ArgumentException("同时生成数量须为 1 或 2。");
                 if (!double.IsFinite(settings.StorageBudgetGb) || settings.StorageBudgetGb <= 0)
                     throw new ArgumentException("存储预算须大于 0。");
+                CaptureResources();
+                ThrowIfResourceStopped();
+                monitor = MonitorResourcesAsync(monitorCancellation.Token);
                 if (force)
                 {
                     var stored = store.LoadPresets();
@@ -83,23 +94,33 @@ public sealed partial class RenderQueue
                     storedSnapshot = stored;
                 }
                 var waiting = PrepareJobs();
+                CaptureResources();
                 while (waiting.Count > 0 || running.Count > 0)
                 {
+                    ThrowIfResourceStopped();
                     token.ThrowIfCancellationRequested();
-                    while (running.Count < settings.MaxParallelRenders)
+                    var resourceWake = ResourceChangedTask();
+                    while (running.Count < targetConcurrency)
                     {
-                        int index = waiting.FindIndex(job => job.Plugin.AllowParallelRendering ||
-                            running.Values.All(active => active.Plugin.Synth != job.Plugin.Synth));
-                        if (index < 0) break;
-                        var job = waiting[index];
-                        waiting.RemoveAt(index);
-                        running.Add(RunJobAsync(job), job);
+                        if (!TryStartJob(waiting, running.Values, running.Count, out var job)) break;
+                        running.Add(RunJobAsync(job!), job!);
                     }
-                    if (running.Count == 0) break;
-                    var finished = await Task.WhenAny(running.Keys).ConfigureAwait(false);
+                    ThrowIfResourceStopped();
+                    if (running.Count == 0)
+                    {
+                        if (waiting.Count == 0) break;
+                        await resourceWake.WaitAsync(token).ConfigureAwait(false);
+                        continue;
+                    }
+                    var finished = await Task.WhenAny(running.Keys.Append(resourceWake)).ConfigureAwait(false);
+                    if (ReferenceEquals(finished, resourceWake)) continue;
                     running.Remove(finished);
                     await finished.ConfigureAwait(false);
                 }
+                monitorCancellation.Cancel();
+                await monitor.ConfigureAwait(false);
+                ThrowIfResourceStopped();
+                if (summary.PeakActiveCount == 0) resourceMessage = "无需启动预览工作进程。";
                 summary.ElapsedSeconds = elapsed.Elapsed.TotalSeconds;
                 Report(QueueStages.Completed, summary.Summary);
                 return summary;
@@ -111,13 +132,25 @@ public sealed partial class RenderQueue
                 cancellation.Cancel();
                 try { await Task.WhenAll(running.Keys).ConfigureAwait(false); }
                 catch { /* The initiating exception is reported after all jobs are drained. */ }
+                monitorCancellation.Cancel();
+                await monitor.ConfigureAwait(false);
                 summary.ElapsedSeconds = elapsed.Elapsed.TotalSeconds;
+                if (Volatile.Read(ref resourceFailure) is string reason)
+                {
+                    Report(QueueStages.Failed, reason + " " + summary.Summary);
+                    throw new RenderResourceLimitException(reason, summary);
+                }
                 if (error is OperationCanceledException)
                     Report(QueueStages.Stopped, $"已停止，可继续；剩余 {summary.Remaining} 项。" + summary.Summary);
                 else Report(QueueStages.Failed, error.Message + " " + summary.Summary);
                 throw;
             }
-            finally { summary.ElapsedSeconds = elapsed.Elapsed.TotalSeconds; }
+            finally
+            {
+                monitorCancellation.Cancel();
+                await monitor.ConfigureAwait(false);
+                summary.ElapsedSeconds = elapsed.Elapsed.TotalSeconds;
+            }
         }
 
         private List<RenderJob> PrepareJobs()
@@ -256,7 +289,7 @@ public sealed partial class RenderQueue
                                 candidate.Message += " 默认音色保护未适配：" + baseline.State.Detail;
                             }
                             return Task.CompletedTask;
-                        }).ConfigureAwait(false);
+                        }, processId => RegisterWorker(job, processId)).ConfigureAwait(false);
                         if (!result.Success) failure = result.Message;
                     }
                     catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or TimeoutException or ArgumentException)
@@ -301,14 +334,15 @@ public sealed partial class RenderQueue
                     {
                         if (!item.AttemptInProgress) continue;
                         var preset = item.Record;
-                        preset.LastRenderOutcome = "已停止";
-                        preset.LastRenderMessage = "已停止；已存在的有效预览保留，可继续生成。";
-                        if (item.Previous is not null) RestorePreview(preset, item.Previous, "已停止，保留上次已生成的预览。");
+                        bool resourceStop = Volatile.Read(ref resourceFailure) is not null;
+                        preset.LastRenderOutcome = resourceStop ? "内存保护停止" : "已停止";
+                        preset.LastRenderMessage = resourceStop ? resourceFailure! : "已停止；已存在的有效预览保留，可继续生成。";
+                        if (item.Previous is not null) RestorePreview(preset, item.Previous, resourceStop ? "内存保护已停止，保留上次已生成的预览。" : "已停止，保留上次已生成的预览。");
                         else
                         {
                             preset.Status = PresetStatus.Pending;
                             preset.Attempts = Math.Max(0, preset.Attempts - 1);
-                            preset.Message = "已停止，可继续。";
+                            preset.Message = resourceStop ? "内存保护已停止，可继续。" : "已停止，可继续。";
                         }
                         try { Persist(item); }
                         catch (Exception recoveryError) when (recoveryError is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or JsonException)
@@ -349,6 +383,7 @@ public sealed partial class RenderQueue
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                     { Report(QueueStages.Failed, "已保留未能清理的临时音频：" + completedAudio, job.Items[0]); }
                 }
+                CaptureResources();
                 lock (gate) Release(job);
             }
         }
@@ -378,7 +413,8 @@ public sealed partial class RenderQueue
                     Report(QueueStages.Validating, "正在检查或建立默认启动音色基准...", job.Items[0], true);
                     if (InitBaselineService.Supports(plugin)) ReserveScratch(scratch, PeakDiskBytes() + 3 * OutputBytes());
                 }
-                var result = await InitBaselineService.PrepareAsync(settings, plugin, workerPath, token).ConfigureAwait(false);
+                var result = await InitBaselineService.PrepareAsync(settings, plugin, workerPath, token,
+                    processId => RegisterWorker(job, processId)).ConfigureAwait(false);
                 lock (gate)
                 {
                     if (plugin.InitBaselinePath != previous)
@@ -610,6 +646,7 @@ public sealed partial class RenderQueue
         {
             if (reservations.Remove(job, out var reservation)) reservedBudgetBytes -= reservation.BudgetBytes;
             scratchReservations.Remove(job);
+            CompleteResourceLease(job);
             SignalBudgetChanged();
         }
 
@@ -644,7 +681,9 @@ public sealed partial class RenderQueue
                 progress.Report(new(summary.Processed, prepared ? summary.Eligible : summary.Requested, item?.Original.Name ?? "", message, item?.Original)
                 {
                     Stage = stage, IsIndeterminate = indeterminate, ActiveCount = activeWorkers,
-                    MaxConcurrency = settings.MaxParallelRenders, ItemElapsedSeconds = itemElapsed
+                    MaxConcurrency = targetConcurrency, ItemElapsedSeconds = itemElapsed,
+                    WorkingSetBytes = memorySnapshot.ResidentBytes, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes,
+                    ResourceMessage = resourceMessage, AllowedConcurrency = allowedConcurrency
                 });
         }
     }

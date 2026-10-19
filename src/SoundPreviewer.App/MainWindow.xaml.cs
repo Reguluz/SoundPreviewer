@@ -56,6 +56,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _needsRendererSetup;
     private string _taskTitle = "";
     private string _taskProgressText = "";
+    private string _taskMemoryText = "";
     private bool _updatingFilterChoices;
     private const string MissingFilter = "\0";
     private readonly PresetCategoryService _categoryService = new();
@@ -82,6 +83,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
     public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), new("最近生成失败", LatestFailedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer)];
+    public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
     public bool IsBusy => _isBusy;
@@ -120,6 +122,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public bool RelocatedLibraryVisibility => _storageRelocated;
     public string TaskTitle => _taskTitle;
     public string TaskProgressText => _taskProgressText;
+    public string TaskMemoryText => _taskMemoryText;
+    public bool TaskMemoryVisible => _taskMemoryText.Length > 0;
     public string TaskElapsed => $"用时 {(_taskWatch.Elapsed.TotalHours >= 1 ? _taskWatch.Elapsed.ToString(@"h\:mm\:ss") : _taskWatch.Elapsed.ToString(@"m\:ss"))}";
     public bool IsProgressIndeterminate => IsBusy && _progressIndeterminate;
     public new event PropertyChangedEventHandler? PropertyChanged;
@@ -355,10 +359,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _progressIndeterminate = p.IsIndeterminate;
             _taskProgressText = p.Total > 0 ? $"已处理 {p.Completed} / {p.Total} ({_progressValue:0}%)" : "";
             if (p.ActiveCount > 0) _taskProgressText += $" · 运行 {p.ActiveCount}/{p.MaxConcurrency}";
+            if (p.MemoryBudgetBytes > 0)
+                _taskMemoryText = $"总内存 {p.WorkingSetBytes / 1048576d:0} / {p.MemoryBudgetBytes / 1048576d:0} MiB · 目标并行 {p.MaxConcurrency} 条，当前允许 {p.AllowedConcurrency} 条";
             if (!_stopRequested)
             {
                 _taskTitle = p.Stage == "完成" ? "预览任务已结束" : $"正在{p.Stage}";
                 _statusMessage = string.IsNullOrWhiteSpace(p.PresetName) ? p.Message : $"{p.PresetName} · {p.Message}";
+                if (!string.IsNullOrWhiteSpace(p.ResourceMessage)) _statusMessage += " · " + p.ResourceMessage;
             }
             foreach (var id in changedRows.Keys)
                 if (changedRows.TryRemove(id, out _) && rows.TryGetValue(id, out var row)) row.Refresh();
@@ -413,6 +420,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
         Log(result.Summary);
         Log($"本次队列用时 {result.ElapsedSeconds:0.00} 秒，最多同时运行 {result.PeakActiveCount} 个任务。");
+        _taskMemoryText = $"本次总内存采样峰值 {result.PeakWorkingSetBytes / 1048576d:0} MiB / 2048 MiB · 并行目标 {result.ResolvedConcurrency} 条";
+        Log(_taskMemoryText);
     });
 
     private async Task RunTask(Func<CancellationToken, Task> action)
@@ -427,6 +436,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _taskTitle = "任务进行中";
         _statusMessage = "正在准备任务…";
         _taskProgressText = "准备中";
+        _taskMemoryText = "";
         _taskWatch.Restart();
         _taskTimer.Start();
         _taskCancellation = new CancellationTokenSource();
@@ -447,6 +457,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _taskTitle = "任务已停止";
             _statusMessage = "已停止，已完成的预览已保留，可继续生成。";
             Log(_statusMessage);
+        }
+        catch (RenderResourceLimitException ex)
+        {
+            _flushTaskProgress?.Invoke();
+            _taskTitle = "生成已安全停止";
+            _statusMessage = ex.Message;
+            _taskProgressText = $"已处理 {ex.Summary.Processed} / {ex.Summary.Eligible}";
+            _taskMemoryText = $"总内存采样峰值 {ex.Summary.PeakWorkingSetBytes / 1048576d:0} MiB / 2048 MiB；已完成的预览保留，可降低并行后继续。";
+            Log(_statusMessage);
+            Log(_taskMemoryText);
         }
         catch (Exception ex)
         {
@@ -548,7 +568,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void NotifyTaskProgress()
     {
-        foreach (var name in new[] { nameof(TaskTitle), nameof(StatusMessage), nameof(TaskProgressText), nameof(TaskElapsed), nameof(ProgressValue), nameof(IsProgressIndeterminate), nameof(TaskBandVisible) })
+        foreach (var name in new[] { nameof(TaskTitle), nameof(StatusMessage), nameof(TaskProgressText), nameof(TaskMemoryText), nameof(TaskMemoryVisible), nameof(TaskElapsed), nameof(ProgressValue), nameof(IsProgressIndeterminate), nameof(TaskBandVisible) })
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
@@ -894,7 +914,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _statusMessage = Labels.Synth(plugin.Synth) + "：采集三份未加载预制的默认启动声音并校准。";
             NotifyTaskProgress();
             await Task.Run(() => RefreshBinaryHashes(_settings, token), token);
-            var state = await Task.Run(() => InitBaselineService.GenerateAsync(_settings, plugin, ApplicationPaths.WorkerPath, token), token);
+            var resourceOwner = _taskCancellation;
+            var resourceProgress = new QueueReporter(value => Dispatcher.UIThread.Post(() =>
+            {
+                if (!_isBusy || _isClosing || !ReferenceEquals(_taskCancellation, resourceOwner) || _taskTitle != "正在生成默认启动基准") return;
+                _taskMemoryText = $"总内存 {value.WorkingSetBytes / 1048576d:0} / 2048 MiB · 正在建立声音参照";
+                NotifyTaskProgress();
+            }));
+            var state = await Task.Run(() => new RenderQueue(_store).GenerateInitializationBaselineAsync(
+                _settings, plugin, ApplicationPaths.WorkerPath, resourceProgress, token), token);
             await Task.Run(() => _store.SaveSettings(_settings));
             Log(state.Detail);
             _statusMessage = state.Detail;
@@ -946,7 +974,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var directory in _settings.PluginDirectories) PluginDirectories.Add(directory);
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
-        ParallelRendering.IsChecked = _settings.MaxParallelRenders == 2;
+        ParallelRendering.SelectedItem = ParallelRenderChoices.FirstOrDefault(choice => choice.Value == _settings.MaxParallelRenders) ?? ParallelRenderChoices[0];
         QuickPreviewMode.IsChecked = t.QuickPreview;
         QuickPreviewSecondsBox.Text = t.QuickPreviewSeconds.ToString(CultureInfo.InvariantCulture);
         LowNoteBox.Text = NoteNames.Format(t.LowNote);
@@ -1186,7 +1214,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
-            candidate.MaxParallelRenders = ParallelRendering.IsChecked == true ? 2 : 1;
+            candidate.MaxParallelRenders = (ParallelRendering.SelectedItem as Choice<int>)?.Value ?? 0;
             _store.SaveSettings(candidate);
             _settings = candidate;
             foreach (var plugin in Plugins)

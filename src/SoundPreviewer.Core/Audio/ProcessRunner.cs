@@ -9,7 +9,7 @@ public static class ProcessRunner
 {
     public static async Task<ProcessOutcome> RunAsync(string executable, IEnumerable<string> arguments,
         string workingDirectory, TimeSpan timeout, CancellationToken cancellationToken = default,
-        IReadOnlyDictionary<string, string?>? environmentOverrides = null)
+        IReadOnlyDictionary<string, string?>? environmentOverrides = null, Action<int>? processStarted = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo
@@ -51,6 +51,7 @@ public static class ProcessRunner
         deadline.CancelAfter(timeout);
         try
         {
+            processStarted?.Invoke(process.Id);
             await process.WaitForExitAsync(deadline.Token);
             await Task.WhenAll(stdout, stderr).WaitAsync(deadline.Token);
         }

@@ -21,12 +21,19 @@ public partial class MainWindow
             LowNoteBox.Text = "Db2";
             MiddleNoteBox.Text = "C4";
             HighNoteBox.Text = "A6";
-            ParallelRendering.IsChecked = true;
+            ParallelRendering.SelectedItem = ParallelRenderChoices.Single(choice => choice.Value == 4);
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering = true;
             await RunTask(SaveSettingsCoreAsync);
             var persistedSettings = _store.LoadSettings();
-            if (persistedSettings.MaxParallelRenders != 2 || !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
+            if (persistedSettings.MaxParallelRenders != 4 || !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
                 throw new InvalidOperationException("并行设置没有通过界面保存。");
+            foreach (int limit in new[] { 0, 1, 2, 8, 16 })
+            {
+                ParallelRendering.SelectedItem = ParallelRenderChoices.Single(choice => choice.Value == limit);
+                await RunTask(SaveSettingsCoreAsync);
+                if (_store.LoadSettings().MaxParallelRenders != limit)
+                    throw new InvalidOperationException("自动或手动并行档位没有保存。");
+            }
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Version = "TEST ONLY changed plugin version";
             await RunTask(SaveSettingsCoreAsync);
             if (_store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering ||

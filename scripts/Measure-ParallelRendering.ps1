@@ -3,12 +3,12 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$RequestPath,
     [Parameter(Mandatory = $true)]
-    [ValidateCount(2, 8)]
+    [ValidateCount(4, 16)]
     [string[]]$PresetPath,
     [string]$RendererPath,
     [string]$WorkerPath,
     [string]$TestAssembly,
-    [int[]]$SlotOrder = @(1, 2),
+    [int[]]$SlotOrder = @(1, 2, 4),
     [ValidateRange(1, 3)]
     [int]$WarmRuns = 2,
     [ValidateRange(1, 60)]
@@ -23,7 +23,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 if ($env:OS -ne 'Windows_NT') { throw 'This small-sample harness currently supports Windows DLL plugins only; the application queue supports both desktop platforms.' }
-if ($SlotOrder.Count -ne 2 -or @($SlotOrder | Sort-Object -Unique) -join ',' -ne '1,2') { throw 'SlotOrder must be 1,2 or 2,1.' }
+if ($SlotOrder.Count -eq 0 -or @($SlotOrder | Select-Object -Unique).Count -ne $SlotOrder.Count -or
+    @($SlotOrder | Where-Object { $_ -notin @(0, 1, 2, 4, 8, 16) }).Count -ne 0) {
+    throw 'SlotOrder accepts distinct values from 0 (automatic), 1, 2, 4, 8, and 16, in the intended measurement order.'
+}
 
 function Resolve-InputFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required file is missing: $Path" }
@@ -69,6 +72,7 @@ $manifestPath = Join-Path $output 'manifest.json'
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
 Write-Host "Prepared benchmark: $manifestPath"
 Write-Host 'Cold = new library and baseline; warm-force = new audio with existing baseline; cache-reuse is reported separately.'
+Write-Host 'Each phase reports resolved concurrency, active peak, process-tree RSS and CPU under the fixed 2 GiB queue budget.'
 if (-not $Execute) {
     Write-Host 'No renderer was started. Add -Execute when real plugin execution is intended; no build is performed.'
     return

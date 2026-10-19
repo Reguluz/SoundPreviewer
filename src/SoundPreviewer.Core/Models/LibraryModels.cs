@@ -121,6 +121,8 @@ public sealed class PreviewTemplate : IJsonOnDeserialized
 
 public sealed class AppSettings : IJsonOnDeserialized
 {
+    private int maxParallelRenders;
+    private bool parallelRendersSpecified;
     public List<SourceFolder> Sources { get; set; } = [];
     public List<string> PluginDirectories { get; set; } = [];
     public List<DiscoveredPlugin> DiscoveredPlugins { get; set; } = [];
@@ -129,11 +131,16 @@ public sealed class AppSettings : IJsonOnDeserialized
     public string PreviewDirectory { get; set; } = "";
     public double StorageBudgetGb { get; set; } = 10;
     public int MaxAttempts { get; set; } = 2;
-    public int MaxParallelRenders { get; set; } = 1;
+    public int MaxParallelRenders
+    {
+        get => maxParallelRenders;
+        set { maxParallelRenders = value; parallelRendersSpecified = true; }
+    }
     public double PlaybackVolume { get; set; } = 0.7;
 
     void IJsonOnDeserialized.OnDeserialized()
     {
+        if (!parallelRendersSpecified) maxParallelRenders = 1;
         Plugins ??= [];
         foreach (var synth in Enum.GetValues<SynthKind>().Where(synth => synth != SynthKind.Unknown))
             if (Plugins.All(plugin => plugin.Synth != synth)) Plugins.Add(new PluginConfiguration { Synth = synth });

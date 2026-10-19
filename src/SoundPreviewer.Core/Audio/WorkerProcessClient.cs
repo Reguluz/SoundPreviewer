@@ -9,7 +9,7 @@ public sealed class WorkerProcessClient
         RenderAsync(request, workerPath, cancellationToken, null);
 
     public async Task<RenderResult> RenderAsync(RenderRequest request, string workerPath, CancellationToken cancellationToken,
-        Func<RenderResult, WaveData, CancellationToken, Task>? beforeCommit)
+        Func<RenderResult, WaveData, CancellationToken, Task>? beforeCommit, Action<int>? processStarted = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         request.Template.Validate();
@@ -41,7 +41,8 @@ public sealed class WorkerProcessClient
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
             int maximumCaptures = request.Template.QuickPreview ? (request.Plugin.Backend == RenderBackend.VitalCli ? 3 : 4) : 1;
             var outcome = await ProcessRunner.RunAsync(executable, arguments, staging,
-                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600) * maximumCaptures), cancellationToken);
+                TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600) * maximumCaptures), cancellationToken,
+                processStarted: processStarted);
             cancellationToken.ThrowIfCancellationRequested();
             if (!File.Exists(resultFile))
                 throw new IOException($"渲染进程未返回结果（退出码 {outcome.ExitCode}）：{outcome.StandardError}");

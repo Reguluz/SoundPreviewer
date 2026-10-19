@@ -1,8 +1,8 @@
 # 安装、升级与 GitHub 发布
 
-Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.5.0 预发行版**。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.6.0 预发行版**。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
 
-0.5.0 新增最多两个任务的试验性并行生成；默认串行，同音源多实例需另行开启。调度设置不改变旧缓存键、数据库 schema 或手工标签 / 分类。真实小样本测速及限制见[并行实测](parallel-rendering.md#windows-小样本实测2026-10-19)。
+0.6.0 新增按物理核心自动选择并行、1 / 2 / 4 / 8 / 16 手动档，以及父进程和全部生成后代合计 2 GiB RSS 目标下的预留、限流和超限停止恢复。新安装默认自动，旧串行选择与同音源多开许可保留。采样保护不等于操作系统硬配额。调度设置不改变旧缓存键、数据库 schema 或手工标签 / 分类。行为与历史小样本测速见[并行说明](parallel-rendering.md)。
 
 小修递增 patch，较大功能递增 minor；任何 major 递增均须用户明确确认，并更新 `version-policy.json` 的 `approvedMajor`。`0.x` 始终标记为 GitHub prerelease，即使 tag 没有 `-beta` 后缀。日常直接在 `main` 开发，不自动新建分支或 PR。
 

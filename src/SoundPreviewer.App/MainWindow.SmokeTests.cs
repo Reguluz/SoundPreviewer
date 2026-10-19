@@ -150,17 +150,20 @@ public partial class MainWindow
             CaptureSmokeImage($"ui-format-{name}.png");
             var feedback = _statusMessage;
             var progressText = _taskProgressText;
+            var memoryText = _taskMemoryText;
             _smokeLayoutPhase = name + "-long-feedback";
-            _taskProgressText = "已处理 9999 / 10000 (100%) · 运行 2/2";
+            _taskProgressText = "已处理 9999 / 10000 (100%) · 运行 16/16";
+            _taskMemoryText = "总内存 1792 / 2048 MiB · 目标并行 16 条，当前允许 4 条";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();
             await SettleLayoutAsync();
             CheckSmokeLayout();
-            if (TaskProgressDetails.Bounds.Height > 48.1 || TaskStatusBand.Bounds.Height > 125)
+            if (TaskProgressDetails.Bounds.Height > 48.1 || TaskResourceDetails.Bounds.Height > 32.1 || TaskStatusBand.Bounds.Height > 165)
                 throw SmokeLayoutFailure("长渲染错误挤占音色库内容区域。");
             CaptureSmokeImage($"ui-long-feedback-{name}.png");
             _statusMessage = feedback;
             _taskProgressText = progressText;
+            _taskMemoryText = memoryText;
             NotifyTaskProgress();
             ResetFilterControls();
             for (var page = 0; page < 3; page++)
@@ -322,6 +325,11 @@ public partial class MainWindow
         if (TaskStatusBand.IsEffectivelyVisible && (SmokeBounds(TaskProgressTitle).Intersects(SmokeBounds(TaskProgressMetadata)) ||
             SmokeBounds(TaskProgressDetails).Bottom > SmokeBounds(GenerationProgressBar).Top || SmokeBounds(TaskStatusBand).Bottom > SmokeBounds(Pages).Top))
             throw SmokeLayoutFailure("任务进度区域内容重叠。");
+        if (TaskResourceDetails.IsEffectivelyVisible && (SmokeBounds(TaskResourceDetails).Bottom > SmokeBounds(GenerationProgressBar).Top ||
+            SmokeBounds(TaskResourceDetails).Top < SmokeBounds(TaskProgressDetails).Bottom || !area.Contains(SmokeBounds(TaskResourceDetails))))
+            throw SmokeLayoutFailure("任务内存信息超出界面或与其他内容重叠。");
+        if (EmptyPresetState.IsEffectivelyVisible && SmokeBounds(EmptyPresetState).Bottom > SmokeBounds(PresetGrid).Bottom + 1)
+            throw SmokeLayoutFailure("空列表说明溢出音色表格。");
     }
 
     private InvalidOperationException SmokeLayoutFailure(string message)
@@ -341,7 +349,7 @@ public partial class MainWindow
         var screen = Screens.ScreenFromWindow(this);
         Control[] controls = [AppBrandName, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
             StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
-            TaskProgressDetails, GenerationProgressBar, Pages];
+            TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages];
         var state = new
         {
             Phase = _smokeLayoutPhase,
