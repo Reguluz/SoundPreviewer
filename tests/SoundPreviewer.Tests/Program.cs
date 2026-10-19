@@ -79,6 +79,7 @@ internal static partial class Program
             ("Stopped batches preserve committed results and resume incrementally", TestQueueStopResumeAsync),
             ("Forced cache replacement reclaims only unshared owned files after commit", TestQueueForceStorageAsync),
             ("Parallel process barriers enforce global and per-synth limits with snapshot settings", TestParallelSchedulingAsync),
+            ("Interleaved synth jobs stay grouped while serial synths allow useful backfilling", TestRenderQueueSynthGroupingAsync),
             ("Parallel shared-key rendering preserves metadata and forced shared caches", TestParallelSharedCacheAsync),
             ("Parallel cancellation drains all children and individual crashes stay isolated", TestParallelCancellationAndFailureAsync),
             ("Parallel storage reservations and startup baselines are shared safely", TestParallelBudgetAndBaselineAsync),

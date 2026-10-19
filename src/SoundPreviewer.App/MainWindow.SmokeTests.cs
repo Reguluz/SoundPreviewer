@@ -24,6 +24,7 @@ public partial class MainWindow
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
+        await CheckPresetDragDataAsync();
         if (PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0))
             throw new InvalidOperationException("重复音色未默认隐藏。");
         ShowDuplicates.IsChecked = true;
@@ -171,6 +172,19 @@ public partial class MainWindow
                 _smokeLayoutPhase = $"{name}-page-{page}";
                 Pages.SelectedIndex = page;
                 await SettleLayoutAsync();
+                if (page == 0)
+                {
+                    PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && PresetDragUnavailableReason(row.Record).Length == 0);
+                    PresetDetailsScroll.Offset = default;
+                    await SettleLayoutAsync();
+                    if (Selected is not null && (!CanLocatePreset || !CanDragPreset || !LocatePresetButton.IsEffectivelyEnabled || !PresetDragHandle.IsEffectivelyEnabled))
+                        throw SmokeLayoutFailure("独立音色的定位或拖出入口未启用。");
+                    PresetDragHandle.BringIntoView();
+                    await SettleLayoutAsync();
+                    if (!SmokeBounds(PresetDetailsScroll).Contains(SmokeBounds(PresetDragHandle)) ||
+                        !SmokeBounds(PresetDetailsScroll).Contains(SmokeBounds(LocatePresetButton)))
+                        throw SmokeLayoutFailure("音色定位或拖出入口不能滚动到详情可视区域。");
+                }
                 CaptureSmokeImage($"ui-{name}-{page}.png");
             }
             foreach (var (tab, suffix) in new[] { (DirectorySettingsTab, "directories"), (DiscoveredSettingsTab, "discovered"), (RenderSettingsTab, "renderers"), (StorageSettingsTab, "storage"), (ClassificationSettingsTab, "categories") })
@@ -233,6 +247,7 @@ public partial class MainWindow
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
             TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
+            PresetFileTransferChecked = true, SourceRevealCommandChecked = true,
             DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
             GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked,
             DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(row => row.Record.DuplicateOfId.Length > 0),
@@ -330,6 +345,11 @@ public partial class MainWindow
             throw SmokeLayoutFailure("任务内存信息超出界面或与其他内容重叠。");
         if (EmptyPresetState.IsEffectivelyVisible && SmokeBounds(EmptyPresetState).Bottom > SmokeBounds(PresetGrid).Bottom + 1)
             throw SmokeLayoutFailure("空列表说明溢出音色表格。");
+        var drag = SmokeBounds(PresetDragHandle);
+        var details = SmokeBounds(PresetDetailsScroll);
+        if (!PresetDragHandle.IsEffectivelyVisible || drag.Width <= 0 || drag.Height < 32 ||
+            drag.Left < details.Left - 1 || drag.Right > details.Right + 1)
+            throw SmokeLayoutFailure("音色拖动入口不可见或横向溢出详情区。");
     }
 
     private InvalidOperationException SmokeLayoutFailure(string message)
@@ -349,7 +369,7 @@ public partial class MainWindow
         var screen = Screens.ScreenFromWindow(this);
         Control[] controls = [AppBrandName, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
             StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
-            TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages];
+            TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, PresetDragHandle, PresetDetailsScroll, LocatePresetButton];
         var state = new
         {
             Phase = _smokeLayoutPhase,

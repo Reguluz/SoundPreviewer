@@ -556,6 +556,8 @@ internal static partial class Program
         public long StartedTicks { get; set; }
         public long FinishedTicks { get; set; }
         public bool IsBaseline { get; set; }
+        public SynthKind Synth { get; set; }
+        public string PresetId { get; set; } = "";
         public string AudioSha256 { get; set; } = "";
     }
 
@@ -633,7 +635,8 @@ internal static partial class Program
         var trace = new ParallelChildTrace
         {
             Pid = Environment.ProcessId, ParentPid = OperatingSystem.IsMacOS() ? ParallelParentProcessId() : 0,
-            StartedTicks = DateTime.UtcNow.Ticks, IsBaseline = request.IsInitializationBaseline
+            StartedTicks = DateTime.UtcNow.Ticks, IsBaseline = request.IsInitializationBaseline,
+            Synth = request.Plugin.Synth, PresetId = request.Preset.Id
         };
         await WriteTraceAsync(stem + ".started.json");
         try

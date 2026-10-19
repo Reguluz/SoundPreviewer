@@ -223,7 +223,10 @@ public sealed partial class RenderQueue
                 Report(QueueStages.Preparing, $"已识别 {summary.Unconfigured} 项未配置渲染器。" + summary.Summary);
             foreach (var job in jobs.Values)
                 batchOutputs.Add(Path.GetFullPath(Path.Combine(settings.PreviewDirectory, job.Key + ".wav")));
-            return jobs.Values.ToList();
+            // Keep each synth's jobs adjacent without changing the first-seen synth
+            // order or the original order within a synth. Same-key aliases remain
+            // one job and therefore still share one render / commit boundary.
+            return jobs.Values.GroupBy(job => job.Plugin.Synth).SelectMany(group => group).ToList();
         }
 
         private async Task RunJobAsync(RenderJob job)

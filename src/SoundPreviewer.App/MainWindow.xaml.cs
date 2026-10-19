@@ -748,14 +748,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void Locate_Click(object sender, RoutedEventArgs e)
     {
-        if (_selected is null) return;
+        if (_isClosing || _isStorageMaintenance || _storageRelocated || _selected is null) return;
         try
         {
-            if (!File.Exists(_selected.Record.SourcePath)) throw new FileNotFoundException("原预制文件已不存在。");
-            var start = new ProcessStartInfo(OperatingSystem.IsWindows() ? "explorer.exe" : "open");
-            start.ArgumentList.Add(OperatingSystem.IsWindows() ? "/select," : "-R");
-            start.ArgumentList.Add(_selected.Record.SourcePath);
-            Process.Start(start);
+            Process.Start(PrepareSourceReveal(_selected.Record.SourcePath, OperatingSystem.IsWindows()));
         }
         catch (Exception ex) { ShowError(ex); }
     }

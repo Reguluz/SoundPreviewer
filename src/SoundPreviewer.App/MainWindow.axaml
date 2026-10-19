@@ -125,8 +125,15 @@
          <Button x:Name="FavoriteButton" Classes="icon" Content="☆" Click="Favorite_Click" ToolTip.Tip="切换收藏" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="＋" Click="Like_Click" ToolTip.Tip="喜欢 / 取消喜欢" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="−" Click="Dislike_Click" ToolTip.Tip="不喜欢 / 取消反馈" IsEnabled="{Binding CanEditSelection}"/>
-         <Button Classes="icon" Content="▣" Click="Locate_Click" ToolTip.Tip="定位原预制" IsEnabled="{Binding HasSelection}"/>
         </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+        <Button x:Name="LocatePresetButton" Content="{Binding LocatePresetLabel}" Click="Locate_Click" IsEnabled="{Binding CanLocatePreset}" Margin="0,0,8,0" Padding="10,6" AutomationProperties.Name="定位原音色或音色库文件" ToolTip.Tip="{Binding LocatePresetToolTip}"/>
+        <Border x:Name="PresetDragHandle" IsEnabled="{Binding CanDragPreset}" Cursor="Hand" Background="#EDF4EF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Padding="10,7"
+         PointerPressed="PresetDrag_PointerPressed" PointerMoved="PresetDrag_PointerMoved" PointerReleased="PresetDrag_PointerReleased" AutomationProperties.Name="拖出音色原文件" ToolTip.Tip="按住并拖动，将选中音色的原文件交给接收程序">
+         <TextBlock Text="↗ 拖出音色" FontWeight="SemiBold"/>
+        </Border>
+        </StackPanel>
+        <TextBlock Text="{Binding PresetDragHint}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/>
         <Button Content="编辑标签与分类" Click="EditPresetMetadata_Click" IsEnabled="{Binding CanEditSelection}" Margin="0,8,0,0" Padding="10,6"/>
         <Expander x:Name="PresetMetadataExpander" Header="标签与分类" IsExpanded="False" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
          <StackPanel IsEnabled="{Binding CanEditSelection}">

@@ -128,17 +128,41 @@ public sealed partial class RenderQueue
                 next = null;
                 if (resourceFailure is not null || !memorySnapshot.IsComplete || runningCount >= targetConcurrency) return false;
                 bool observing = running.Any(active => !memoryProfiles.ContainsKey(active.Plugin.Synth));
-                int unknownIndex = waiting.FindIndex(job => !memoryProfiles.ContainsKey(job.Plugin.Synth));
-                if (observing || unknownIndex >= 0 && runningCount > 0)
+                if (observing)
                 {
                     resourceMessage = "先单独完成当前音源的首项，观察实际内存后再增加同时生成数量。";
                     return false;
                 }
+                int calibrationIndex = -1;
+                if (runningCount == 0 && waiting.Count > 0)
+                {
+                    var preferred = waiting[0];
+                    if (!memoryProfiles.ContainsKey(preferred.Plugin.Synth)) calibrationIndex = 0;
+                    else if (!preferred.Plugin.AllowParallelRendering && targetConcurrency > 1)
+                    {
+                        // A synth that explicitly disallows simultaneous instances
+                        // cannot fill the other slots. At an idle boundary, measure
+                        // only enough later synths to permit useful backfilling.
+                        // Otherwise finish the current synth before switching just
+                        // to calibrate an unrelated one.
+                        int knownCapacity = waiting.Where(job => memoryProfiles.ContainsKey(job.Plugin.Synth))
+                            .GroupBy(job => job.Plugin.Synth)
+                            .Sum(group => group.First().Plugin.AllowParallelRendering ? group.Count() : 1);
+                        if (knownCapacity < targetConcurrency)
+                            calibrationIndex = waiting.FindIndex(job => !memoryProfiles.ContainsKey(job.Plugin.Synth));
+                    }
+                }
                 bool hasEligibleSynth = false;
+                bool waitingForCalibration = false;
                 for (int index = 0; index < waiting.Count; index++)
                 {
-                    if (unknownIndex >= 0 && index != unknownIndex) continue;
+                    if (calibrationIndex >= 0 && index != calibrationIndex) continue;
                     var job = waiting[index];
+                    // Unknown synths still calibrate alone. A later unmeasured
+                    // synth must not prevent calibrated jobs of the preferred
+                    // synth from filling the CPU / memory slots.
+                    if (!memoryProfiles.ContainsKey(job.Plugin.Synth) && runningCount > 0)
+                    { waitingForCalibration = true; continue; }
                     if (!job.Plugin.AllowParallelRendering && running.Any(active => active.Plugin.Synth == job.Plugin.Synth)) continue;
                     hasEligibleSynth = true;
                     long forecast = ForecastMemory(job.Plugin.Synth);
@@ -158,6 +182,8 @@ public sealed partial class RenderQueue
                     if (runningCount == 0)
                         SetResourceFailure("内存余量不足以安全启动下一个渲染任务，已停止生成。已完成的预览保留；关闭占用内存的试听或重新打开程序后可继续。");
                 }
+                else if (waitingForCalibration)
+                    resourceMessage = "等待当前音源任务结束后，单独观测下一音源的首项。";
                 else if (waiting.Count > 0)
                     resourceMessage = "此音源尚未允许多实例并行，等待当前音色完成。";
                 UpdateAllowedConcurrency();
