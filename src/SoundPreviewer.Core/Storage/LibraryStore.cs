@@ -37,11 +37,31 @@ public sealed class LibraryStore
             }
             // A backup can inherit WAL mode without inheriting its sidecars. Normalize only
             // this private copy so it is a self-contained, portable, read-only-readable image.
-            using var snapshot = new NativeSqlite(destination);
-            if (!snapshot.QueryStrings("PRAGMA journal_mode=DELETE;").Single().Equals("delete", StringComparison.OrdinalIgnoreCase))
-                throw new IOException("一致数据库快照无法转为独立文件，原库未更改。");
-            if (snapshot.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
-                throw new InvalidDataException("一致数据库快照未通过完整性检查，原库未更改。");
+            using (var snapshot = new NativeSqlite(destination))
+            {
+                // Force the pager to read the copied database header before asking it to
+                // leave WAL mode; its unopened default can otherwise report DELETE early.
+                if (snapshot.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
+                    throw new InvalidDataException("一致数据库快照未通过完整性检查，原库未更改：" + destination);
+                if (!snapshot.QueryStrings("PRAGMA main.journal_mode=DELETE;").Single().Equals("delete", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("一致数据库快照无法转为独立文件，原库未更改：" + destination);
+                if (snapshot.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok") ||
+                    !snapshot.QueryStrings("PRAGMA main.journal_mode;").Single().Equals("delete", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("一致数据库快照规范化校验失败，原库未更改：" + destination);
+            }
+            using (var image = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Span<byte> header = stackalloc byte[20];
+                image.ReadExactly(header);
+                if (header[18] != 1 || header[19] != 1)
+                    throw new InvalidDataException($"一致数据库快照仍非独立回滚日志格式（文件头 {header[18]}/{header[19]}），原库未更改：{destination}");
+            }
+            if (HasWalSidecars(destination))
+            {
+                string auxiliaries = string.Join("，", new[] { "-wal", "-shm" }.Where(suffix => File.Exists(destination + suffix))
+                    .Select(suffix => suffix + "=" + new FileInfo(destination + suffix).Length + " bytes"));
+                System.Diagnostics.Trace.TraceInformation("数据库快照已确认文件头 1/1，但仍保留辅助文件（{0}）：{1}", auxiliaries, destination);
+            }
         }
         catch
         {

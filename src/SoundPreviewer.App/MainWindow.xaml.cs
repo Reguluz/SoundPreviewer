@@ -177,6 +177,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             // The desktop may constrain the initial window to a smaller working area.
             Width = ClientSize.Width;
             Height = ClientSize.Height;
+            RefreshClientLayout();
             var restored = await Task.Run(() => _store.RecoverInterrupted(preserveMissingPreviewMappings: true));
             var records = await Task.Run(_store.LoadPresets);
             if (_isClosing) return;
@@ -1338,6 +1339,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         else _ = Dialogs.ShowAsync(this, error.Message, "操作未完成");
     }
     private void NotifyAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(""));
+
+    private void RefreshClientLayout()
+    {
+        // A native desktop can clamp the window after children were arranged for its
+        // requested size. Discard those cached measurements before using the real client.
+        foreach (var control in this.GetVisualDescendants().OfType<Control>())
+        {
+            control.InvalidateMeasure();
+            control.InvalidateArrange();
+        }
+        InvalidateMeasure();
+        InvalidateArrange();
+        UpdateLayout();
+    }
+
     private void Window_Closing(object? sender, WindowClosingEventArgs e)
     {
         if (_isClosing) return;

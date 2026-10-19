@@ -55,6 +55,8 @@ jobs:
         run: |
           dotnet restore SoundPreviewer.sln --configfile NuGet.Config
           dotnet build SoundPreviewer.sln -c Release --no-restore
+      - name: Verify installation-local legacy cache migration
+        run: dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter Installation-local
       - name: Verify library and workers
         run: dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build
       - name: Install state conversion test dependencies

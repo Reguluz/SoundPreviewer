@@ -58,7 +58,8 @@ internal static partial class Program
             Equal(oldSettingsJson, committedWal.Query("SELECT json FROM settings WHERE key='application';").Single(), "The source's WAL-backed settings JSON stays exactly unchanged.");
             VerifyInstalledFixtureHashes(originalFiles);
             string installedBackup = Directory.GetFiles(Path.Combine(target, "Backups"), "library-before-install-*.db").Single();
-            True(!File.Exists(installedBackup + "-wal") && !File.Exists(installedBackup + "-shm"), "The retained old-library snapshot is self-contained without WAL sidecars.");
+            VerifyInstalledSnapshotMainFile(installedBackup, [oldPresetJson], oldSettingsJson, 1);
+            AssertInstalledSnapshotHasNoSidecars(installedBackup, "The retained old-library snapshot is self-contained without WAL sidecars; a main-file-only copy has passed original schema and JSON checks.");
             using (var snapshot = new CacheTestSqlite(installedBackup))
             {
                 Equal("delete", snapshot.Query("PRAGMA journal_mode;").Single(), "Only the private snapshot normalizes its journal mode for portable read-only reopening.");
@@ -67,7 +68,7 @@ internal static partial class Program
                 Equal(oldPresetJson, snapshot.Query("SELECT json FROM presets;").Single(), "Snapshot normalization retains the exact original preset JSON committed through the live WAL.");
                 Equal(oldSettingsJson, snapshot.Query("SELECT json FROM settings WHERE key='application';").Single(), "Snapshot normalization retains the exact original settings JSON committed through the live WAL.");
             }
-            True(!File.Exists(installedBackup + "-wal") && !File.Exists(installedBackup + "-shm"), "Reopening the complete retained snapshot does not require or leave WAL sidecars.");
+            AssertInstalledSnapshotHasNoSidecars(installedBackup, "Reopening the complete retained snapshot does not require or leave WAL sidecars.");
             using var destination = new CacheTestSqlite(Path.Combine(target, "library.db"));
             Equal(LibraryStore.CurrentSchemaVersion.ToString(), destination.Query("PRAGMA user_version;").Single(), "The imported copy upgrades the old schema before use.");
             var importedPreset = JsonNode.Parse(destination.Query("SELECT json FROM presets;").Single())!;
@@ -312,11 +313,55 @@ internal static partial class Program
                 True(originalRecords.SequenceEqual(database.Query("SELECT json FROM presets ORDER BY id;")), "Every closed-WAL record and its original JSON survives the private-copy snapshot path.");
                 Equal(originalSettings, database.Query("SELECT json FROM settings WHERE key='application';").Single(), "The closed-WAL snapshot retains the exact original settings JSON.");
             }
-            True(!File.Exists(snapshot + "-wal") && !File.Exists(snapshot + "-shm"), "Opening the independent snapshot requires no WAL sidecars.");
+            AssertInstalledSnapshotHasNoSidecars(snapshot, "Opening the independent snapshot requires no WAL sidecars.");
             True(Directory.GetFiles(snapshots).SequenceEqual(new[] { snapshot }), "A successful snapshot removes its private input copy and leaves only the final database.");
             True(originalBytes.SequenceEqual(File.ReadAllBytes(source)) && !File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "Inspecting the completed private snapshot leaves the source bytes and directory unchanged.");
         }
         finally { File.SetAttributes(source, originalAttributes); }
+    }
+
+    private static void VerifyInstalledSnapshotMainFile(string snapshot, IReadOnlyList<string> expectedRecords, string expectedSettings, int schemaVersion)
+    {
+        string directory = Path.Combine(Path.GetDirectoryName(snapshot)!, "main-only-" + Guid.NewGuid().ToString("N")[..8]);
+        True(ApplicationPaths.IsWithin(directory, _fixtureRoot), "A main-file-only snapshot proof must stay in the isolated fixture.");
+        Directory.CreateDirectory(directory);
+        string copy = Path.Combine(directory, "snapshot.db");
+        File.Copy(snapshot, copy);
+        True(!File.Exists(copy + "-wal") && !File.Exists(copy + "-shm"), "The independent proof copies only the database main file.");
+        using var database = new CacheTestSqlite(copy);
+        Equal("delete", database.Query("PRAGMA journal_mode;").Single(), "An independently copied main file reopens in DELETE journal mode. " + DescribeInstalledSnapshot(snapshot));
+        Equal(schemaVersion.ToString(), database.Query("PRAGMA user_version;").Single(), "The independent main file retains its original schema.");
+        Equal("ok", database.Query("PRAGMA quick_check;").Single(), "The independent main file passes SQLite integrity checks.");
+        True(expectedRecords.SequenceEqual(database.Query("SELECT json FROM presets ORDER BY id;")), "The independent main file contains every exact original record, including WAL-committed metadata.");
+        Equal(expectedSettings, database.Query("SELECT json FROM settings WHERE key='application';").Single(), "The independent main file contains the exact original application settings.");
+    }
+
+    private static void AssertInstalledSnapshotHasNoSidecars(string snapshot, string message)
+    {
+        if (!File.Exists(snapshot + "-wal") && !File.Exists(snapshot + "-shm")) return;
+        throw new InvalidOperationException(message + " " + DescribeInstalledSnapshot(snapshot));
+    }
+
+    private static string DescribeInstalledSnapshot(string snapshot)
+    {
+        var facts = new List<string> { "Snapshot=" + snapshot };
+        try
+        {
+            using var stream = new FileStream(snapshot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> header = stackalloc byte[20];
+            stream.ReadExactly(header);
+            facts.Add($"Header18={header[18]},Header19={header[19]}");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { facts.Add("HeaderReadError=" + error.Message); }
+        foreach (string suffix in new[] { "-wal", "-shm" })
+        {
+            string path = snapshot + suffix;
+            try { facts.Add(suffix + "=" + (File.Exists(path) ? new FileInfo(path).Length + " bytes" : "absent")); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { facts.Add(suffix + "ReadError=" + error.Message); }
+        }
+        return string.Join("; ", facts);
     }
 
     private static string InstalledDatabaseHash(string path)

@@ -305,7 +305,7 @@ public partial class MainWindow
             // Keep subsequent invalidated measurements at the actual client size, including long text.
             Width = client.Width;
             Height = client.Height;
-            UpdateLayout();
+            RefreshClientLayout();
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             var content = (Control)Content!;
             if (ClientSize == client && content.IsMeasureValid && content.IsArrangeValid &&
