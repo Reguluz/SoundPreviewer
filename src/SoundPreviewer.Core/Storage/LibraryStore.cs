@@ -28,10 +28,20 @@ public sealed class LibraryStore
         {
             using (new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
             created = true;
-            using var database = new NativeSqlite(source, readOnly: true);
-            if (database.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
-                throw new InvalidDataException("原音色库未通过数据库完整性检查，原文件未更改。");
-            database.BackupTo(destination);
+            if (!TrySnapshotClosedWal(source, destination))
+            {
+                using var database = new NativeSqlite(source, readOnly: true);
+                if (database.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
+                    throw new InvalidDataException("原音色库未通过数据库完整性检查，原文件未更改：" + source);
+                database.BackupTo(destination);
+            }
+            // A backup can inherit WAL mode without inheriting its sidecars. Normalize only
+            // this private copy so it is a self-contained, portable, read-only-readable image.
+            using var snapshot = new NativeSqlite(destination);
+            if (!snapshot.QueryStrings("PRAGMA journal_mode=DELETE;").Single().Equals("delete", StringComparison.OrdinalIgnoreCase))
+                throw new IOException("一致数据库快照无法转为独立文件，原库未更改。");
+            if (snapshot.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
+                throw new InvalidDataException("一致数据库快照未通过完整性检查，原库未更改。");
         }
         catch
         {
@@ -39,6 +49,54 @@ public sealed class LibraryStore
             throw;
         }
     }
+
+    private static bool TrySnapshotClosedWal(string source, string destination)
+    {
+        if (HasWalSidecars(source)) return false;
+        string input = Path.Combine(Path.GetDirectoryName(destination)!, ".spi-" + Guid.NewGuid().ToString("N")[..16] + ".db");
+        bool created = false;
+        try
+        {
+            // Installed startup already owns the source-library mutex. Also verify the file
+            // before and after copying so this public API rejects unexpected external changes.
+            using (var original = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (original.Length < 20) return false;
+                Span<byte> header = stackalloc byte[20];
+                original.ReadExactly(header);
+                if (header[18] != 2 || header[19] != 2) return false;
+                if (HasWalSidecars(source)) throw ChangedSource(source);
+                string originalHash = Fingerprints.HashFile(source);
+                using (var copy = new FileStream(input, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    created = true;
+                    original.Position = 0;
+                    original.CopyTo(copy);
+                    copy.Flush(flushToDisk: true);
+                }
+                if (HasWalSidecars(source) || Fingerprints.HashFile(source) != originalHash ||
+                    Fingerprints.HashFile(input) != originalHash || HasWalSidecars(source)) throw ChangedSource(source);
+            }
+            // Some macOS SQLite versions cannot read a WAL-mode main file through a
+            // read-only connection when its WAL/SHM are absent. Initialize only our copy.
+            using var database = new NativeSqlite(input);
+            if (database.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
+                throw new InvalidDataException("原音色库的私有副本未通过完整性检查，原文件未更改：" + source);
+            database.BackupTo(destination);
+            return true;
+        }
+        finally
+        {
+            if (created)
+                foreach (string suffix in new[] { "", "-wal", "-shm", "-journal" })
+                    if (File.Exists(input + suffix)) File.Delete(input + suffix);
+        }
+    }
+
+    private static bool HasWalSidecars(string source) => File.Exists(source + "-wal") || File.Exists(source + "-shm") ||
+        Directory.Exists(source + "-wal") || Directory.Exists(source + "-shm");
+
+    private static IOException ChangedSource(string source) => new("生成快照期间原音色库或其 WAL 状态发生变化，请关闭其他程序后重试；未忽略日志或改写原库：" + source);
 
     public void CreateBackup(string destinationPath)
     {

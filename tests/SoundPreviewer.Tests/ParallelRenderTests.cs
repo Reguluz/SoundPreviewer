@@ -562,7 +562,27 @@ internal static partial class Program
     }
 
     private static List<ParallelChildTrace> ParallelStarts(ParallelFixture fixture) => Directory.EnumerateFiles(fixture.TraceDirectory, "*.started.json")
-        .Select(path => JsonSerializer.Deserialize<ParallelChildTrace>(File.ReadAllText(path), LibraryJson.Options)!).OrderBy(trace => trace.StartedTicks).ToList();
+        .Select(ReadParallelTrace).OrderBy(trace => trace.StartedTicks).ToList();
+
+    private static ParallelChildTrace ReadParallelTrace(string path)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                return JsonSerializer.Deserialize<ParallelChildTrace>(reader.ReadToEnd(), LibraryJson.Options)
+                    ?? throw new InvalidDataException("TEST ONLY child trace contains no record: " + path);
+            }
+            catch (IOException error) when (OperatingSystem.IsWindows() && (error.HResult & 0xffff) is 32 or 33 &&
+                elapsed.Elapsed < TimeSpan.FromMilliseconds(500))
+            {
+                Thread.Sleep(10);
+            }
+        }
+    }
 
     private static int ParallelPeak(ParallelFixture fixture)
     {
@@ -574,7 +594,7 @@ internal static partial class Program
     }
 
     private static ParallelChildTrace[] ParallelFinishes(ParallelFixture fixture) => Directory.EnumerateFiles(fixture.TraceDirectory, "*.finished.json")
-        .Select(path => JsonSerializer.Deserialize<ParallelChildTrace>(File.ReadAllText(path), LibraryJson.Options)!).ToArray();
+        .Select(ReadParallelTrace).ToArray();
 
     private static async Task WaitForParallelStartsAsync(ParallelFixture fixture, int expected, Task run)
     {

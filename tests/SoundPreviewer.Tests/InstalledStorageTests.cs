@@ -52,10 +52,22 @@ internal static partial class Program
             True(imported.CopiedFiles > 0, "The import copies valid cached audio and supporting metadata.");
             VerifyInstalledFixture(legacy, target);
             Equal(originalDatabaseHash, InstalledDatabaseHash(legacyDatabase), "Import never initializes, upgrades or rewrites the old database file.");
+            Equal("wal", committedWal.Query("PRAGMA journal_mode;").Single(), "Making the private snapshot portable never changes the real source library's WAL mode.");
             Equal("1", committedWal.Query("PRAGMA user_version;").Single(), "Only the installation-local snapshot receives a schema upgrade.");
             Equal(oldPresetJson, committedWal.Query("SELECT json FROM presets;").Single(), "The source's WAL-backed preset JSON stays exactly unchanged.");
             Equal(oldSettingsJson, committedWal.Query("SELECT json FROM settings WHERE key='application';").Single(), "The source's WAL-backed settings JSON stays exactly unchanged.");
             VerifyInstalledFixtureHashes(originalFiles);
+            string installedBackup = Directory.GetFiles(Path.Combine(target, "Backups"), "library-before-install-*.db").Single();
+            True(!File.Exists(installedBackup + "-wal") && !File.Exists(installedBackup + "-shm"), "The retained old-library snapshot is self-contained without WAL sidecars.");
+            using (var snapshot = new CacheTestSqlite(installedBackup))
+            {
+                Equal("delete", snapshot.Query("PRAGMA journal_mode;").Single(), "Only the private snapshot normalizes its journal mode for portable read-only reopening.");
+                Equal("1", snapshot.Query("PRAGMA user_version;").Single(), "The retained pre-import snapshot keeps the original schema version.");
+                Equal("ok", snapshot.Query("PRAGMA quick_check;").Single(), "The normalized snapshot remains a complete SQLite database.");
+                Equal(oldPresetJson, snapshot.Query("SELECT json FROM presets;").Single(), "Snapshot normalization retains the exact original preset JSON committed through the live WAL.");
+                Equal(oldSettingsJson, snapshot.Query("SELECT json FROM settings WHERE key='application';").Single(), "Snapshot normalization retains the exact original settings JSON committed through the live WAL.");
+            }
+            True(!File.Exists(installedBackup + "-wal") && !File.Exists(installedBackup + "-shm"), "Reopening the complete retained snapshot does not require or leave WAL sidecars.");
             using var destination = new CacheTestSqlite(Path.Combine(target, "library.db"));
             Equal(LibraryStore.CurrentSchemaVersion.ToString(), destination.Query("PRAGMA user_version;").Single(), "The imported copy upgrades the old schema before use.");
             var importedPreset = JsonNode.Parse(destination.Query("SELECT json FROM presets;").Single())!;
@@ -73,6 +85,7 @@ internal static partial class Program
             Equal(settingsJson["Plugins"]![0]!["FuturePluginMetadata"]!.ToJsonString(), savedSettings["Plugins"]![0]!["FuturePluginMetadata"]!.ToJsonString(), "Ordinary settings persistence preserves unknown plugin fields.");
             Equal(settingsJson["Template"]!["FutureTemplateMetadata"]!.ToJsonString(), savedSettings["Template"]!["FutureTemplateMetadata"]!.ToJsonString(), "Ordinary settings persistence preserves unknown preview-template fields.");
         }
+        TestInstalledClosedWalSnapshot();
 
         var local = CreateInstalledStorageFixture("installed-storage-local-precedence", inPlace: true, externalPreview: false);
         string otherRoot = Path.Combine(Path.GetDirectoryName(local.Root)!, "other-library");
@@ -254,6 +267,57 @@ internal static partial class Program
 
     private sealed record InstalledStorageFixture(string Root, string Application, string UserData, LibraryStore Store,
         PresetRecord Record, string Preview, string Baseline, string Config, string Source, string Unrelated);
+
+    private static void TestInstalledClosedWalSnapshot()
+    {
+        var fixture = CreateInstalledStorageFixture("installed-storage-closed-wal", legacySchema: true);
+        string source = fixture.Store.DatabasePath;
+        List<string> originalRecords;
+        string originalSettings;
+        using (var database = new CacheTestSqlite(source))
+        {
+            database.Execute("PRAGMA journal_mode=WAL;");
+            var second = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(fixture.Record, LibraryJson.Options), LibraryJson.Options)!;
+            second.Id = Guid.NewGuid().ToString("N");
+            second.Name = "TEST ONLY second closed-WAL record";
+            second.Tags = ["TEST ONLY closed WAL personal tag"];
+            database.Execute("INSERT INTO presets (id,source_id,synth,source_path,internal_path,content_hash,status,favorite,feedback,json,updated_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?);",
+                second.Id, second.SourceId, (int)second.Synth, second.SourcePath, second.InternalPath, second.ContentHash,
+                (int)second.Status, second.Favorite, second.Feedback, JsonSerializer.Serialize(second, LibraryJson.Options), DateTime.UtcNow.ToString("O"));
+            originalRecords = database.Query("SELECT json FROM presets ORDER BY id;");
+            originalSettings = database.Query("SELECT json FROM settings WHERE key='application';").Single();
+            Equal("1", database.Query("PRAGMA user_version;").Single(), "The closed-WAL fixture retains its original legacy schema.");
+        }
+        byte[] originalBytes = File.ReadAllBytes(source);
+        Equal((byte)2, originalBytes[18], "A checkpointed closed WAL database still carries WAL write-version metadata.");
+        Equal((byte)2, originalBytes[19], "A checkpointed closed WAL database still carries WAL read-version metadata.");
+        True(!File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "All closed-WAL fixture data is committed to its main file without sidecars.");
+        string originalHash = InstalledDatabaseHash(source);
+        string snapshots = Path.Combine(Path.GetDirectoryName(fixture.Root)!, "private-snapshots");
+        string snapshot = Path.Combine(snapshots, "closed-wal.db");
+        FileAttributes originalAttributes = File.GetAttributes(source);
+        try
+        {
+            File.SetAttributes(source, originalAttributes | FileAttributes.ReadOnly);
+            LibraryStore.SnapshotExistingDatabase(source, snapshot);
+            True(originalBytes.SequenceEqual(File.ReadAllBytes(source)), "Snapshotting a closed WAL library preserves every source database byte, including its original schema and JSON.");
+            Equal(originalHash, InstalledDatabaseHash(source), "Snapshotting a read-only closed WAL library never rewrites the original database.");
+            True(!File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "Reading a closed WAL library never creates auxiliary files beside the original.");
+            True((File.GetAttributes(snapshot) & FileAttributes.ReadOnly) == 0, "The private snapshot does not inherit the source's read-only attribute.");
+            using (var database = new CacheTestSqlite(snapshot))
+            {
+                Equal("delete", database.Query("PRAGMA journal_mode;").Single(), "A closed-WAL snapshot is an independent DELETE-mode database.");
+                Equal("1", database.Query("PRAGMA user_version;").Single(), "A closed-WAL snapshot keeps its source schema version before application migration.");
+                Equal("ok", database.Query("PRAGMA quick_check;").Single(), "The normalized closed-WAL snapshot passes SQLite integrity checks.");
+                True(originalRecords.SequenceEqual(database.Query("SELECT json FROM presets ORDER BY id;")), "Every closed-WAL record and its original JSON survives the private-copy snapshot path.");
+                Equal(originalSettings, database.Query("SELECT json FROM settings WHERE key='application';").Single(), "The closed-WAL snapshot retains the exact original settings JSON.");
+            }
+            True(!File.Exists(snapshot + "-wal") && !File.Exists(snapshot + "-shm"), "Opening the independent snapshot requires no WAL sidecars.");
+            True(Directory.GetFiles(snapshots).SequenceEqual(new[] { snapshot }), "A successful snapshot removes its private input copy and leaves only the final database.");
+            True(originalBytes.SequenceEqual(File.ReadAllBytes(source)) && !File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "Inspecting the completed private snapshot leaves the source bytes and directory unchanged.");
+        }
+        finally { File.SetAttributes(source, originalAttributes); }
+    }
 
     private static string InstalledDatabaseHash(string path)
     {

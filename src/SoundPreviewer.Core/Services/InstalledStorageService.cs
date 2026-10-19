@@ -72,7 +72,7 @@ public static class InstalledStorageService
             string stagedDatabase = Path.Combine(stage, "library.db");
             File.Copy(backup, stagedDatabase);
             int oldVersion;
-            using (var snapshot = new NativeSqlite(backup, readOnly: true))
+            using (var snapshot = new NativeSqlite(backup))
                 oldVersion = int.Parse(snapshot.QueryStrings("PRAGMA user_version;")[0], CultureInfo.InvariantCulture);
             var destination = new LibraryStore(stagedDatabase);
             destination.Initialize(); // Only the private copy is upgraded; the old library remains usable by its old version.
@@ -107,7 +107,7 @@ public static class InstalledStorageService
 
     private static void ReadAndPreparePaths(string databasePath, ImportPlan plan)
     {
-        using var database = new NativeSqlite(databasePath, readOnly: true);
+        using var database = new NativeSqlite(databasePath);
         var ids = database.QueryStrings("SELECT id FROM presets ORDER BY id;");
         var json = database.QueryStrings("SELECT json FROM presets ORDER BY id;");
         for (int i = 0; i < ids.Count; i++)
@@ -306,7 +306,7 @@ public static class InstalledStorageService
             if (backupHash != Fingerprints.HashFile(finalBackup)) throw new IOException("迁移前快照备份校验失败，原库未更改。");
             // SQLite commits this complete, already-validated database copy as one write transaction,
             // including when the installed library has a live WAL. Never replace a .db beneath its WAL.
-            using var snapshot = new NativeSqlite(stagedDatabase, readOnly: true);
+            using var snapshot = new NativeSqlite(stagedDatabase);
             snapshot.BackupTo(sourceDatabase);
         }
         catch
