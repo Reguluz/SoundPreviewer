@@ -136,6 +136,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var previousPreviewDirectory = _settings.PreviewDirectory;
         try { _settings.PreviewDirectory = ValidateOutputPath(previousPreviewDirectory); }
         catch (ArgumentException) { _settings.PreviewDirectory = App.DataDirectory; }
+        if (!App.SmokeTest || App.TestInstalledStorage) _settings.PreviewDirectory = App.DataDirectory;
         bool migratedPreviewDirectory = !string.Equals(previousPreviewDirectory, _settings.PreviewDirectory, StringComparison.Ordinal);
         bool upgradedNoteOrder = _settings.Template.NoteOrder != PreviewNoteOrder.MiddleHighLow;
         _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
@@ -153,6 +154,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SeekSlider.AddHandler(PointerReleasedEvent, Seek_Released, RoutingStrategies.Tunnel, handledEventsToo: true);
         VolumeSlider.PropertyChanged += Volume_Changed;
         PopulateSettings();
+        foreach (string message in App.StorageStartupMessages) Log(message);
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
         if (migratedPreviewDirectory) Log("预览保存目录：" + _settings.PreviewDirectory);
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
@@ -175,7 +177,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             // The desktop may constrain the initial window to a smaller working area.
             Width = ClientSize.Width;
             Height = ClientSize.Height;
-            var restored = await Task.Run(() => _store.RecoverInterrupted());
+            var restored = await Task.Run(() => _store.RecoverInterrupted(preserveMissingPreviewMappings: true));
             var records = await Task.Run(_store.LoadPresets);
             if (_isClosing) return;
             if (_categoryService.Load().Success)
@@ -1151,17 +1153,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private List<PluginConfiguration> ClonePlugins() => JsonSerializer.Deserialize<List<PluginConfiguration>>(
         JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
-    private async void BrowsePreview_Click(object sender, RoutedEventArgs e)
-    {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "选择预览保存位置", AllowMultiple = false,
-            SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
-        });
-        if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
-        try { await ChangePreviewDirectoryAsync(directory); }
-        catch (Exception error) { ShowError(error); }
-    }
     private void VitalDefaults_Click(object sender, RoutedEventArgs e)
     {
         QuickPreviewMode.IsChecked = false;
@@ -1177,6 +1168,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 throw new ArgumentException("请修正渲染器设置中的输入。");
             var template = new PreviewTemplate
             {
+                AdditionalProperties = _settings.Template.AdditionalProperties is { } fields ? new(fields) : null,
                 LowNote = NoteNames.Parse(LowNoteBox.Text ?? ""), MiddleNote = NoteNames.Parse(MiddleNoteBox.Text ?? ""), HighNote = NoteNames.Parse(HighNoteBox.Text ?? ""),
                 Velocity = ParseInt(VelocityBox.Text, "力度"), HoldSeconds = ParseDouble(HoldBox.Text, "按键时长"), TailSeconds = ParseDouble(TailBox.Text, "尾音"),
                 Bpm = ParseInt(BpmBox.Text, "BPM"), SampleRate = SampleRateBox.SelectedIndex == 1 ? 48000 : 44100,
@@ -1211,6 +1203,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
             candidate.MaxParallelRenders = (ParallelRendering.SelectedItem as Choice<int>)?.Value ?? 0;
+            if (!App.SmokeTest || App.TestInstalledStorage) candidate.PreviewDirectory = App.DataDirectory;
             _store.SaveSettings(candidate);
             _settings = candidate;
             foreach (var plugin in Plugins)
@@ -1306,15 +1299,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
-                Title = "选择包含 library.db 的旧音色库目录", AllowMultiple = false,
+                Title = "选择要导入的旧版 library.db 所在目录", AllowMultiple = false,
                 SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
             });
             if (_isClosing || folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
-            if (ApplicationPaths.SamePath(directory, App.DataDirectory)) return;
-            App.StartWithLibrary(directory);
+            if (ApplicationPaths.SamePath(directory, App.DataDirectory)) { Log("已在使用当前程序的 Preview。"); return; }
+            if (!File.Exists(Path.Combine(directory, "library.db"))) throw new ArgumentException("所选目录没有 library.db。");
+            if (!await Dialogs.ShowAsync(this, "将把所选旧库和已记录的预览复制、校验到本程序的 Preview。当前 Preview 会完整保留到程序旁的独立备份目录，不合并两份库；旧库和旧音频也会保留。完成后重新打开程序。", "导入旧版音色库", question: true) || _isClosing) return;
+            _storageRelocated = true;
+            _relocatedDirectory = App.DataDirectory;
+            UnloadForStorageMaintenance();
+            NotifyAll();
+            App.StartWithLibrary(directory, importLibrary: true);
             Close();
         }
-        catch (Exception error) { ShowError(error); }
+        catch (Exception error) { _storageRelocated = false; NotifyAll(); ShowError(error); }
     }
 
     private void OpenData_Click(object sender, RoutedEventArgs e)

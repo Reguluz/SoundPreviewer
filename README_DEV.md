@@ -6,7 +6,7 @@
 
 Windows / macOS 本地合成器预制音色库，使用 C#、.NET 8 和 Avalonia 开发。两端共用完整界面与业务核心，使用各自的原生音频输出。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。界面使用 Avalonia NuGet 包，音色库与渲染在本地运行，不调用云端服务。
 
-当前版本为 **v0.7.0 开发版**，供朋友测试。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。0.7.0 增加同音源优先调度和独立音色文件拖出，保留 0.6.0 的自动并行与进程树内存保护。真实音源的支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
+当前版本为 **v0.7.1 开发版**，供朋友测试。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。0.7.1 修正数据位置，正式运行固定使用程序旁的 Preview，旧库先复制校验再使用；0.7.0 的同音源优先调度、独立音色文件拖出及 0.6.0 的自动并行与进程树内存保护继续保留。真实音源的支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
 
 日常直接在 `main` 开发，不自动创建分支或 PR；小修递增 patch，较大功能递增 minor，任何 major 递增须用户明确确认。`version-policy.json` 当前批准 major 0，CI 校验该约束；所有 `0.x` 标签发布均为 prerelease。只有用户要求并推送版本 tag 后，发布流程才会公开 Release。
 
@@ -22,11 +22,11 @@ powershell -ExecutionPolicy Bypass -File .\Start-SoundPreviewer.ps1
 
 macOS 从源码双击 `Start-SoundPreviewer.command`，或运行 `./Start-SoundPreviewer.command`。
 
-新安装默认将数据库、日志、预览音频、标签与可编辑分类规则集中保存到程序旁的 `Preview`。Windows 位于 `SoundPreviewer.exe` 同目录；macOS 位于 `SoundPreviewer.app` 旁，不写入 bundle。请将应用放在可写的独立文件夹，例如 Mac 的 `~/Applications/SoundPreviewer`。更新时保留 `Preview` 和 `library-location.json`，移动程序时一并带走。窗口右下角版本提示和设置中的数据目录可核对实际位置。
+正式运行将数据库、日志、预览音频、标签与可编辑分类规则固定保存到程序旁的 `Preview`，安装版与 Portable 相同。Windows 位于 `SoundPreviewer.exe` 同目录；macOS 位于 `SoundPreviewer.app` 旁，不写入 bundle。请将应用放在可写的独立文件夹，例如 Mac 的 `~/Applications/SoundPreviewer`；不可写时明确报错，不回退到用户目录。更新时保留 `Preview`，窗口版本提示和设置中的数据目录可核对实际位置。
 
-旧用户目录和便携 `local-data` 库仍可打开；在「音源与设置 → 试听与存储 → 打开已有音色库」选择含 `library.db` 的目录，成功后会记住位置。关联操作不搬动文件；需要换盘时使用「更改目录」，选择迁移或清除旧音频，数据库、设置、手工标签、分类与收藏会迁入新目录。旧数据库和 `Config` 保留作回滚备份，共享或外部音频保留并报告。显式 `--data-directory` 适合隔离验证，另加 `--remember-data-directory` 才记住位置。详见 [升级与缓存](docs/cross-platform.md#数据与升级)。
+旧定位文件、旧用户目录和便携 `local-data` 用于查找首次兼容迁移来源，不再让正式程序续写旧位置。迁入当前程序旁的 `Preview` 前，先建立一致数据库快照、复制个人记录与规则及引用音频并校验，旧数据库和旧音频保留作回退备份；已有 `Preview` 保持自身记录，只归并它引用的外部音频和声音参照。设置提供「打开 Preview 文件夹」「清空预览」「导入旧版音色库」，不再提供任意外部输出目录。手动导入须确认，先在暂存目录复制校验所选库与引用音频，并验证记录、设置可读，再将当前完整 Preview 原子改名为程序旁 `Preview-before-import-*` 后发布暂存库，不合并；失败且目标空缺时尽量原子恢复原名并明确备份位置。此类备份保留原 Preview 绝对路径，恢复须先退出并备份当前 Preview，再将备份目录还原为 Preview，不能直接作为异名导入来源。普通历史 `--data-directory` 参数仅指定导入来源；`--smoke-test --data-directory` 保留给构建、测试及隔离诊断，新内部 `--test-installed-storage` 入口运行正式启动的同一迁移流程再执行 UI 自检。详见 [升级与缓存](docs/cross-platform.md#数据与升级)。
 
-Portable 表示免安装；库内音频、音色来源和插件仍使用绝对路径。升级可在原目录替换程序文件；换位置请先在应用内迁移到新的空目录，再移动程序并打开目标库。直接剪切整个文件夹不会自动重写这些路径，迁移完成前请保留原目录。
+Portable 表示免安装，升级可在原目录替换程序文件。移动程序前退出并备份，连同 `Preview` 一起保留；原音色、插件和可选 Python 环境的绝对路径仍须核对。
 
 ## 配置与使用
 
@@ -109,11 +109,11 @@ bash scripts/Publish-Desktop.sh osx-arm64 # Apple Silicon
 bash scripts/Publish-Desktop.sh osx-x64   # Intel
 ```
 
-在对应 `artifacts/publish-<平台>` 文件夹内双击 `Start-SoundPreviewer.command`（macOS）或 `SoundPreviewer.exe`（Windows）。供朋友测试的安装包、三平台构建和标签发布操作见 [版本发布](docs/releases.md)。升级时保留 `Preview` 和库定位文件；发布脚本发现旧输出含用户数据时会拒绝清理。构建/测试矩阵与验收边界见 [双平台说明](docs/cross-platform.md)。
+在对应 `artifacts/publish-<平台>` 文件夹内双击 `Start-SoundPreviewer.command`（macOS）或 `SoundPreviewer.exe`（Windows）。供朋友测试的安装包、三平台构建和标签发布操作见 [版本发布](docs/releases.md)。升级时保留 `Preview`，旧定位文件仅用于兼容迁移来源；发布脚本发现旧输出含用户数据时会拒绝清理。构建/测试矩阵与验收边界见 [双平台说明](docs/cross-platform.md)。
 
 ## 数据与维护
 
-「试听与存储」中的「更改目录」会统一迁移数据库、设置、分类规则与手工元数据，并让用户选择迁移或清除旧预览音频。迁移会校验复制内容、重写音频与加载防错参照路径，旧数据库和 `Config` 保留作回滚备份；清除仅处理当前记录或基准明确引用、可确认独占的缓存，不删除预制、收藏或标签。共享、外部和未知音频 / 基准保留并报告，不凭缓存文件名删除孤立文件；「清空预览」不代表整个目录变空。
+旧库兼容迁移将数据库、设置、分类规则、手工元数据和引用预览复制并校验到固定 `Preview`，保留源数据库及其 schema、WAL 中的已提交记录、`Config` 与原音频作回退。应用设置及记录的未知 JSON 字段保留，缺失的已生成音频保留原映射并提示。已有库只归并自身引用的外部预览和基准；用户确认的「导入旧版音色库」先在暂存目录准备并验证所选库，成功后才完整备份当前 Preview 并发布，不合并两套库。「清空预览」仅处理当前记录或基准明确引用、可确认独占的缓存，不删除预制、收藏或标签。共享、外部和未知音频 / 基准保留并报告，不凭缓存文件名删除孤立文件；清理不代表整个目录变空。
 
 所有预制文件均只读。索引在 Windows 使用自带的 `winsqlite3.dll`，macOS 使用系统 `libsqlite3.dylib`，旧数据库自动迁移并在下次可访问的扫描中回填 MD5；Vital 预览使用原生 PCM16，DawDreamer 桥接保留 float32 原始输出，先校验临时文件，再原子提交。试听在 Windows 通过 WinMM、macOS 通过 AudioQueue 输出同一份内存 PCM16 音频，独立音量不修改预览文件，也不依赖 Windows Media Player。生成缓存包含音色内容、插件/程序指纹、实际版本、试听模板及适配器版本；默认复用依据已保存模板校验完整预览，不因当前配置变化自动重渲染。源文件内容或音源归属变化会使旧映射失效。单文件外部资源的变更跟踪仍需专用适配器补充。
 

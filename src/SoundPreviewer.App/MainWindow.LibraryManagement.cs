@@ -73,56 +73,6 @@ public partial class MainWindow
 
     private static IEnumerable<string> SplitMetadata(string? text) => Regex.Split(text ?? "", "[,，;；\\r\\n]+");
 
-    private void UseDefaultPreviewDirectory_Click(object sender, RoutedEventArgs e) =>
-        _ = ChangePreviewDirectoryAsync(Path.Combine(ApplicationPaths.PortableApplicationDirectory, "Preview"));
-
-    private async Task ChangePreviewDirectoryAsync(string directory)
-    {
-        if (!IsIdle || _isClosing) return;
-        try
-        {
-            directory = Path.GetFullPath(directory);
-            if (ApplicationPaths.SamePath(directory, App.DataDirectory) && ApplicationPaths.SamePath(directory, _settings.PreviewDirectory))
-            {
-                Log("当前已使用此数据与预览目录。");
-                return;
-            }
-            var mode = await Dialogs.ChoosePreviewDirectoryChangeAsync(this, App.DataDirectory, directory);
-            if (_isClosing || mode is null) return;
-            PreviewRelocationResult? result = null;
-            _isStorageMaintenance = true;
-            try
-            {
-                await RunTask(async _ =>
-                {
-                    _taskTitle = "正在更改数据与预览目录";
-                    _statusMessage = mode == PreviewDirectoryChangeMode.Migrate ? "正在复制并校验预览与音色记录…" : "正在保留音色记录并清除旧预览…";
-                    UnloadForStorageMaintenance();
-                    NotifyAll();
-                    result = await Task.Run(() => PreviewStorageService.RelocateLibrary(_store, _settings, directory, mode.Value));
-                    _relocatedDirectory = result.Directory;
-                    _storageRelocated = true;
-                    try { ApplicationPaths.RememberDataDirectory(result.Directory); }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-                    {
-                        // A completed relocation must never resume editing the old database.
-                        _closeWhenDone = false;
-                        Log("新目录已经保存，尚未能记住位置：" + error.Message);
-                    }
-                    _statusMessage = "新音色库已保存。" + FormatStorageWarnings(result.Warnings, result.Directory);
-                    Log(_statusMessage);
-                });
-            }
-            finally { _isStorageMaintenance = false; NotifyAll(); }
-            if (result is null || _isClosing) return;
-            if (result.Warnings.Count > 0)
-                await Dialogs.ShowAsync(this, "新目录已经保存。" + FormatStorageWarnings(result.Warnings), "目录已更改");
-            if (_isClosing) return;
-            OpenRelocatedLibrary();
-        }
-        catch (Exception error) { ShowError(error); }
-    }
-
     private void OpenRelocatedLibrary_Click(object sender, RoutedEventArgs e) => OpenRelocatedLibrary();
 
     private void OpenRelocatedLibrary()

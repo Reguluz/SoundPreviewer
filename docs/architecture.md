@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-20，当前为 0.7.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
+更新日期：2026-10-20，当前为 0.7.1 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -91,11 +91,15 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 存储与缓存
 
-新库默认集中到 `ApplicationPaths.DefaultPreviewDirectory`：Windows 为程序目录下的 `Preview`，macOS 为 `.app` 旁的 `Preview`。`ApplicationDirectory` 仍指向实际程序与资源目录，`PortableApplicationDirectory` 用于可迁移数据位置。`library.db`、运行日志、缓存、加载防错参照、`Config` 与手工元数据保存在同一库根。可执行目录须可写，显式参数和已记住的旧库仍可覆盖默认路径。定位文件优先保存在程序旁，并以相对路径记录随程序移动的库；程序旁只读时可将小型定位文件写到原用户目录，数据本身不会静默改写到那里。详见[数据与升级](cross-platform.md#数据与升级)。
+0.7.1 正式运行固定使用 `ApplicationPaths.DefaultPreviewDirectory`：Windows 为程序目录下的 `Preview`，macOS 为 `.app` 旁的 `Preview`，不写入签名包内。`ApplicationDirectory` 仍指向实际程序与资源目录，`PortableApplicationDirectory` 用于确定数据根。`library.db`、运行日志、缓存、加载防错参照、`Config` 与手工元数据保存在同一库根；设置不能改为任意外部输出目录。程序目录不可写时明确报错，不静默回退到用户目录。普通历史 `--data-directory` 仅指定导入来源，`--smoke-test --data-directory` 保留隔离测试与诊断；内部 `--test-installed-storage` 运行真实启动的同一迁移流程再执行 UI 自检。详见[数据与升级](cross-platform.md#数据与升级)。
 
-`PreviewStorageService.RelocateLibrary` 先建立包含已提交 WAL 页的 SQLite 快照，复制 `Config` 和必要音频并校验哈希，再在目标库中事务保存设置与路径。迁移模式保留试听与基准映射；清除模式迁移记录和规则、清空派生音频映射。旧数据库和 `Config` 保留作回滚备份，迁移前快照也存入新库 `Backups`。仅处理当前记录或基准明确引用、可确认独占且不经链接的缓存；旧共享目录、外部音频、源文件和未知音频 / 基准保留并报告，不凭哈希命名清理孤立文件。独立「清空预览」同样保留标签、分类、收藏与源记录，不递归删除库根，也不保证目录完全为空。
+旧定位文件、旧用户库和 `local-data` 仅用于确定首次迁移来源。目标 `Preview` 已有库时不使用旧库覆盖，只归并目标自身引用的外部音频与加载防错参照；需要兼容旧库时，先复制一致快照、个人记录和规则及引用预览，校验后在目标库更新路径，再使用目标。旧数据库、规则与音频保留作回退备份，不因定位记录或旧 `PreviewDirectory` 设置而续写原位置。
 
-SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止、回滚；schema 2 保持不变，未知更高结构拒绝打开。程序升级不单因应用版本改变缓存键，既有有效预览仍可复用。
+设置提供「打开 Preview 文件夹」「清空预览」「导入旧版音色库」。手动导入经界面确认后，Core 先在独立暂存目录复制全部引用音频与源数据库，并验证已知记录及设置字段可读；完成后才将当前完整 Preview 原子改名为同一程序目录下 `Preview-before-import-*`，再发布暂存库，不合并。失败且目标空缺时尽量原子恢复原名，并明确显示备份位置。备份内仍有原 Preview 的绝对路径，拒绝将其作为普通异名源直接导入；恢复需退出并备份当前 Preview，再把恢复目录还原名 Preview。
+
+存储迁移先建立包含已提交 WAL 页的 SQLite 快照，复制 `Config` 和必要音频并校验哈希，再在目标库中事务保存设置与路径。旧库迁入固定 Preview 时保留试听与基准映射，并保留全部原始数据库、规则和音频作为回退备份。独立「清空预览」只处理当前记录或基准明确引用、可确认独占且不经链接的缓存；共享目录、外部音频、源文件和未知音频 / 基准保留并报告，不凭哈希命名清理孤立文件。清理保留标签、分类、收藏与源记录，不递归删除库根，也不保证目录完全为空。
+
+SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止、回滚；schema 2 保持不变，未知更高结构拒绝打开。首次导入只升级暂存副本，源数据库、schema、WAL 中的已提交记录及原文件保留；记录与应用设置的未知 JSON 字段也保留。缺失的已生成音频保留原映射并提示，不自动清空。程序升级不单因应用版本改变缓存键，既有有效预览仍可复用。
 
 数据库使用 Windows 提供的 `winsqlite3.dll` 或 macOS 提供的 `/usr/lib/libsqlite3.dylib`，采用 UTF8 参数绑定、WAL 和事务。`user_version` 标记数据库结构版本；v2 在 v1 基础上增补 MD5、重复代表列和索引，保留旧记录与设置。预制与设置以完整 JSON 保存，另有身份、来源、状态和反馈列供索引使用。`FindByMd5` 验证十六进制输入并进行参数绑定、大小写不敏感的索引检索。收藏、反馈时间、渲染模板、插件版本、实际音区时长及指标均随记录持久化。
 

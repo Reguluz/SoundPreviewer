@@ -76,6 +76,9 @@ jobs:
       - name: Verify published desktop UI with isolated empty user data
         shell: pwsh
         run: ./scripts/Test-DesktopPackage.ps1 -Runtime '${{ matrix.runtime }}'
+      - name: Verify installed Preview storage and legacy cache migration
+        shell: pwsh
+        run: ./scripts/Test-InstalledStorage.ps1 -Runtime '${{ matrix.runtime }}'
       - name: Prepare Windows installer compiler
         if: runner.os == 'Windows'
         shell: pwsh
@@ -124,5 +127,7 @@ jobs:
           path: |
             artifacts/ui-smoke-*/
             artifacts/installer-smoke-*/
+            artifacts/installed-storage-smoke-*/**/Preview/ui-*
+            artifacts/installed-storage-smoke-*/result.json
           if-no-files-found: ignore
           retention-days: 7

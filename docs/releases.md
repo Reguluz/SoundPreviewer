@@ -1,6 +1,8 @@
 # 安装、升级与 GitHub 发布
 
-Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.7.0 预发行版**。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.7.1 预发行版**。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+
+0.7.1 修正数据位置：正式运行固定使用程序旁的 Preview，旧库位置只作兼容迁移来源；先复制校验并保留原始数据库与音频，不继续向旧目录生成。已有 Preview 不被旧库覆盖，程序目录不可写时明确报错。
 
 0.7.0 增加同音源优先调度、原音色或音色库文件定位及独立音色文件拖出，保留原 2 GiB 目标与旧库兼容规则。当前按用户认可的文件定位方案过渡，Windows FL Studio 自动创建音源仍待专用适配，具体接收方式见 [DAW 音色传递](daw-transfer.md)。当前仍按音色创建新宿主，不能将排序优化解释为插件只加载一次。
 
@@ -11,22 +13,24 @@ Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目�
 ## 给测试朋友的安装说明
 
 - Windows 10 1809 / Windows 11 x64：下载 `SoundPreviewer-版本-win-x64-setup.exe`，以当前用户安装。开始菜单打开 SoundPreviewer。升级时退出应用，再运行新安装包，沿用同一个安装目录。需要免安装时可下载 `win-x64-portable.zip`，解压到新的目录后启动。
-- Apple Silicon Mac：下载 `osx-arm64.dmg`；Intel Mac：下载 `osx-x64.dmg`。将 `SoundPreviewer.app` 复制到可写的独立目录，例如 `~/Applications/SoundPreviewer`，再从本机打开；ZIP 中提供相同 app。升级时退出旧版本并替换 app，保留旁边的 `Preview` 及定位文件。不要直接在只读 DMG 中启动。
+- Apple Silicon Mac：下载 `osx-arm64.dmg`；Intel Mac：下载 `osx-x64.dmg`。将 `SoundPreviewer.app` 复制到可写的独立目录，例如 `~/Applications/SoundPreviewer`，再从本机打开；ZIP 中提供相同 app。升级时退出旧版本并替换 app，保留旁边的 `Preview`。旧定位文件请保留供兼容迁移查找原库。不要直接在只读 DMG 中启动。
 - 安装包尚未配置 Windows 代码签名和 Apple Developer 签名、公证。系统可能要求确认来源；发布页的 SHA-256 校验文件可用于检查下载完整性。
 
 发行包包含 UI、索引和缓存功能、独立 Worker、固定版本的 Python 桥接源文件及 requirements。Windows 另包含 Sylenth1 x86 VST2 宿主及其许可声明；该可选原生宿主仍需要本机 Microsoft VC++ x86 运行库。商业音源、用户预制、授权文件、Python 和 DawDreamer 二进制均由使用者另行准备，不混入安装包。真实音源的已验证范围见仓库 `docs/rendering.md`；CI 空宿主或 UI 自检不扩大兼容性声明。
 
 ## 数据与升级约定
 
-安装程序只管理程序文件。新应用默认将索引、设置、手工标签与分类、收藏、试听缓存和默认启动声音基准集中到可迁移的 `Preview` 目录：Windows 为应用程序目录下的 `Preview`；macOS 为 `SoundPreviewer.app` 旁的 `Preview`，不写入 app bundle 内。程序目录须可写，移动程序时应连同 `Preview` 和旁边的 `library-location.json` 一起保留。
+安装程序只管理程序文件。0.7.1 正式运行将索引、设置、手工标签与分类、收藏、试听缓存和默认启动声音基准固定集中到程序旁的 `Preview`：Windows 为 `SoundPreviewer.exe` 同目录下的 `Preview`，安装版与 Portable 相同；macOS 为 `SoundPreviewer.app` 旁的 `Preview`，不写入 app bundle 内。程序目录须可写，不可写时明确报错，不回退到用户目录。用户界面不再提供任意外部数据或新音频输出目录。
 
-明确指定 `--data-directory` 的目录继续优先使用，已有定位记录、旧版用户数据目录和 `local-data` 按兼容规则继续处理。请在首次切换版本前备份旧库；若旧版数据没有自动出现，在设置中打开原有音色库，成功打开后新版本会记住该位置。需要搬移时使用应用提供的迁移操作，并核对预览路径和空间后再处理原目录。
+旧定位记录、旧版用户数据目录和 `local-data` 仅用于确定首次兼容迁移来源。新程序先复制一致数据库快照、个人记录、规则与引用音频，校验成功后使用程序旁的 `Preview`；保留原数据库与原音频作为回退备份。已有 `Preview` 不被另一套旧库覆盖，只归并自身引用的外部音频和加载防错参照。首次切换版本前请备份旧库，迁入后核对记录及试听再处理原目录。普通历史 `--data-directory` 仅指定导入来源；`--smoke-test --data-directory` 保留给构建、测试与隔离诊断，不是正式使用的外部保存位置设置。内部 `--test-installed-storage` 跑同一正式启动迁移后再执行 UI 自检。
 
-Windows 升级与卸载均保留生成的 `Preview`；macOS 替换或删除 app 也不删除旁边的 `Preview`。备份时先退出应用，再复制整个目录。数据库需要升级时先保留原始备份，预览 WAV 和已有音色记录继续复用。手工标签和分类与自动识别结果分别保存，重新扫描或重算规则不会覆盖手工编辑，明确清空也会保留；恢复自动识别会采用最近的自动结果。当前这些字段沿用数据库 schema 2，未知 JSON 字段随记录保留。应用版本、缓存格式和渲染器身份分别管理，升级应用不会仅因应用版本改变就清空缓存。
+设置提供「打开 Preview 文件夹」「清空预览」「导入旧版音色库」。手动导入必须在界面确认；先在暂存目录复制所选源库与全部引用音频，校验副本和记录、设置的可读性，再把整个当前 Preview 原子改名为程序旁 `Preview-before-import-*` 并发布暂存库，不合并。失败且目标空缺时尽量原子恢复原名，并明确提示保留的备份位置。备份内仍有原 Preview 的绝对路径，不能直接作为异名源导入；恢复时先退出并备份当前 Preview，再将所需恢复目录还原名 Preview。
 
-关联旧库只记住原位置，不搬移文件。请保留原 `local-data` 与原音频，不要随旧版程序文件夹删除；若预览或 Python 环境也位于旧程序目录，整个原目录暂需保留。发布脚本发现旧发布目录中含用户数据库、预览、日志或自定义规则时会拒绝清理，应先保留该目录并在新的工作副本构建。
+Windows 升级与卸载均保留生成的 `Preview`；macOS 替换或删除 app 也不删除旁边的 `Preview`。备份时先退出应用，再复制整个目录。首次导入只升级暂存副本，保留源数据库及其 schema、WAL 中的已提交记录与原文件；预览 WAV 和已有音色记录继续复用。缺失的已生成音频保留原映射并提示，不自动清空。手工标签和分类与自动识别结果分别保存，重新扫描或重算规则不会覆盖手工编辑，明确清空也会保留；恢复自动识别会采用最近的自动结果。当前这些字段沿用数据库 schema 2，记录与应用设置的未知 JSON 字段保留。应用版本、缓存格式和渲染器身份分别管理，升级应用不会仅因应用版本改变就清空缓存。
 
-Portable 指免安装，升级时可在原目录替换程序文件。库内预览、音色来源和插件使用绝对路径，直接剪切整个文件夹不会自动重写；换位置应先在应用中迁移到新的空目录，再移动程序并关联目标库，完成核对前保留原目录。可选 Python 环境搬移后可能需要按新路径重新准备。
+0.7.0 及更早版本可能只关联原库而继续向旧目录写音频；0.7.1 不再沿用该行为。兼容迁入不会删除原 `local-data`、旧用户库、原音频或源音色。若可选 Python 环境仍依赖原程序路径，请先保留原目录并核对或重新准备。发布脚本发现旧发布目录中含用户数据库、预览、日志或自定义规则时会拒绝清理，应先保留该目录并在新的工作副本构建。
+
+Portable 指免安装，升级时可在原目录替换程序文件。移动程序前先退出并备份，连同 `Preview` 一起保留；音色来源、插件和可选 Python 环境的绝对路径仍需核对。可选 Python 环境搬移后可能需要按新路径重新准备。
 
 旧程序不保证能读取新程序修改后的数据库。需要回退时使用升级前的完整数据备份，不要让两个版本同时打开同一份数据。
 
@@ -47,7 +51,7 @@ pwsh -File scripts/Test-DesktopPackage.ps1 -Runtime osx-arm64
 bash scripts/Package-Desktop.sh osx-arm64
 ```
 
-Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases`。发布脚本只打包构建输出；发现旧输出或打包暂存中含 `Preview`（包括空目录）、`local-data`、定位文件、私人规则或缓存时会拒绝清理及打包，须保留原目录并从新工作副本构建。发行版程序旁的 `Prepare-DawDreamer.ps1` / `.sh` 可按固定 requirements 准备独立 Python 环境，默认写入 `Preview/renderers`；macOS 将环境放在 app 旁，不放入 bundle。显式指定 `-DataDirectory` / `--data-directory` 可复用迁移后的目录。运行时明确指定匹配架构的 CPython 3.11 / 3.12，Serum 2 加上 `-IncludeSerum2` / `--include-serum2`。
+Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases`。发布脚本只打包构建输出；发现旧输出或打包暂存中含 `Preview`（包括空目录）、`local-data`、定位文件、私人规则或缓存时会拒绝清理及打包，须保留原目录并从新工作副本构建。发行版程序旁的 `Prepare-DawDreamer.ps1` / `.sh` 可按固定 requirements 准备独立 Python 环境，正常使用时写入当前程序旁的 `Preview/renderers`；macOS 将环境放在 app 旁，不放入 bundle。脚本的数据目录参数仅用于隔离验证等开发诊断。运行时明确指定匹配架构的 CPython 3.11 / 3.12，Serum 2 加上 `-IncludeSerum2` / `--include-serum2`。
 
 ## GitHub Actions 与新版本
 

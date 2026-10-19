@@ -18,6 +18,7 @@ public partial class App : Application
     private bool _rememberLibraryOnOpen;
     public static string DataDirectory { get; private set; } = "";
     public static bool SmokeTest { get; private set; }
+    public static bool TestInstalledStorage { get; private set; }
     public static bool ScanOnStart { get; private set; }
     public static AppSettings? ImportedSettings { get; private set; }
 
@@ -31,9 +32,21 @@ public partial class App : Application
             return;
         }
         var args = desktop.Args ?? [];
-        SmokeTest = args.Contains("--smoke-test");
+        TestInstalledStorage = args.Contains("--test-installed-storage");
+        SmokeTest = args.Contains("--smoke-test") || TestInstalledStorage;
         ScanOnStart = args.Contains("--scan-on-start");
         var dataIndex = Array.IndexOf(args, "--data-directory");
+        if (!SmokeTest || TestInstalledStorage)
+        {
+            try { BeginInstalledStartup(desktop, args, dataIndex); }
+            catch (Exception error)
+            {
+                ReleaseLibraryLocks();
+                FailInstalledStartup(desktop, error);
+            }
+            base.OnFrameworkInitializationCompleted();
+            return;
+        }
         try
         {
             if (dataIndex >= 0 && (dataIndex + 1 >= args.Length || args[dataIndex + 1].StartsWith("--", StringComparison.Ordinal)))
@@ -93,11 +106,11 @@ public partial class App : Application
     public static void LibraryOpened()
     {
         if (Current is not App { _rememberLibraryOnOpen: true } app) return;
-        ApplicationPaths.RememberDataDirectory(DataDirectory);
+        ApplicationPaths.RememberDataDirectory(DataDirectory, ApplicationPaths.PortableApplicationDirectory);
         app._rememberLibraryOnOpen = false;
     }
 
-    public static void StartWithLibrary(string directory, bool requireExistingLibrary = true)
+    public static void StartWithLibrary(string directory, bool requireExistingLibrary = true, bool importLibrary = false)
     {
         if (requireExistingLibrary && !File.Exists(Path.Combine(directory, "library.db")))
             throw new ArgumentException("所选目录没有 library.db，请选择原来的音色库数据目录。");
@@ -107,7 +120,15 @@ public partial class App : Application
         start.ArgumentList.Add("--data-directory");
         start.ArgumentList.Add(directory);
         start.ArgumentList.Add("--remember-data-directory");
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("无法打开音色库。");
+        if (importLibrary) start.ArgumentList.Add("--import-library");
+        var app = Current as App;
+        app?.ReleaseLibraryLocks();
+        try { using var process = Process.Start(start) ?? throw new InvalidOperationException("无法打开音色库。"); }
+        catch
+        {
+            if (app is not null) app._instanceMutex = AcquireLibraryLock(DataDirectory);
+            throw;
+        }
     }
 
     private static void ShowStartupMessage(IClassicDesktopStyleApplicationLifetime desktop, string text, string title)
@@ -119,24 +140,26 @@ public partial class App : Application
         var content = new StackPanel { Margin = new Thickness(24), Children = { message } };
         if (title == "无法打开本地音色库")
         {
-            var browse = new Button { Content = "选择其他数据目录", Margin = new Thickness(0, 16, 0, 0) };
+            var browse = new Button { Content = "选择旧版音色库作为迁移来源", Margin = new Thickness(0, 16, 0, 0) };
             browse.Click += async (_, _) =>
             {
                 try
                 {
-                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择可写的数据目录：已有库会继续使用，空目录会新建音色库", AllowMultiple = false });
+                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择含 library.db 的旧库；生成文件仍保存到本程序 Preview", AllowMultiple = false });
                     if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
+                    bool replace = Directory.Exists(ApplicationPaths.DefaultPreviewDirectory) && Directory.EnumerateFileSystemEntries(ApplicationPaths.DefaultPreviewDirectory).Any();
+                    if (replace && !await Dialogs.ShowAsync(window, "将先复制并校验所选旧库，再把当前 Preview 完整保留到程序旁的独立备份目录。所选库将成为新的本地 Preview，不合并两份库，原库和音频保留。", "导入旧版音色库", question: true)) return;
                     if (Current is App app)
                     {
-                        app._instanceMutex?.Dispose();
-                        app._instanceMutex = null;
+                        app.ReleaseLibraryLocks();
                     }
-                    StartWithLibrary(directory, requireExistingLibrary: false);
+                    StartWithLibrary(directory, importLibrary: replace);
                     window.Close();
                 }
                 catch (Exception error) { message.Text = error.Message; }
             };
             content.Children.Add(browse);
+            content.Children.Add(new TextBlock { Text = "数据固定保存到程序旁的 Preview。安装目录不可写时，请将程序放到可写目录后重试；迁移失败时原库保持原样。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
         }
         content.Children.Add(close);
         window.Content = content;

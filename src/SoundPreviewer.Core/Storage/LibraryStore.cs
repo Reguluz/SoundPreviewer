@@ -14,6 +14,32 @@ public sealed class LibraryStore
     public string? LastMigrationBackupPath { get; private set; }
     public string DatabasePath => databasePath;
 
+    // Import old libraries without initializing (and therefore upgrading) the source.
+    // SQLite's backup API reads the committed WAL as part of the same snapshot.
+    public static void SnapshotExistingDatabase(string sourcePath, string destinationPath)
+    {
+        string source = Path.GetFullPath(sourcePath), destination = Path.GetFullPath(destinationPath);
+        if (!File.Exists(source)) throw new FileNotFoundException("原音色库数据库不存在。", source);
+        if (ApplicationPaths.SamePath(source, destination)) throw new ArgumentException("快照不能覆盖原数据库。", nameof(destinationPath));
+        if (File.Exists(destination) || Directory.Exists(destination)) throw new IOException("快照目标已经存在，未覆盖：" + destination);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        bool created = false;
+        try
+        {
+            using (new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+            created = true;
+            using var database = new NativeSqlite(source, readOnly: true);
+            if (database.QueryStrings("PRAGMA quick_check;").Any(result => result != "ok"))
+                throw new InvalidDataException("原音色库未通过数据库完整性检查，原文件未更改。");
+            database.BackupTo(destination);
+        }
+        catch
+        {
+            if (created && File.Exists(destination)) File.Delete(destination);
+            throw;
+        }
+    }
+
     public void CreateBackup(string destinationPath)
     {
         string destination = Path.GetFullPath(destinationPath);
@@ -292,7 +318,7 @@ public sealed class LibraryStore
         }
     }
 
-    public int RecoverInterrupted()
+    public int RecoverInterrupted(bool preserveMissingPreviewMappings = false)
     {
         lock (gate)
         {
@@ -303,6 +329,7 @@ public sealed class LibraryStore
                 bool missingPreview = (preset.Status == PresetStatus.Ready || preset.Status == PresetStatus.NeedsReview) &&
                     (string.IsNullOrWhiteSpace(preset.PreviewPath) || !File.Exists(preset.PreviewPath));
                 if (!interrupted && !missingPreview) continue;
+                if (missingPreview && !interrupted && preserveMissingPreviewMappings) continue;
                 if (interrupted)
                 {
                     preset.LastRenderOutcome = "已停止";

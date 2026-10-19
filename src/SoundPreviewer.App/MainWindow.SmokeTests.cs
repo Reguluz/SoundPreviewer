@@ -24,6 +24,9 @@ public partial class MainWindow
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
+        if (App.TestInstalledStorage && (!ApplicationPaths.SamePath(App.DataDirectory, ApplicationPaths.DefaultPreviewDirectory) ||
+            !ApplicationPaths.SamePath(_settings.PreviewDirectory, App.DataDirectory) || !PreviewDirectoryBox.IsReadOnly))
+            throw new InvalidOperationException("安装版与 Portable 的音色库及生成目录没有固定在程序旁 Preview。");
         await CheckPresetDragDataAsync();
         if (PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0))
             throw new InvalidOperationException("重复音色未默认隐藏。");
@@ -248,6 +251,9 @@ public partial class MainWindow
             ClosingCallbacksChecked = true,
             TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
             PresetFileTransferChecked = true, SourceRevealCommandChecked = true,
+            InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
+            ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
+            StoredPreviewRecords = Presets.Count(row => row.Record.PreviewPath.Length > 0),
             DiscoveredPlugins = DiscoveredPlugins.Count, StopChecked = stopChecked,
             GenerationFeedbackChecked = generationFeedbackChecked, GenerationFeedbackItems = 10000, GeneratedViewChecked = generatedViewChecked,
             DuplicateFilterChecked = true, DuplicateRecords = Presets.Count(row => row.Record.DuplicateOfId.Length > 0),

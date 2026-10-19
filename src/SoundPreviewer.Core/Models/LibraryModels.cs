@@ -57,6 +57,8 @@ public sealed class PresetRecord
 
 public sealed class SourceFolder
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Path { get; set; } = "";
     public SynthKind Synth { get; set; }
@@ -66,6 +68,8 @@ public sealed class SourceFolder
 
 public sealed class PluginConfiguration
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     public SynthKind Synth { get; set; }
     public RenderBackend Backend { get; set; }
     public string ExecutablePath { get; set; } = "";
@@ -80,6 +84,8 @@ public sealed class PluginConfiguration
 
 public sealed class PreviewTemplate : IJsonOnDeserialized
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     public const double DefaultQuickPreviewSeconds = 0.5;
     private PreviewNoteOrder noteOrder = PreviewNoteOrder.MiddleHighLow;
     private bool noteOrderSpecified;
@@ -121,6 +127,8 @@ public sealed class PreviewTemplate : IJsonOnDeserialized
 
 public sealed class AppSettings : IJsonOnDeserialized
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     private int maxParallelRenders;
     private bool parallelRendersSpecified;
     public List<SourceFolder> Sources { get; set; } = [];

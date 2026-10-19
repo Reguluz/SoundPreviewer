@@ -324,15 +324,12 @@
          </StackPanel>
          <StackPanel Grid.Column="2">
           <TextBlock Text="本地数据与预览" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
-          <TextBlock Text="数据库、预览音频、标签和分类默认存放在程序旁的 Preview。更改位置时统一迁移记录，并选择迁移或清除旧预览。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0"/>
+          <TextBlock Text="数据库、预览音频、标签和分类固定保存在程序旁的 Preview。旧版缓存会复制并校验到此处，原库和原音频保留作回退。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0"/>
           <TextBlock Text="当前数据库与标签目录" Classes="field-label"/>
-          <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录"/>
-          <Grid IsEnabled="{Binding IsIdle}" Margin="0,4,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
-           <StackPanel Margin="0,0,8,0"><TextBlock Text="当前音频目录" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True"/></StackPanel>
-           <Button Grid.Column="1" Classes="icon" Content="▣" Click="BrowsePreview_Click" ToolTip.Tip="更改数据与预览目录：迁移或清除旧预览" VerticalAlignment="Bottom" Width="34" Height="34" Margin="0"/>
-          </Grid>
-          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="更改目录" Click="BrowsePreview_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="使用默认 Preview" Click="UseDefaultPreviewDirectory_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="清空预览" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
-          <Button Content="打开已有音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="选择旧版 library.db 所在目录；打开成功后记住位置"/>
+          <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录" ToolTip.Tip="{Binding LibraryLocation}"/>
+          <StackPanel Margin="0,4,0,0"><TextBlock Text="预览音频保存目录（固定）" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="固定预览音频保存目录"/></StackPanel>
+          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="打开 Preview 文件夹" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="清空预览" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
+          <Button Content="导入旧版音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="复制旧库及缓存到本程序 Preview；当前库先完整保留作备份，不合并或覆盖"/>
           <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <StackPanel><TextBlock Text="存储预算 (GB)" Classes="field-label"/><TextBox x:Name="BudgetBox"/></StackPanel>
            <StackPanel Grid.Column="2"><TextBlock Text="最大尝试次数" Classes="field-label"/><TextBox x:Name="AttemptsBox"/></StackPanel>

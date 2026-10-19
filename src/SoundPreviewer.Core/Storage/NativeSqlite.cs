@@ -10,9 +10,12 @@ internal sealed class NativeSqlite : IDisposable
     private const int Done = 101;
     private IntPtr database;
 
-    public NativeSqlite(string path)
+    public NativeSqlite(string path) : this(path, readOnly: false) { }
+
+    public NativeSqlite(string path, bool readOnly)
     {
-        int result = Native.sqlite3_open_v2(Utf8(path), out database, 0x00000002 | 0x00000004 | 0x00010000, IntPtr.Zero);
+        int result = Native.sqlite3_open_v2(Utf8(path), out database,
+            (readOnly ? 0x00000001 : 0x00000002 | 0x00000004) | 0x00010000, IntPtr.Zero);
         if (result != 0)
         {
             string message = ErrorMessage();

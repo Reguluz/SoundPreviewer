@@ -26,9 +26,23 @@ internal static partial class Program
         if (args.Contains("--request", StringComparer.Ordinal)) return await FakeWorkerAsync(args);
         if (args.Length == 2 && args[0] == "--test-process") return await TestProcessAsync(args[1]);
         if (args.Length == 2 && args[0] == "--create-ui-fixture") return await CreateUiFixtureAsync(args[1]);
+        if (args.Length == 2 && args[0] == "--create-installed-storage-fixture") return await CreateUiFixtureAsync(args[1], separatePreviewDirectory: true);
         if (args.Length == 2 && args[0] == "--benchmark-parallel") return await TestParallelBenchmarkAsync(args[1]);
         if (args.Length == 2 && args[0] == "--resource-probe-child") return await ResourceProbeChildAsync(args[1], leaf: false);
         if (args.Length == 2 && args[0] == "--resource-probe-leaf") return await ResourceProbeChildAsync(args[1], leaf: true);
+
+        int filterIndex = Array.IndexOf(args, "--filter");
+        string? filter = null;
+        if (filterIndex >= 0)
+        {
+            if (args.Count(argument => argument == "--filter") != 1 || filterIndex + 1 >= args.Length ||
+                string.IsNullOrWhiteSpace(args[filterIndex + 1]) || args[filterIndex + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("--filter requires one non-empty test-name substring.");
+                return 2;
+            }
+            filter = args[filterIndex + 1];
+        }
 
         string repository = FindRepository();
         _fixtureRoot = Path.Combine(repository, "artifacts", "tests", Guid.NewGuid().ToString("N"));
@@ -42,6 +56,7 @@ internal static partial class Program
             ("Worker renders bounded configurable quick previews and delayed notes", TestConfigurableQuickWorkerAsync),
             ("Quick duration storage budgets and existing previews stay compatible", TestQuickDurationQueueAsync),
             ("Stable user data, portable upgrades and library location recovery", TestPortablePathsAsync),
+            ("Installation-local Preview imports legacy WAL libraries and preserves data on failure", TestInstalledStorageAsync),
             ("Upgrade caches, WAL-safe backups, schema refusal and persistent category rules", TestUpgradeCacheCompatibilityAsync),
             ("Preview cleanup and directory migration preserve user metadata and sources", TestPreviewStorageAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
@@ -93,6 +108,15 @@ internal static partial class Program
         int failed = 0;
         try
         {
+            if (filter is not null)
+            {
+                tests = tests.Where(test => test.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (tests.Count == 0)
+                {
+                    Console.Error.WriteLine($"No tests matched --filter '{filter}'.");
+                    return 2;
+                }
+            }
             foreach (var test in tests)
             {
                 try
@@ -2026,7 +2050,7 @@ internal static partial class Program
         Throws<ObjectDisposedException>(() => player.Load(audio));
     }
 
-    private static async Task<int> CreateUiFixtureAsync(string requestedDirectory)
+    private static async Task<int> CreateUiFixtureAsync(string requestedDirectory, bool separatePreviewDirectory = false)
     {
         string repository = FindRepository();
         string artifacts = Path.GetFullPath(Path.Combine(repository, "artifacts")) + Path.DirectorySeparatorChar;
@@ -2035,8 +2059,10 @@ internal static partial class Program
             throw new ArgumentException("UI fixture must stay in this repository's artifacts directory.");
         ApplicationPaths.ConfigureDataDirectory(directory);
         Directory.CreateDirectory(directory);
+        string previewDirectory = separatePreviewDirectory ? directory + "-audio" : directory;
+        Directory.CreateDirectory(previewDirectory);
         string source = Path.Combine(directory, "TEST-ONLY-440Hz.vital");
-        string preview = Path.Combine(directory, "TEST-ONLY-440Hz-float32.wav");
+        string preview = Path.Combine(previewDirectory, "TEST-ONLY-440Hz-float32.wav");
         var template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 1, TailSeconds = 0.3 };
         var audio = Tone(44100, 1, (template.HoldSeconds + template.TailSeconds) * 3);
         WriteRawWave(preview, 3, 32, FloatBytes(audio.Samples));
@@ -2047,7 +2073,7 @@ internal static partial class Program
         var discovery = await new PluginScanService().ScanAsync([pluginDirectory]);
         var settings = new AppSettings
         {
-            PreviewDirectory = directory, Template = template,
+            PreviewDirectory = previewDirectory, Template = template,
             Sources = [new SourceFolder { Id = "test-only-ui-fixture", Path = directory, Synth = SynthKind.Unknown, AutoDetect = true }],
             PluginDirectories = [pluginDirectory], DiscoveredPlugins = discovery.Plugins
         };
