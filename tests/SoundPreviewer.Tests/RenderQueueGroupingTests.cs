@@ -76,6 +76,83 @@ internal static partial class Program
             }
             finally { await StopParallelFixtureAsync(serialSynths, run, cancellation); }
         }
+        await TestSynthGroupingCalibrationMemoryFallbackAsync();
+    }
+
+    private static async Task TestSynthGroupingCalibrationMemoryFallbackAsync()
+    {
+        var fixture = CreateInterleavedSynthFixture("synth-grouping-calibration-memory-fallback", 4, 2, false);
+        ReleaseParallelCalibration(fixture);
+        var probe = new CalibrationFallbackResourceProbe(fixture);
+        using var cancellation = new CancellationTokenSource();
+        var run = new RenderQueue(fixture.Store, probe).RunAsync(
+            fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), cancellation.Token);
+        try
+        {
+            await WaitForParallelStartsAsync(fixture, 2, run);
+            var starts = ParallelStarts(fixture);
+            Equal(2, starts.Count, "The measured preferred synth can start its second real worker under pressure.");
+            True(starts.All(trace => trace.Synth == SynthKind.Vital),
+                "An optional unknown-synth calibration that does not fit falls back to the smaller measured synth.");
+            True(probe.PressureObserved, "The fallback is exercised after the injected memory pressure was captured.");
+            ReleaseParallel(fixture);
+            RenderResourceLimitException? stopped = null;
+            try { await run.WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (RenderResourceLimitException error) { stopped = error; }
+            True(stopped is not null && stopped.Summary.ResourceStopped,
+                "Once no measured work remains, insufficient room for the unknown synth stops safely instead of waiting forever.");
+            Equal(2, stopped!.Summary.Generated, "Both smaller measured jobs commit before the genuine memory stop.");
+            Equal(2, ParallelStarts(fixture).Count, "The unsafe unknown synth never starts under pressure.");
+            True(fixture.Store.LoadPresets().Where(preset => preset.Synth == SynthKind.Serum1)
+                .All(preset => preset.Status == PresetStatus.Pending && preset.Attempts == 0),
+                "Unstarted later-synth records remain resumable without consuming attempts.");
+        }
+        finally
+        {
+            ReleaseParallel(fixture);
+            cancellation.Cancel();
+            try { await run; }
+            catch (Exception error) when (error is OperationCanceledException or RenderResourceLimitException) { }
+        }
+        probe.RelaxPressure = true;
+        var resumed = await new RenderQueue(fixture.Store, probe).RunAsync(
+            fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
+        Equal(2, resumed.Generated, "The remaining synth resumes after memory becomes available.");
+        Equal(2, resumed.Reused, "Resuming retains both committed preferred-synth previews.");
+        Equal(1, ParallelPeak(fixture), "Fallback and resumption never overlap an unknown calibration with another job.");
+    }
+
+    private sealed class CalibrationFallbackResourceProbe(ParallelFixture fixture) : IRenderResourceProbe
+    {
+        public volatile bool RelaxPressure;
+        public volatile bool PressureObserved;
+        public RenderHardwareInfo Hardware { get; } = new(4, 4) { DetectionMethod = "TEST ONLY calibration fallback" };
+
+        public RenderMemorySnapshot Capture()
+        {
+            const long mib = 1024L * 1024;
+            var processes = new List<RenderProcessUsage> { new(Environment.ProcessId, 0, 64 * mib, null) };
+            var starts = ParallelStarts(fixture);
+            var finished = ParallelFinishes(fixture).Select(trace => (trace.Pid, trace.StartedTicks)).ToHashSet();
+            foreach (var trace in starts.Where(trace => !finished.Contains((trace.Pid, trace.StartedTicks)) && IsRunning(trace.Pid)))
+            {
+                int parent = trace.ParentPid > 0 ? trace.ParentPid : Environment.ProcessId;
+                if (parent != Environment.ProcessId && processes.All(process => process.ProcessId != parent))
+                    processes.Add(new(parent, Environment.ProcessId, 0, null));
+                processes.Add(new(trace.Pid, parent, 32 * mib, null));
+            }
+            if (starts.Count > 0 && !RelaxPressure)
+            {
+                // Keep the root stable and model another application-owned child.
+                // It contributes to total RSS but cannot inflate this worker's
+                // measured 32 MiB footprint through parent-growth calibration.
+                // Available after the global margin: 1792 - 64 - 1376 - 128
+                // = 224 MiB: above the measured 104 MiB, below unknown 256 MiB.
+                processes.Add(new(int.MaxValue - 1, Environment.ProcessId, 1376 * mib, null));
+                PressureObserved = true;
+            }
+            return RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes);
+        }
     }
 
     private static ParallelFixture CreateInterleavedSynthFixture(string name, int count, int concurrency, bool sameSynthParallel)

@@ -149,7 +149,15 @@ public sealed partial class RenderQueue
                             .GroupBy(job => job.Plugin.Synth)
                             .Sum(group => group.First().Plugin.AllowParallelRendering ? group.Count() : 1);
                         if (knownCapacity < targetConcurrency)
-                            calibrationIndex = waiting.FindIndex(job => !memoryProfiles.ContainsKey(job.Plugin.Synth));
+                        {
+                            int candidate = waiting.FindIndex(job => !memoryProfiles.ContainsKey(job.Plugin.Synth));
+                            // This calibration is an optional backfill optimization.
+                            // Its conservative unknown-synth reservation must not stop
+                            // a smaller, already measured preferred job that still fits.
+                            if (candidate >= 0 && RenderResourcePolicy.CanStart(memorySnapshot,
+                                UnobservedReservations() + GlobalMemoryReserve, ForecastMemory(waiting[candidate].Plugin.Synth)))
+                                calibrationIndex = candidate;
+                        }
                     }
                 }
                 bool hasEligibleSynth = false;
