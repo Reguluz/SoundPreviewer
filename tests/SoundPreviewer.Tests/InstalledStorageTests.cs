@@ -59,7 +59,7 @@ internal static partial class Program
             VerifyInstalledFixtureHashes(originalFiles);
             string installedBackup = Directory.GetFiles(Path.Combine(target, "Backups"), "library-before-install-*.db").Single();
             VerifyInstalledSnapshotMainFile(installedBackup, [oldPresetJson], oldSettingsJson, 1);
-            AssertInstalledSnapshotHasNoSidecars(installedBackup, "The retained old-library snapshot is self-contained without WAL sidecars; a main-file-only copy has passed original schema and JSON checks.");
+            AssertInstalledSnapshotStandalone(installedBackup, "The retained old-library snapshot has rollback headers and no WAL; a main-file-only copy has passed original schema and JSON checks.");
             using (var snapshot = new CacheTestSqlite(installedBackup))
             {
                 Equal("delete", snapshot.Query("PRAGMA journal_mode;").Single(), "Only the private snapshot normalizes its journal mode for portable read-only reopening.");
@@ -68,7 +68,7 @@ internal static partial class Program
                 Equal(oldPresetJson, snapshot.Query("SELECT json FROM presets;").Single(), "Snapshot normalization retains the exact original preset JSON committed through the live WAL.");
                 Equal(oldSettingsJson, snapshot.Query("SELECT json FROM settings WHERE key='application';").Single(), "Snapshot normalization retains the exact original settings JSON committed through the live WAL.");
             }
-            AssertInstalledSnapshotHasNoSidecars(installedBackup, "Reopening the complete retained snapshot does not require or leave WAL sidecars.");
+            AssertInstalledSnapshotStandalone(installedBackup, "Reopening the complete retained snapshot retains rollback headers and requires no WAL.");
             using var destination = new CacheTestSqlite(Path.Combine(target, "library.db"));
             Equal(LibraryStore.CurrentSchemaVersion.ToString(), destination.Query("PRAGMA user_version;").Single(), "The imported copy upgrades the old schema before use.");
             var importedPreset = JsonNode.Parse(destination.Query("SELECT json FROM presets;").Single())!;
@@ -305,6 +305,7 @@ internal static partial class Program
             Equal(originalHash, InstalledDatabaseHash(source), "Snapshotting a read-only closed WAL library never rewrites the original database.");
             True(!File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "Reading a closed WAL library never creates auxiliary files beside the original.");
             True((File.GetAttributes(snapshot) & FileAttributes.ReadOnly) == 0, "The private snapshot does not inherit the source's read-only attribute.");
+            VerifyInstalledSnapshotMainFile(snapshot, originalRecords, originalSettings, 1);
             using (var database = new CacheTestSqlite(snapshot))
             {
                 Equal("delete", database.Query("PRAGMA journal_mode;").Single(), "A closed-WAL snapshot is an independent DELETE-mode database.");
@@ -313,8 +314,9 @@ internal static partial class Program
                 True(originalRecords.SequenceEqual(database.Query("SELECT json FROM presets ORDER BY id;")), "Every closed-WAL record and its original JSON survives the private-copy snapshot path.");
                 Equal(originalSettings, database.Query("SELECT json FROM settings WHERE key='application';").Single(), "The closed-WAL snapshot retains the exact original settings JSON.");
             }
-            AssertInstalledSnapshotHasNoSidecars(snapshot, "Opening the independent snapshot requires no WAL sidecars.");
-            True(Directory.GetFiles(snapshots).SequenceEqual(new[] { snapshot }), "A successful snapshot removes its private input copy and leaves only the final database.");
+            AssertInstalledSnapshotStandalone(snapshot, "Opening the independent snapshot retains rollback headers and requires no WAL.");
+            True(Directory.GetFiles(snapshots).Where(path => !path.Equals(snapshot + "-shm", ApplicationPaths.PathComparison)).SequenceEqual(new[] { snapshot }),
+                "A successful snapshot removes its private input copy and leaves only the final database plus an optional inert SHM index.");
             True(originalBytes.SequenceEqual(File.ReadAllBytes(source)) && !File.Exists(source + "-wal") && !File.Exists(source + "-shm"), "Inspecting the completed private snapshot leaves the source bytes and directory unchanged.");
         }
         finally { File.SetAttributes(source, originalAttributes); }
@@ -336,9 +338,15 @@ internal static partial class Program
         Equal(expectedSettings, database.Query("SELECT json FROM settings WHERE key='application';").Single(), "The independent main file contains the exact original application settings.");
     }
 
-    private static void AssertInstalledSnapshotHasNoSidecars(string snapshot, string message)
+    private static void AssertInstalledSnapshotStandalone(string snapshot, string message)
     {
-        if (!File.Exists(snapshot + "-wal") && !File.Exists(snapshot + "-shm")) return;
+        // Some macOS system SQLite builds retain an inert SHM index after leaving WAL mode.
+        // Exact schema/JSON/integrity checks on an independent main-file-only copy prove the
+        // committed data needs no sidecars. Require rollback headers and no WAL; leave SHM untouched.
+        using var stream = new FileStream(snapshot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        Span<byte> header = stackalloc byte[20];
+        stream.ReadExactly(header);
+        if (header[18] == 1 && header[19] == 1 && !File.Exists(snapshot + "-wal")) return;
         throw new InvalidOperationException(message + " " + DescribeInstalledSnapshot(snapshot));
     }
 
