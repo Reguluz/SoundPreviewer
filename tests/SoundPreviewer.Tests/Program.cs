@@ -1673,6 +1673,23 @@ internal static partial class Program
 
     private static async Task TestQueueStopResumeAsync()
     {
+        var transitionProgress = new InlineProgress();
+        var transitionPreset = Preset("TEST-ONLY-progress-transitions");
+        transitionPreset.Status = PresetStatus.Rendering;
+        var transitionFrame = new QueueProgress(0, 1, transitionPreset.Name, "TEST ONLY start", transitionPreset) { Stage = QueueStages.Rendering };
+        transitionProgress.Report(transitionFrame);
+        transitionProgress.Report(transitionFrame with { WorkingSetBytes = 123 });
+        Equal(1, transitionProgress.RenderingCalls, "Repeated memory progress for one active worker does not count as another render start.");
+        transitionPreset.Status = PresetStatus.Pending;
+        transitionProgress.Report(transitionFrame with { Stage = QueueStages.Stopped });
+        transitionPreset.Status = PresetStatus.Rendering;
+        transitionProgress.Report(transitionFrame);
+        Equal(2, transitionProgress.RenderingCalls, "A resumed worker counts as a new start even when cancellation restored its attempt number.");
+        transitionPreset.Status = PresetStatus.NeedsReview;
+        transitionProgress.Report(transitionFrame);
+        transitionPreset.Status = PresetStatus.Rendering;
+        transitionProgress.Report(transitionFrame);
+        Equal(3, transitionProgress.RenderingCalls, "A completed source forced again counts as another start with the same ID, cache key and attempt number.");
         string directory = Fixture("stopped-batch");
         var store = new LibraryStore(Path.Combine(directory, "library.db"));
         store.Initialize();
@@ -2275,8 +2292,14 @@ internal static partial class Program
     }
     private sealed class InlineProgress : IProgress<QueueProgress>
     {
+        private readonly HashSet<string> rendering = [];
         public int RenderingCalls { get; private set; }
-        public void Report(QueueProgress value) { if (value.Preset?.Status == PresetStatus.Rendering) RenderingCalls++; }
+        public void Report(QueueProgress value)
+        {
+            if (value.Preset is not { } preset) { rendering.Clear(); return; }
+            if (preset.Status != PresetStatus.Rendering) { rendering.Remove(preset.Id); return; }
+            if (rendering.Add(preset.Id)) RenderingCalls++;
+        }
     }
 
     private sealed record ProgressSnapshot(int Completed, int Total, string Stage, bool IsIndeterminate, string Message, string? PresetId);

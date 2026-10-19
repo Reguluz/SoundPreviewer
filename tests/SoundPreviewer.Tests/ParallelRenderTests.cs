@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
@@ -551,6 +552,7 @@ internal static partial class Program
     {
         public ParallelChildTrace() { }
         public int Pid { get; set; }
+        public int ParentPid { get; set; }
         public long StartedTicks { get; set; }
         public long FinishedTicks { get; set; }
         public bool IsBaseline { get; set; }
@@ -628,7 +630,11 @@ internal static partial class Program
         string controlPath = request.IsInitializationBaseline ? request.Plugin.PluginPath + ".parallel.json" : request.Preset.SourcePath;
         var control = JsonSerializer.Deserialize<ParallelChildControl>(await File.ReadAllTextAsync(controlPath), LibraryJson.Options)!;
         string stem = Path.Combine(control.TraceDirectory, Guid.NewGuid().ToString("N"));
-        var trace = new ParallelChildTrace { Pid = Environment.ProcessId, StartedTicks = DateTime.UtcNow.Ticks, IsBaseline = request.IsInitializationBaseline };
+        var trace = new ParallelChildTrace
+        {
+            Pid = Environment.ProcessId, ParentPid = OperatingSystem.IsMacOS() ? ParallelParentProcessId() : 0,
+            StartedTicks = DateTime.UtcNow.Ticks, IsBaseline = request.IsInitializationBaseline
+        };
         await WriteTraceAsync(stem + ".started.json");
         try
         {
@@ -664,4 +670,7 @@ internal static partial class Program
             File.Move(path + ".tmp", path);
         }
     }
+
+    [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "getppid")]
+    private static extern int ParallelParentProcessId();
 }

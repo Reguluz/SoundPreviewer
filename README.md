@@ -25,9 +25,9 @@
 | 音源 | 可生成预览的音色文件 | 生成前需要准备 | 已有真实样本验证 |
 | --- | --- | --- | --- |
 | **Vital** | 独立 `.vital` | Windows / Mac 的 Vital 独立程序，使用「Vital 原生」 | Windows 历史样本；Apple Silicon 上的 Vital 1.6.4 测试音色 |
-| **Serum 1** | 独立 `.fxp` | VST2 插件及可选 DawDreamer 环境 | Windows Serum 1.334 x64；另有两个音色的串行 / 并行输出一致性与测速记录，见[实测说明](docs/parallel-rendering.md#windows-小样本实测2026-10-19)；Mac 尚待真实插件验证 |
+| **Serum 1** | 独立 `.fxp` | VST2 插件及可选 DawDreamer 环境 | Windows Serum 1.334 x64；五个音色完成 1 / 2 / 4 条实测，见[实测说明](docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)；Mac 尚待真实插件验证 |
 | **Serum 2** | 原生 `.SerumPreset` | VST3 插件及带 Serum 2 依赖的 DawDreamer 环境 | Apple Silicon / Serum 2 2.0.23 的两个工厂音色；Windows、Intel Mac 尚待真实插件验证 |
-| **Sylenth1** | 独立 `.fxp` | Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer | Windows Sylenth1 2.2.1.2 x86 单音色；其他组合尚待验证 |
+| **Sylenth1** | 独立 `.fxp` | Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer | Windows Sylenth1 2.2.1.2 x86；五个音色完成 1 / 2 / 4 条实测，其他组合尚待验证 |
 | **Spire** | 暂不生成 | 可扫描 `.spf`、`.spf2`、`.sbf`、`.swzip`，保留为待适配记录 | 尚无真实插件生成验证 |
 
 以下文件可以被索引，但**当前不能直接生成预览**：Vital `.vitalbank` 的包内条目、`.fxb` 银行，以及其他未适配的银行内容。请先在对应音源中导出独立音色，再添加其目录。Serum 2 的旧 `.fxp` 需在 Serum 2 中导入并另存为 `.SerumPreset`，直接改扩展名无效。无法可靠判断归属的文件显示「待识别」，可在详情中核对后指定音源。

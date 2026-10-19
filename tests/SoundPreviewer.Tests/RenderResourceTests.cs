@@ -52,6 +52,9 @@ internal static partial class Program
         long firstReservation = Math.Max(0, 256 * mib - RenderResourcePolicy.WorkerTreeResidentBytes(heavy, [11]));
         long secondReservation = Math.Max(0, 256 * mib - RenderResourcePolicy.WorkerTreeResidentBytes(heavy, [13]));
         Equal(256 * mib, firstReservation + secondReservation, "A heavy worker may consume its own forecast but cannot pay another unloaded worker's reservation.");
+        var supervised = RenderMemorySnapshot.FromProcesses(10,
+        [new(10, 1, 64 * mib, null), new(11, 10, 0, null), new(12, 11, 160 * mib, null)]);
+        Equal(160 * mib, RenderResourcePolicy.WorkerTreeResidentBytes(supervised, [11]), "A supervisor callback PID includes its actual worker child, even when the supervisor's normalized RSS is zero.");
         return Task.CompletedTask;
     }
 
@@ -180,8 +183,15 @@ internal static partial class Program
             if (fixture is not null)
             {
                 var finished = ParallelFinishes(fixture).Select(trace => (trace.Pid, trace.StartedTicks)).ToHashSet();
-                processes.AddRange(ParallelStarts(fixture).Where(trace => !finished.Contains((trace.Pid, trace.StartedTicks)) && IsRunning(trace.Pid))
-                    .Select(trace => new RenderProcessUsage(trace.Pid, Environment.ProcessId, 160 * mib, null)));
+                foreach (var trace in ParallelStarts(fixture).Where(trace => !finished.Contains((trace.Pid, trace.StartedTicks)) && IsRunning(trace.Pid)))
+                {
+                    int parent = trace.ParentPid > 0 ? trace.ParentPid : Environment.ProcessId;
+                    // macOS registers the shell supervisor as the controlled process root.
+                    // Keep its real ancestry while normalizing only the test RSS counters.
+                    if (parent != Environment.ProcessId && processes.All(process => process.ProcessId != parent))
+                        processes.Add(new(parent, Environment.ProcessId, 0, null));
+                    processes.Add(new(trace.Pid, parent, 160 * mib, null));
+                }
             }
             var snapshot = RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes, !Incomplete, Incomplete ? "TEST ONLY access denied" : null);
             return OverBudget ? snapshot with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1 } : snapshot;
