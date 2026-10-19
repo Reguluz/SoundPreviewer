@@ -21,7 +21,7 @@
 
 ### Windows 小样本实测（2026-10-19）
 
-Serum 1.334 x64 / DawDreamer 0.8.3，Windows 11 x64，使用内容不同的 `BA Analog Pluck [SN].fxp` 与 `BA Ampology [CFA].fxp`。模板为 MIDI 36 / 60 / 84、力度 100、每音区 0.5 秒、44.1 kHz 双声道。以下为两音色整个队列的秒数，每轮重新加载并实际生成：
+Serum 1.334 x64 / DawDreamer 0.8.3，Windows 11 x64；机器为 AMD Ryzen 7 9850X3D（8 核 16 线程），系统可见内存 61.6 GiB。使用内容不同的 `BA Analog Pluck [SN].fxp` 与 `BA Ampology [CFA].fxp`，模板为 MIDI 36 / 60 / 84、力度 100、每音区 0.5 秒、44.1 kHz 双声道。以下为两音色整个队列的秒数，每轮重新加载并实际生成：
 
 | 模式 | 新库及声音参照 | 复用参照后重做 1 | 复用参照后重做 2 | 预览 Worker 峰值 |
 | --- | ---: | ---: | ---: | ---: |
