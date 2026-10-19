@@ -272,10 +272,10 @@ internal static partial class Program
     private static void TestInstalledClosedWalSnapshot()
     {
         var fixture = CreateInstalledStorageFixture("installed-storage-closed-wal", legacySchema: true);
-        string source = fixture.Store.DatabasePath;
+        string builder = fixture.Store.DatabasePath;
         List<string> originalRecords;
         string originalSettings;
-        using (var database = new CacheTestSqlite(source))
+        using (var database = new CacheTestSqlite(builder))
         {
             database.Execute("PRAGMA journal_mode=WAL;");
             var second = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(fixture.Record, LibraryJson.Options), LibraryJson.Options)!;
@@ -288,7 +288,16 @@ internal static partial class Program
             originalRecords = database.Query("SELECT json FROM presets ORDER BY id;");
             originalSettings = database.Query("SELECT json FROM settings WHERE key='application';").Single();
             Equal("1", database.Query("PRAGMA user_version;").Single(), "The closed-WAL fixture retains its original legacy schema.");
+            Equal("0", database.Query("PRAGMA main.wal_checkpoint(TRUNCATE);").Single(), "Building the closed-WAL fixture requires a successful, unblocked TRUNCATE checkpoint.");
+            string builderWal = builder + "-wal";
+            True(!File.Exists(builderWal) || new FileInfo(builderWal).Length == 0, "The completed TRUNCATE checkpoint leaves no uncheckpointed WAL data in the builder.");
         }
+        // macOS may retain the builder's SHM after close. Copy its fully checkpointed main
+        // file into a separate source path to construct the no-sidecar case without deleting auxiliaries.
+        string sourceDirectory = Path.Combine(Path.GetDirectoryName(fixture.Root)!, "readonly-source");
+        Directory.CreateDirectory(sourceDirectory);
+        string source = Path.Combine(sourceDirectory, "library.db");
+        File.Copy(builder, source);
         byte[] originalBytes = File.ReadAllBytes(source);
         Equal((byte)2, originalBytes[18], "A checkpointed closed WAL database still carries WAL write-version metadata.");
         Equal((byte)2, originalBytes[19], "A checkpointed closed WAL database still carries WAL read-version metadata.");
