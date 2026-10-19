@@ -75,6 +75,7 @@ public sealed class PluginConfiguration
     public string PluginHash { get; set; } = "";
     public string InitBaselinePath { get; set; } = "";
     public int TimeoutSeconds { get; set; } = 120;
+    public bool AllowParallelRendering { get; set; }
 }
 
 public sealed class PreviewTemplate : IJsonOnDeserialized
@@ -128,6 +129,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     public string PreviewDirectory { get; set; } = "";
     public double StorageBudgetGb { get; set; } = 10;
     public int MaxAttempts { get; set; } = 2;
+    public int MaxParallelRenders { get; set; } = 1;
     public double PlaybackVolume { get; set; } = 0.7;
 
     void IJsonOnDeserialized.OnDeserialized()

@@ -242,15 +242,20 @@
       </TabItem>
       <TabItem x:Name="RenderSettingsTab" Header="预览生成">
        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="440">
+        <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="560">
          <Grid.ColumnDefinitions><ColumnDefinition Width="5*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="4*" MinWidth="330"/></Grid.ColumnDefinitions>
          <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-          <Grid RowDefinitions="Auto,*" Margin="0,10,0,0">
+          <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
           <TextBlock Text="生成预览时，需要让本机音源演奏所选音色并保存为音频。先扫描并关联音源，再为它选择生成方式；已有的预览可直接试听。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
-          <DataGrid x:Name="PluginGrid" Grid.Row="1" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+          <StackPanel Grid.Row="1" Margin="0,0,0,10">
+           <CheckBox x:Name="ParallelRendering" Content="并行生成（试验，最多 2 个任务）" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="启用两个并行生成任务"/>
+           <TextBlock Text="默认串行。开启后可同时处理不同音源；同一音源须在下表勾选“允许同时生成”。若插件不稳定，请恢复串行；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+          </StackPanel>
+          <DataGrid x:Name="PluginGrid" Grid.Row="2" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>
             <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="92" IsReadOnly="True"/>
             <DataGridTemplateColumn Header="方式" Width="145"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox ItemsSource="{StaticResource RenderBackendValues}" DisplayMemberBinding="{Binding Converter={StaticResource BackendLabel}}" SelectedIndex="{Binding Backend, Mode=TwoWay, Converter={StaticResource BackendIndex}}" Margin="0,2"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridCheckBoxColumn Header="允许同时生成" Binding="{Binding AllowParallelRendering, Mode=TwoWay}" Width="125"/>
             <DataGridTemplateColumn Header="渲染程序" Width="300"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Classes="icon" Content="▣" Tag="{Binding}" Click="BrowsePlugin_Click" ToolTip.Tip="选择预览宿主或外部渲染程序" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             <DataGridTextColumn Header="已关联插件" Binding="{Binding PluginPath}" Width="260" IsReadOnly="True"/>
             <DataGridTextColumn Header="实际版本" Binding="{Binding Version, UpdateSourceTrigger=PropertyChanged}" Width="100"/>

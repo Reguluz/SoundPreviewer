@@ -149,7 +149,9 @@ public partial class MainWindow
             WriteSmokeLayoutState($"ui-layout-{name}.json");
             CaptureSmokeImage($"ui-format-{name}.png");
             var feedback = _statusMessage;
+            var progressText = _taskProgressText;
             _smokeLayoutPhase = name + "-long-feedback";
+            _taskProgressText = "已处理 9999 / 10000 (100%) · 运行 2/2";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();
             await SettleLayoutAsync();
@@ -158,6 +160,7 @@ public partial class MainWindow
                 throw SmokeLayoutFailure("长渲染错误挤占音色库内容区域。");
             CaptureSmokeImage($"ui-long-feedback-{name}.png");
             _statusMessage = feedback;
+            _taskProgressText = progressText;
             NotifyTaskProgress();
             ResetFilterControls();
             for (var page = 0; page < 3; page++)

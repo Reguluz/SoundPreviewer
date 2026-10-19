@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-18，当前为 0.4.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
+更新日期：2026-10-19，当前为 0.5.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -13,7 +13,7 @@
 | `SoundPreviewer.Core/Scanning` | 递归发现、格式检查、SHA256 变更检测、MD5 重复索引、来源重叠去重、银行条目索引 |
 | `PluginScanService` / `PluginSelectionService` | 共享安装目录的只读 PE / 元数据 / 导出检查、位数与 VST3 包识别、已核对产品关联与版本选择 |
 | `SoundPreviewer.Core/Storage` | 跨平台系统 SQLite 参数绑定、事务、版本化数据库、完整 JSON 元数据与设置 |
-| `SoundPreviewer.Core/Services` | 串行渲染队列、进度、取消、有限重试、缓存与存储预算 |
+| `SoundPreviewer.Core/Services` | 有界渲染队列、进度、取消、有限重试、缓存与存储预算 |
 | `PresetCategoryService` | 有界 JSON 名称分类规则、完整词 / 前缀匹配、独立 `CategoryTags` 与重新应用 |
 | `PresetMetadataService` | 手工标签 / 分类、明确清空、恢复自动结果与旧有效字段兼容 |
 | `PreviewStorageService` | 统一库目录迁移、SQLite 一致快照、音频路径重写和有界缓存清理 |
@@ -30,7 +30,7 @@ flowchart LR
     Source[用户选择的音色来源] --> Scan[扫描与格式检查]
     Scan --> Store[(SQLite 索引)]
     Store --> Browser[Avalonia 浏览器]
-    Browser --> Queue[串行任务队列]
+    Browser --> Queue[有界任务队列]
     Queue --> Worker[独立工作进程]
     Worker --> Vital[Vital 原生程序]
     Worker --> External[可选外部插件宿主]
@@ -108,6 +108,8 @@ SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止�
 ## 渲染与校验
 
 默认串行执行，一个任务调用一个工作进程。进程通过 JSON 的 `RenderRequest` / `RenderResult` 协议交换来源、插件、模板、目标路径、音区映射和结果。Windows Job Object 和 macOS 独立进程组用于超时、取消和退出时结束渲染子进程。详细参数与实际限制见 [渲染后端说明](rendering.md)。
+
+0.5.0 增加 `AppSettings.MaxParallelRenders`（1 或 2，缺字段默认 1）。全局 2 时不同音源可重叠；相同音源须显式启用 `PluginConfiguration.AllowParallelRendering`，缺字段默认 false，重新关联不同插件或版本会撤销许可。设置快照、同缓存键任务合并、单次声音参照准备、空间预留和集中提交由父进程协调，Worker 仍使用独立进程和新实例。调度设置不进入音频缓存或声音参照身份。停止会收束所有在飞任务，已完成的提交继续入库。详细验证见 [并行方案](parallel-rendering.md)。
 
 Vital 原生路径实现了三次单音渲染、音频拼接和实际演奏参数记录，但原生 CLI 没有可依赖的预制加载成功反馈。因此原生渲染结果进入待确认状态，须人工检查音色对应关系与外部资源。
 

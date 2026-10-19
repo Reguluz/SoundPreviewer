@@ -21,8 +21,18 @@ public partial class MainWindow
             LowNoteBox.Text = "Db2";
             MiddleNoteBox.Text = "C4";
             HighNoteBox.Text = "A6";
+            ParallelRendering.IsChecked = true;
+            Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering = true;
             await RunTask(SaveSettingsCoreAsync);
-            var template = _store.LoadSettings().Template;
+            var persistedSettings = _store.LoadSettings();
+            if (persistedSettings.MaxParallelRenders != 2 || !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
+                throw new InvalidOperationException("并行设置没有通过界面保存。");
+            Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Version = "TEST ONLY changed plugin version";
+            await RunTask(SaveSettingsCoreAsync);
+            if (_store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering ||
+                Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
+                throw new InvalidOperationException("手工更改音源版本后没有撤销并行许可。");
+            var template = persistedSettings.Template;
             if (template.QuickPreviewSeconds != 1.25 || !template.QuickPreview ||
                 template.LowNote != 37 || template.MiddleNote != 60 || template.HighNote != 93)
                 throw new InvalidOperationException("试听时长或音名没有通过设置界面保存到数据库。");

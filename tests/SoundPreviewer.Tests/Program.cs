@@ -26,6 +26,7 @@ internal static partial class Program
         if (args.Contains("--request", StringComparer.Ordinal)) return await FakeWorkerAsync(args);
         if (args.Length == 2 && args[0] == "--test-process") return await TestProcessAsync(args[1]);
         if (args.Length == 2 && args[0] == "--create-ui-fixture") return await CreateUiFixtureAsync(args[1]);
+        if (args.Length == 2 && args[0] == "--benchmark-parallel") return await TestParallelBenchmarkAsync(args[1]);
 
         string repository = FindRepository();
         _fixtureRoot = Path.Combine(repository, "artifacts", "tests", Guid.NewGuid().ToString("N"));
@@ -74,7 +75,12 @@ internal static partial class Program
             ("Queue default preview reuse, explicit force and bounded retry", TestQueueAsync),
             ("Queue preparation, outcome summaries and persistent running progress", TestQueueFeedbackAsync),
             ("Stopped batches preserve committed results and resume incrementally", TestQueueStopResumeAsync),
-            ("Forced cache replacement reclaims only unshared owned files after commit", TestQueueForceStorageAsync)
+            ("Forced cache replacement reclaims only unshared owned files after commit", TestQueueForceStorageAsync),
+            ("Parallel process barriers enforce global and per-synth limits with snapshot settings", TestParallelSchedulingAsync),
+            ("Parallel shared-key rendering preserves metadata and forced shared caches", TestParallelSharedCacheAsync),
+            ("Parallel cancellation drains all children and individual crashes stay isolated", TestParallelCancellationAndFailureAsync),
+            ("Parallel storage reservations and startup baselines are shared safely", TestParallelBudgetAndBaselineAsync),
+            ("Parallel database failures roll back shared mappings and same-key WAV bytes", TestParallelCommitRollbackAsync)
         };
         if (args.Contains("--test-playback", StringComparer.Ordinal))
             tests.Add(("Muted native playback, pause/seek/resume/reload and completion", TestNativePlaybackAsync));
@@ -1355,6 +1361,8 @@ internal static partial class Program
         Equal(1, failure.Attempts, "A repeated queue run cannot retry forever.");
         var invalidOutput = Preset("badnotes");
         var nextValid = Preset("success");
+        invalidOutput.ContentHash = Fingerprints.HashText("TEST ONLY malformed note-map source");
+        nextValid.ContentHash = Fingerprints.HashText("TEST ONLY independent valid source after malformed output");
         await queue.RunAsync(settings, [invalidOutput, nextValid], TestExecutable, progress, CancellationToken.None);
         Equal(PresetStatus.Failed, invalidOutput.Status, "Malformed worker output is contained as one failed task.");
         Equal(PresetStatus.NeedsReview, nextValid.Status, "Later tasks continue after malformed worker output without falsely certifying the external startup guard.");
@@ -1876,6 +1884,9 @@ internal static partial class Program
         string resultPath = Argument(args, "--result");
         var request = JsonSerializer.Deserialize<RenderRequest>(await File.ReadAllTextAsync(requestPath), LibraryJson.Options)!;
         string mode = request.Preset.Name;
+        if (mode.StartsWith("parallel-", StringComparison.Ordinal) ||
+            request.IsInitializationBaseline && File.Exists(request.Plugin.PluginPath + ".parallel.json"))
+            return await ParallelFakeWorkerAsync(request, resultPath);
         if (mode == "guard-marker-success") await File.WriteAllTextAsync(request.OutputPath + ".external-ran", "TEST ONLY external renderer invocation marker");
         if (mode == "gate")
         {

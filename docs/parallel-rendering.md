@@ -1,8 +1,51 @@
 # 并行渲染可行性调研
 
-更新：2026-10-19。对应应用 **0.4.0**，代码基线 `eb98c09`；固定宿主依赖为 DawDreamer **0.8.3**、标准 CPython **3.11 / 3.12**。本次完成源码与一手资料核对，未实现并行调度，也未执行真实插件的并发速度测试。
+更新：2026-10-19。原始调研对应 **0.4.0**、代码基线 `eb98c09`；固定宿主依赖为 DawDreamer **0.8.3**、标准 CPython **3.11 / 3.12**。下文保留当时的源码分析与建议；0.5.0 已开始按此方案实施，状态见下一节。
 
-## 结论
+## 0.5.0 试验实现
+
+全局 `MaxParallelRenders` 仅允许 1 / 2，缺字段默认 1；每音源 `AllowParallelRendering` 缺字段默认 false。界面「预览生成」可开启全局两个任务，再按音源单独允许多实例。重新关联不同插件或版本会撤销该音源许可。旧缓存键、声音参照身份和数据库 schema 保持不变。
+
+父进程以队列快照、有界调度、缓存键任务合并、单次基准准备、空间预留和集中数据库提交协调工作。单个 Worker 内仍按原顺序采集三个音区，插件不跨任务复用。日志记录队列总时长及同时运行数量；完成事件额外提供单项总时长。
+
+回归覆盖真实测试子进程的重叠与上限、同音源许可、同键复用、预算、共享缓存、个人元数据和停止恢复。通过这些检查不等于所有商业插件都能并行；真实性能结果另按样本记录，不承诺固定加速倍数。
+
+开发者可用 `scripts/Measure-ParallelRendering.ps1` 准备一个新的隔离测速目录，显式加 `-Execute` 才加载真实插件。当前入口限定 Windows 的独立 VST2 DLL；它不会在普通 CI 中运行，也不会打开原用户音色库。传入自己的有效请求和两个内容不同的独立预制，例如：
+
+```powershell
+./scripts/Measure-ParallelRendering.ps1 -RequestPath ./artifacts/my-request.json `
+  -PresetPath @('C:\Presets\A.fxp', 'C:\Presets\B.fxp') -WarmRuns 2 -SlotOrder @(1,2) -Execute
+```
+
+先构建 Release 测试程序和 Worker。测速分别记录包含基准准备的 cold、复用基准但实际重做的 warm-force，以及单独统计的 cache-reuse；再次用 `-SlotOrder @(2,1)` 交换顺序，减少系统文件缓存造成的偏差。原始输入、插件与宿主指纹应保持不变。报告及不可覆盖的阶段音频保存在新建的 `artifacts/parallel-benchmark-*`，其中会包含本机文件路径，分享前请核对。
+
+### Windows 小样本实测（2026-10-19）
+
+Serum 1.334 x64 / DawDreamer 0.8.3，Windows 11 x64，使用内容不同的 `BA Analog Pluck [SN].fxp` 与 `BA Ampology [CFA].fxp`。模板为 MIDI 36 / 60 / 84、力度 100、每音区 0.5 秒、44.1 kHz 双声道。以下为两音色整个队列的秒数，每轮重新加载并实际生成：
+
+| 模式 | 新库及声音参照 | 复用参照后重做 1 | 复用参照后重做 2 | 预览 Worker 峰值 |
+| --- | ---: | ---: | ---: | ---: |
+| 串行 | 57.532 | 50.625 | 50.759 | 1 |
+| 两任务并行 | 36.111 | 31.057 | 30.915 | 2 |
+
+已有参照时，两次平均从 **50.69 秒降到 30.99 秒，约 1.64 倍，耗时减少约 39%**。两种模式每轮均生成 2 项、复用 0 项、失败 0 项。另测缓存复用为 0.006–0.007 秒，均无生成进程；这项不计入渲染提速。
+
+每个输入在四轮重做中的 WAV SHA-256 一致，两个输入之间不同，音区映射及输入 / 插件 / 宿主指纹检查通过。Ampology 高音区存在接近削波提示，串行与并行一致保留；新增样本尚未独立人工试听确认音色身份及资源完整性。
+
+本轮采用 1 → 2 顺序，尚未交换顺序复测，也未记录 CPU / 内存峰值。结果只支持这台机器上的两个样本，不能推定所有音源、音色或 Mac 的加速幅度；默认值继续为串行。本地完整报告为 `artifacts/parallel-benchmark-cb019589b34248c5820cb95078a1263c/report.json`，阶段音频另存于该目录的 `evidence` 子目录。
+
+Sylenth1 2.2.1.2 x86 / 随包 0.5.0 独立宿主，同模板使用 `Sylenth1 - Bass Saw.fxp` 与 `16 Bit Lolitas Bass .fxp`，也按 1 → 2 顺序测量：
+
+| 模式 | 新库及声音参照 | 复用参照后重做 1 | 复用参照后重做 2 | 预览 Worker 峰值 |
+| --- | ---: | ---: | ---: | ---: |
+| 串行 | 3.091 | 1.244 | 1.221 | 1 |
+| 两任务并行 | 2.317 | 0.737 | 0.672 | 2 |
+
+两次平均从 **1.23 秒降到 0.70 秒，约 1.75 倍**，每轮均生成 2 项、无复用或失败，源文件与宿主指纹不变。所有预览的音区映射通过，无整段静音、削波或非有限值；同一输入在串行重复生成时音频哈希也会变化，因此不能要求本例并行结果逐字节一致，也不能仅凭通过自动检查确认音色身份。缓存复用另计为 0.006–0.013 秒，没有启动生成。报告为 `artifacts/parallel-benchmark-52856ecb7b424a2495277ce85f5fb18a/report.json`。
+
+首次 Sylenth1 测速误用了旧开发目录的宿主，它不支持声音参照请求，已安全拒绝且未进入普通预览生成；换成当前随包宿主后才获得上表结果。实际测试时应填写当前完整宿主路径。
+
+## 0.4.0 调研结论（保留）
 
 **可以在现有架构上尝试有界多进程并行，以提高批量生成速度。建议先做 2 个预制同时运行的实验，并保留 1 个任务的兼容模式。** 单个音色的插件加载、演奏和慢起音重试仍有自身耗时；实际加速倍数要通过真实插件测量。
 
@@ -12,7 +55,7 @@
 
 ## 当前生成过程与成本
 
-父进程从候选中选择一个音色，检查已有预览、配置和声音参照，启动独立 Worker，等待生成与校验完成，再保存数据库并处理下一项。异步等待使界面保持响应，队列仍一次只等待一个 Worker。位置见 [RenderQueue.cs](../src/SoundPreviewer.Core/Services/RenderQueue.cs#L101) 和 [WorkerProcessClient.cs](../src/SoundPreviewer.Core/Audio/WorkerProcessClient.cs#L19)。
+父进程从候选中选择一个音色，检查已有预览、配置和声音参照，启动独立 Worker，等待生成与校验完成，再保存数据库并处理下一项。异步等待使界面保持响应，队列仍一次只等待一个 Worker。位置见 [RenderQueue.cs](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/RenderQueue.cs#L101) 和 [WorkerProcessClient.cs](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Audio/WorkerProcessClient.cs#L19)。
 
 | 层次 | 当前行为 | 对提速的含义 |
 | --- | --- | --- |
@@ -25,7 +68,7 @@
 | 首次声音参照 | 对支持的后端生成三份独立参考，每份都有三音区 | 固定采集情况下对应九次插件实例化；这部分应先准备一次再供任务共享 |
 | 校验与持久化 | 输入哈希、参考 WAV 核对、音频解码分析、任务前后保存 | 都有真实工作量，目前缺少分阶段计时，不能认定谁是主要瓶颈 |
 
-本地依据：[DawDreamer 桥接](../scripts/renderers/dawdreamer_worker.py#L327)、[固定等待与预热](../scripts/renderers/dawdreamer_worker.py#L381)、[快速采集循环](../src/SoundPreviewer.Worker/RenderDispatcher.cs#L53)、[Vital 调用](../src/SoundPreviewer.Worker/RenderDispatcher.cs#L197)、[外部宿主调用](../src/SoundPreviewer.Worker/RenderDispatcher.cs#L249)、[三份声音参照](../src/SoundPreviewer.Core/Services/InitBaselineService.cs#L49)、[Sylenth1 宿主](../src/SoundPreviewer.Vst2Host/VstRenderer.cs#L39)。
+本地依据：[DawDreamer 桥接](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/scripts/renderers/dawdreamer_worker.py#L327)、[固定等待与预热](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/scripts/renderers/dawdreamer_worker.py#L381)、[快速采集循环](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Worker/RenderDispatcher.cs#L53)、[Vital 调用](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Worker/RenderDispatcher.cs#L197)、[外部宿主调用](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Worker/RenderDispatcher.cs#L249)、[三份声音参照](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/InitBaselineService.cs#L49)、[Sylenth1 宿主](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Vst2Host/VstRenderer.cs#L39)。
 
 预热中的“渲染 0.25 秒音频”表示处理相应数量的采样帧，不能直接换算成 0.25 秒墙钟等待。已有历史基准验收耗时还包含多份参考及普通音色检查，不能当成单预制的常规生成时间。本次没有用合成任务的并发倍数替代真实插件测速。
 
@@ -67,7 +110,7 @@ Vital 的公开源码允许多个应用实例，命令行 headless 路径建立�
 | 界面进度 | 当前只展示一个最新任务事件 | 集中发布单调的完成数，补充正在运行数量，避免乱序回报导致进度倒退 |
 | 用户元数据 | 工作项快照可能晚于其他状态写回 | 只合并生成相关字段，保留收藏、反馈、手工标签和分类 |
 
-位置：[队列状态与调度](../src/SoundPreviewer.Core/Services/RenderQueue.cs#L61)、[基准准备](../src/SoundPreviewer.Core/Services/RenderQueue.cs#L157)、[预算与最终路径](../src/SoundPreviewer.Core/Services/RenderQueue.cs#L181)、[覆盖式原子提交](../src/SoundPreviewer.Core/Audio/WorkerProcessClient.cs#L85)、[旧缓存引用管理](../src/SoundPreviewer.Core/Services/RenderQueue.cs#L338)、[数据库写锁](../src/SoundPreviewer.Core/Storage/LibraryStore.cs#L134)、[进程超时](../src/SoundPreviewer.Core/Audio/ProcessRunner.cs#L50)、[Windows / Mac 进程树管理](../src/SoundPreviewer.Core/Audio/ProcessJob.cs#L23)。
+位置：[队列状态与调度](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/RenderQueue.cs#L61)、[基准准备](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/RenderQueue.cs#L157)、[预算与最终路径](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/RenderQueue.cs#L181)、[覆盖式原子提交](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Audio/WorkerProcessClient.cs#L85)、[旧缓存引用管理](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Services/RenderQueue.cs#L338)、[数据库写锁](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Storage/LibraryStore.cs#L134)、[进程超时](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Audio/ProcessRunner.cs#L50)、[Windows / Mac 进程树管理](https://github.com/Reguluz/SoundPreviewer/blob/eb98c099673a515a1ea6d4a92ca725c418039a0c/src/SoundPreviewer.Core/Audio/ProcessJob.cs#L23)。
 
 SQLite WAL 允许读写并发，但同一数据库仍只有一个写者。增加写库进程不会得到并行写入收益，保留短事务和父进程提交更符合当前架构。依据：[SQLite WAL 并发说明](https://sqlite.org/wal.html#concurrency)。
 

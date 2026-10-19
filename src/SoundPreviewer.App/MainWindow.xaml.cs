@@ -354,6 +354,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _progressValue = p.Total == 0 ? 0 : p.Completed * 100d / p.Total;
             _progressIndeterminate = p.IsIndeterminate;
             _taskProgressText = p.Total > 0 ? $"已处理 {p.Completed} / {p.Total} ({_progressValue:0}%)" : "";
+            if (p.ActiveCount > 0) _taskProgressText += $" · 运行 {p.ActiveCount}/{p.MaxConcurrency}";
             if (!_stopRequested)
             {
                 _taskTitle = p.Stage == "完成" ? "预览任务已结束" : $"正在{p.Stage}";
@@ -376,9 +377,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
         };
         var workerPath = ApplicationPaths.WorkerPath;
-        var result = await Task.Run(() => new RenderQueue(_store).RunAsync(settings, records, workerPath, progress, token, forceRegenerate), token);
-        _flushTaskProgress();
-        _flushTaskProgress = null;
+        QueueResult result;
+        try
+        {
+            result = await Task.Run(() => new RenderQueue(_store).RunAsync(settings, records, workerPath, progress, token, forceRegenerate), token);
+        }
+        finally
+        {
+            _flushTaskProgress?.Invoke();
+            _flushTaskProgress = null;
+            // A replaced WAV can also belong to records outside the requested filter.
+            // Reload their committed mappings after success, cancellation or rollback.
+            try
+            {
+                var previousRendered = _selected?.Record.RenderedUtc;
+                SetPresets(await Task.Run(_store.LoadPresets));
+                if (_loadedPreviewPath.Length > 0 && _selected?.Record.RenderedUtc != previousRendered)
+                {
+                    StopPlayback();
+                    _player.Unload();
+                    _mediaOpened = false;
+                    _loadedPreviewPath = "";
+                }
+            }
+            catch (Exception error) { Log("任务记录未能刷新：" + error.Message); }
+        }
         _needsRendererSetup = result.Unconfigured > 0 || result.Failed > 0;
         _taskTitle = result.Generated > 0
             ? result.Failed + result.Unconfigured + result.RetryLimited > 0 ? "预览任务结束，部分项目未生成" : "预览生成完成"
@@ -389,6 +412,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await RefreshInitBaselinesAsync();
         if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
         Log(result.Summary);
+        Log($"本次队列用时 {result.ElapsedSeconds:0.00} 秒，最多同时运行 {result.PeakActiveCount} 个任务。");
     });
 
     private async Task RunTask(Func<CancellationToken, Task> action)
@@ -922,6 +946,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var directory in _settings.PluginDirectories) PluginDirectories.Add(directory);
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
+        ParallelRendering.IsChecked = _settings.MaxParallelRenders == 2;
         QuickPreviewMode.IsChecked = t.QuickPreview;
         QuickPreviewSecondsBox.Text = t.QuickPreviewSeconds.ToString(CultureInfo.InvariantCulture);
         LowNoteBox.Text = NoteNames.Format(t.LowNote);
@@ -1150,10 +1175,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
             candidate.PluginDirectories = PluginDirectories.ToList();
             await Task.Run(() => RefreshBinaryHashes(candidate, token), token);
+            foreach (var plugin in candidate.Plugins)
+            {
+                var previous = _settings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth);
+                if (previous is not null && ((previous.Backend, previous.ExecutablePath, previous.PluginPath, previous.Version) !=
+                    (plugin.Backend, plugin.ExecutablePath, plugin.PluginPath, plugin.Version) ||
+                    previous.ExecutableHash.Length > 0 && previous.ExecutableHash != plugin.ExecutableHash ||
+                    previous.PluginHash.Length > 0 && previous.PluginHash != plugin.PluginHash))
+                    plugin.AllowParallelRendering = false;
+            }
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
+            candidate.MaxParallelRenders = ParallelRendering.IsChecked == true ? 2 : 1;
             _store.SaveSettings(candidate);
             _settings = candidate;
+            foreach (var plugin in Plugins)
+                plugin.AllowParallelRendering = candidate.Plugins.First(saved => saved.Synth == plugin.Synth).AllowParallelRendering;
+            RefreshGrid(PluginGrid);
             await InvalidateChangedPreviewsAsync();
             RefreshCompatibility();
             await RefreshInitBaselinesAsync();

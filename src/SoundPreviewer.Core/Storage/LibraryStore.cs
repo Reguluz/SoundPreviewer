@@ -118,6 +118,94 @@ public sealed class LibraryStore
 
     public void Upsert(PresetRecord preset) => UpsertMany([preset]);
 
+    // Queue snapshots own only generated fields. Merge under the same transaction as the
+    // read so a concurrent metadata edit cannot be replaced by an older job snapshot.
+    internal PresetRecord MergeRenderState(PresetRecord rendered, PresetRecord identity) =>
+        MergeRenderStates([(rendered, identity, false)])[0];
+
+    internal List<PresetRecord> MergeRenderStates(IReadOnlyList<(PresetRecord Rendered, PresetRecord Identity, bool AudioOnly)> updates)
+    {
+        lock (gate)
+        {
+            Initialize();
+            using var database = new NativeSqlite(databasePath);
+            database.Execute("BEGIN IMMEDIATE;");
+            try
+            {
+                var merged = new List<PresetRecord>();
+                foreach (var (rendered, identity, audioOnly) in updates)
+                {
+                    string? json = database.QueryStrings("SELECT json FROM presets WHERE id=?;", identity.Id).SingleOrDefault();
+                    var latest = JsonSerializer.Deserialize<PresetRecord>(json ?? JsonSerializer.Serialize(identity, LibraryJson.Options), LibraryJson.Options)
+                        ?? throw new InvalidDataException("音色记录缺少元数据。");
+                    if (latest.ContentHash != identity.ContentHash || latest.Synth != identity.Synth || latest.SourceId != identity.SourceId ||
+                        latest.SourcePath != identity.SourcePath || latest.InternalPath != identity.InternalPath || latest.BankSlot != identity.BankSlot ||
+                        latest.DuplicateOfId != identity.DuplicateOfId || latest.FileSize != identity.FileSize || latest.LastWriteUtc != identity.LastWriteUtc)
+                        throw new InvalidOperationException("生成期间音色来源已变化；已保留新记录，未挂接旧任务的预览。");
+                    if (!audioOnly) CopyRenderFields(latest, rendered);
+                    else if (latest.PreviewPath == identity.PreviewPath && latest.CacheKey == identity.CacheKey)
+                    {
+                        CopyAudioFields(latest, rendered);
+                        if (latest.Status == PresetStatus.Ready && rendered.Status == PresetStatus.NeedsReview)
+                            latest.Status = PresetStatus.NeedsReview;
+                    }
+                    merged.Add(latest);
+                }
+                WritePresets(database, merged);
+                database.Execute("COMMIT;");
+                return merged;
+            }
+            catch { database.Execute("ROLLBACK;"); throw; }
+        }
+    }
+
+    internal static void CopyRenderFields(PresetRecord target, PresetRecord rendered)
+    {
+        target.Status = rendered.Status;
+        target.Attempts = rendered.Attempts;
+        target.Message = rendered.Message;
+        target.LastRenderOutcome = rendered.LastRenderOutcome;
+        target.LastRenderMessage = rendered.LastRenderMessage;
+        target.AttemptedCacheKey = rendered.AttemptedCacheKey;
+        CopyAudioFields(target, rendered);
+    }
+
+    internal static void CopyAudioFields(PresetRecord target, PresetRecord rendered)
+    {
+        target.PreviewPath = rendered.PreviewPath;
+        target.CacheKey = rendered.CacheKey;
+        target.RenderedUtc = rendered.RenderedUtc;
+        target.Metrics = rendered.Metrics;
+        target.Notes = rendered.Notes;
+        target.AdapterVersion = rendered.AdapterVersion;
+        target.PluginVersion = rendered.PluginVersion;
+        target.TemplateJson = rendered.TemplateJson;
+    }
+
+    internal void SaveInitializationBaseline(AppSettings batchSettings, SynthKind synth, string previousPath, string nextPath)
+    {
+        lock (gate)
+        {
+            Initialize();
+            using var database = new NativeSqlite(databasePath);
+            database.Execute("BEGIN IMMEDIATE;");
+            try
+            {
+                string? json = database.QueryStrings("SELECT json FROM settings WHERE key=?;", "application").SingleOrDefault();
+                var latest = JsonSerializer.Deserialize<AppSettings>(json ?? JsonSerializer.Serialize(batchSettings, LibraryJson.Options), LibraryJson.Options)
+                    ?? throw new InvalidDataException("应用设置缺少元数据。");
+                var plugin = latest.Plugins.FirstOrDefault(candidate => candidate.Synth == synth);
+                if (plugin is not null && (json is null || plugin.InitBaselinePath == previousPath))
+                {
+                    plugin.InitBaselinePath = nextPath;
+                    database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", JsonSerializer.Serialize(latest, LibraryJson.Options));
+                }
+                database.Execute("COMMIT;");
+            }
+            catch { database.Execute("ROLLBACK;"); throw; }
+        }
+    }
+
     public List<PresetRecord> FindByMd5(string md5)
     {
         ArgumentNullException.ThrowIfNull(md5);

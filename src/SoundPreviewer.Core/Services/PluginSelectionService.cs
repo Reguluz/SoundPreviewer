@@ -44,6 +44,7 @@ public static class PluginSelectionService
             configuration.ExecutablePath = nextPath;
             configuration.ExecutableHash = "";
             configuration.InitBaselinePath = "";
+            configuration.AllowParallelRendering = false;
             changed++;
         }
         return changed;
@@ -88,6 +89,7 @@ public static class PluginSelectionService
             throw new ArgumentException("扫描结果不能关联到此音源。");
         if (plugin.Platform != (platform ?? CurrentPlatform)) throw new ArgumentException("所选音源与当前操作系统不兼容，请选择本平台版本。");
         if (!File.Exists(plugin.BinaryPath)) throw new FileNotFoundException("扫描到的音源文件已不存在，请重新扫描。", plugin.BinaryPath);
+        var previousIdentity = (configuration.Backend, configuration.ExecutablePath, configuration.PluginPath, configuration.Version);
         if (plugin.Format == PluginBinaryFormat.Standalone)
         {
             if (plugin.Synth != SynthKind.Vital) throw new ArgumentException("只有 Vital 独立程序支持原生预览方式。");
@@ -115,6 +117,8 @@ public static class PluginSelectionService
             }
         }
         configuration.Version = plugin.Version;
+        if (previousIdentity != (configuration.Backend, configuration.ExecutablePath, configuration.PluginPath, configuration.Version))
+            configuration.AllowParallelRendering = false;
     }
 
     private static bool CanUseX86Host(PluginConfiguration configuration, DiscoveredPlugin plugin, string? hostPath, PluginPlatform? platform = null) =>
