@@ -1,10 +1,13 @@
 using SoundPreviewer.Core.Models;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 namespace SoundPreviewer.Core.Services;
 
 public static class PluginSelectionService
 {
+    public const string SushiExecutableName = "sushi.exe";
+
     public static PluginPlatform CurrentPlatform => OperatingSystem.IsMacOS() ? PluginPlatform.MacOS : PluginPlatform.Windows;
     public static PluginArchitecture CurrentArchitecture => RuntimeInformation.ProcessArchitecture switch
     {
@@ -62,6 +65,61 @@ public static class PluginSelectionService
                 string.Equals(Path.GetFileName(Path.GetDirectoryName(path)), "Vst2Host-x86", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    public static bool IsSushiExecutable(string path)
+    {
+        try { return string.Equals(Path.GetFileName(path), SushiExecutableName, StringComparison.OrdinalIgnoreCase); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    public static bool IsBundledSushiHost(string path)
+    {
+        try
+        {
+            string? directory = Path.GetDirectoryName(path);
+            return directory is not null && IsSushiExecutable(path) && string.Equals(Path.GetFileName(directory), "Sushi", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetFileName(Path.GetDirectoryName(directory)), "Renderers", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    public static bool IsWindowsX64Binary(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = new PEReader(stream);
+            return reader.PEHeaders.CoffHeader.Machine == Machine.Amd64 && reader.PEHeaders.PEHeader?.Magic == PEMagic.PE32Plus;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or
+            NotSupportedException or BadImageFormatException) { return false; }
+    }
+
+    public static bool IsSushiHostAvailable(string path)
+    {
+        if (!IsSushiExecutable(path) || !IsWindowsX64Binary(path)) return false;
+        return IsWindowsX64Binary(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "sndfile.dll"));
+    }
+
+    public static int RefreshBundledSushiHost(IList<PluginConfiguration> configurations, string? newHostPath,
+        PluginPlatform? platform = null, PluginArchitecture? architecture = null)
+    {
+        ArgumentNullException.ThrowIfNull(configurations);
+        if ((platform ?? CurrentPlatform) != PluginPlatform.Windows || (architecture ?? CurrentArchitecture) != PluginArchitecture.X64 ||
+            string.IsNullOrWhiteSpace(newHostPath) || !IsBundledSushiHost(newHostPath) || !IsSushiHostAvailable(newHostPath)) return 0;
+        string nextPath = Path.GetFullPath(newHostPath);
+        int changed = 0;
+        foreach (var configuration in configurations)
+        {
+            if (configuration.Backend != RenderBackend.Sushi || configuration.Synth != SynthKind.Serum1 ||
+                !IsBundledSushiHost(configuration.ExecutablePath) || ApplicationPaths.SamePath(configuration.ExecutablePath, nextPath)) continue;
+            configuration.ExecutablePath = nextPath;
+            configuration.ExecutableHash = "";
+            configuration.InitBaselinePath = "";
+            changed++;
+        }
+        return changed;
     }
 
     public static int RefreshLocalDawDreamer(IList<PluginConfiguration> configurations, string dataDirectory, PluginPlatform? platform = null)

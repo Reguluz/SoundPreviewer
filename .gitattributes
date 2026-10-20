@@ -1,0 +1,3 @@
+# Preserve unified-diff context lines and upstream license text.
+patches/**/*.patch text eol=lf -whitespace
+third-party/sushi/licenses/** -whitespace

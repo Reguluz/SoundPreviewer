@@ -35,6 +35,18 @@ public partial class MainWindow
                 if (control.DataContext is PluginConfiguration model && control.SelectedItem is RenderBackend selected && selected != model.Backend)
                     throw new InvalidOperationException("切换页面后渲染方式与对应音源不一致。");
 
+            combo = PluginGrid.GetVisualDescendants().OfType<ComboBox>().First(control =>
+                control.IsEffectivelyVisible && control.DataContext is PluginConfiguration { Synth: SynthKind.Serum1 });
+            combo.SelectedIndex = (int)RenderBackend.Sushi;
+            await SettleLayoutAsync();
+            CheckIsolatedBackend(RenderBackend.Sushi);
+            await SaveSettingsCoreAsync(CancellationToken.None);
+            if (_store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Backend != RenderBackend.Sushi)
+                throw new InvalidOperationException("自行配置的 Sushi 方式未保存，或被自动音源配置覆盖。");
+            combo.SelectedIndex = (int)RenderBackend.DawDreamer;
+            await SettleLayoutAsync();
+            CheckIsolatedBackend();
+
             string offline = Path.Combine(App.DataDirectory, "TEST-ONLY-offline-python", "python.exe");
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).ExecutablePath = offline;
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).ExecutableHash = "TEST-ONLY-last-known-executable";
@@ -68,9 +80,9 @@ public partial class MainWindow
             SetPresets(savedRecords);
         }
 
-        void CheckIsolatedBackend()
+        void CheckIsolatedBackend(RenderBackend chosen = RenderBackend.DawDreamer)
         {
-            if (Plugins.Any(plugin => plugin.Backend != (plugin.Synth == SynthKind.Serum1 ? RenderBackend.DawDreamer : RenderBackend.Unconfigured)))
+            if (Plugins.Any(plugin => plugin.Backend != (plugin.Synth == SynthKind.Serum1 ? chosen : RenderBackend.Unconfigured)))
                 throw new InvalidOperationException("更改 Serum 1 的渲染方式修改了其他音源。");
         }
     }

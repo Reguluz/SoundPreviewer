@@ -1,0 +1,338 @@
+diff --git a/apps/CMakeLists.txt b/apps/CMakeLists.txt
+index d226bc9..409ba3b 100644
+--- a/apps/CMakeLists.txt
++++ b/apps/CMakeLists.txt
+@@ -16,6 +16,8 @@ endif()
+ ####################################
+ 
+ if(MSVC)
++    # Keep argv, CRT file names, libsndfile and logging paths consistently UTF-8.
++    target_sources(sushi PRIVATE soundpreviewer-utf8.manifest)
+     # C4996: Deprecated warning. This was flooding the terminal,
+     #        I might remove the suppression from here eventually,
+     #        and out into the code again.
+diff --git a/apps/main.cpp b/apps/main.cpp
+index 9c49192..6cc0db8 100644
+--- a/apps/main.cpp
++++ b/apps/main.cpp
+@@ -22,6 +22,13 @@
+ #include <csignal>
+ #include <condition_variable>
+ 
++#ifdef _MSC_VER
++#ifndef NOMINMAX
++#define NOMINMAX 1
++#endif
++#include <Windows.h>
++#endif
++
+ #include "elklog/static_logger.h"
+ 
+ #include "sushi/utils.h"
+@@ -93,6 +100,15 @@ static void print_sushi_headline()
+ 
+ int main(int argc, char* argv[])
+ {
++#ifdef _MSC_VER
++    // The process manifest is effective on Windows 10 1903 and later. Fail before
++    // parsing paths if it is missing or ignored, rather than corrupting UTF-8 names.
++    if (GetACP() != CP_UTF8)
++    {
++        std::cerr << "This research host requires Windows 10 1903 or later and its embedded UTF-8 process manifest." << std::endl;
++        return 2;
++    }
++#endif
+     signal(SIGINT, exit_on_signal);
+     signal(SIGTERM, exit_on_signal);
+ #ifndef _MSC_VER
+@@ -244,4 +260,4 @@ std::unique_ptr<Sushi> start_sushi(SushiOptions options)
+     }
+ 
+     return nullptr;
+-}
+\ No newline at end of file
++}
+diff --git a/src/engine/json_configurator.cpp b/src/engine/json_configurator.cpp
+index 2e152e1..85603af 100644
+--- a/src/engine/json_configurator.cpp
++++ b/src/engine/json_configurator.cpp
+@@ -32,6 +32,7 @@ ELK_POP_WARNING
+ #include "elklog/static_logger.h"
+ 
+ #include "json_configurator.h"
++#include "preview_state_probe.h"
+ 
+ namespace sushi::internal::jsonconfig {
+ 
+@@ -689,6 +690,23 @@ JsonConfigReturnStatus JsonConfigurator::load_initial_state()
+             return JsonConfigReturnStatus::INVALID_PLUGIN_NAME;
+         }
+ 
++        // Research-only file hooks: apply an actual FXP chunk or converted VST3
++        // component state before the audio engine starts, then capture it back.
++        try
++        {
++            if (json_state.HasMember("state_fxp_file") && json_state.HasMember("state_binary_file"))
++                return JsonConfigReturnStatus::INVALID_CONFIGURATION;
++            if (json_state.HasMember("state_fxp_file"))
++                state.set_binary_data(preview_probe::read_fxp_chunk(json_state["state_fxp_file"].GetString()));
++            if (json_state.HasMember("state_binary_file"))
++                state.set_binary_data(preview_probe::read_binary(json_state["state_binary_file"].GetString()));
++        }
++        catch (const std::exception& error)
++        {
++            ELKLOG_LOG_ERROR("Research state input failed for {}: {}", processor->name(), error.what());
++            return JsonConfigReturnStatus::INVALID_FILE;
++        }
++
+         if (json_state.HasMember("bypassed"))
+         {
+             state.set_bypass(json_state["bypassed"].GetBool());
+@@ -728,7 +746,24 @@ JsonConfigReturnStatus JsonConfigurator::load_initial_state()
+             }
+         }
+ 
+-        processor->set_state(&state, false);
++        if (processor->set_state(&state, false) != ProcessorReturnCode::OK)
++            return JsonConfigReturnStatus::INVALID_CONFIGURATION;
++        if (json_state.HasMember("state_binary_dump_file"))
++        {
++            try
++            {
++                const auto round_trip = processor->save_state();
++                preview_probe::write_binary(json_state["state_binary_dump_file"].GetString(), round_trip.binary_data());
++                ELKLOG_LOG_INFO("Research state applied: processor={}, program={}, input bytes={}, output bytes={}",
++                                processor->name(), processor->current_program_name(),
++                                state.binary_data().size(), round_trip.binary_data().size());
++            }
++            catch (const std::exception& error)
++            {
++                ELKLOG_LOG_ERROR("Research state output failed for {}: {}", processor->name(), error.what());
++                return JsonConfigReturnStatus::INVALID_FILE;
++            }
++        }
+     }
+ 
+     return JsonConfigReturnStatus::OK;
+@@ -919,6 +954,16 @@ std::unique_ptr<Event> JsonConfigurator::_parse_event(const rapidjson::Value& js
+                                                timestamp);
+     }
+ 
++    if (json_event["type"] == "control_change")
++    {
++        const MidiDataByte bytes{0xB0,
++                                  static_cast<uint8_t>(data["controller"].GetUint()),
++                                  static_cast<uint8_t>(data["value"].GetUint()),
++                                  0};
++        return std::make_unique<KeyboardEvent>(KeyboardEvent::Subtype::WRAPPED_MIDI,
++                                               processor->id(), bytes, timestamp);
++    }
++
+     return nullptr;
+ }
+ 
+diff --git a/src/engine/json_schemas/events_schema.json b/src/engine/json_schemas/events_schema.json
+index 3eeadee..d3a05ae 100644
+--- a/src/engine/json_schemas/events_schema.json
++++ b/src/engine/json_schemas/events_schema.json
+@@ -21,13 +21,22 @@ R"(
+           },
+           "type":
+           {
+-            "enum": ["parameter_change", "property_change", "note_on", "note_off"]
++            "enum": ["parameter_change", "property_change", "note_on", "note_off", "control_change"]
+           },
+           "data":
+           {
+             "type": "object",
+             "oneOf":
+             [
++              {
++                "properties":
++                {
++                  "plugin_name": {"type": "string"},
++                  "controller": {"type": "integer", "minimum": 0, "maximum": 127},
++                  "value": {"type": "integer", "minimum": 0, "maximum": 127}
++                },
++                "required": ["plugin_name", "controller", "value"]
++              },
+               {
+                 "properties":
+                 {
+@@ -91,4 +100,4 @@ R"(
+     }
+   }
+ }
+-)"
+\ No newline at end of file
++)"
+diff --git a/src/engine/json_schemas/state_schema.json b/src/engine/json_schemas/state_schema.json
+index a6513ec..bb1e8b5 100644
+--- a/src/engine/json_schemas/state_schema.json
++++ b/src/engine/json_schemas/state_schema.json
+@@ -10,7 +10,16 @@ R"(
+       "items": {
+         "type": "object",
+         "properties": {
+-          "processor_name": {
++          "processor": {
++            "type": "string"
++          },
++          "state_fxp_file": {
++            "type": "string"
++          },
++          "state_binary_file": {
++            "type": "string"
++          },
++          "state_binary_dump_file": {
+             "type": "string"
+           },
+           "bypassed": {
+@@ -44,4 +53,4 @@ R"(
+     }
+   }
+ }
+-)"
+\ No newline at end of file
++)"
+diff --git a/src/library/vst2x/vst2x_plugin_loader.cpp b/src/library/vst2x/vst2x_plugin_loader.cpp
+index cd4a045..e2933b1 100644
+--- a/src/library/vst2x/vst2x_plugin_loader.cpp
++++ b/src/library/vst2x/vst2x_plugin_loader.cpp
+@@ -206,12 +206,13 @@ void PluginLoader::close_library_handle(LibraryHandle library_handle)
+ #elif defined(_MSC_VER)
+ LibraryHandle PluginLoader::get_library_handle_for_plugin(const std::string& plugin_absolute_path)
+ {
+-    if (!std::filesystem::exists(plugin_absolute_path))
++    const auto path = std::filesystem::u8path(plugin_absolute_path);
++    if (!std::filesystem::exists(path))
+     {
+         ELKLOG_LOG_ERROR("Plugin path not found: {}", plugin_absolute_path);
+         return nullptr;
+     }
+-    void* libraryHandle = LoadLibrary(plugin_absolute_path.c_str());
++    void* libraryHandle = LoadLibraryW(path.c_str());
+ 
+     if (libraryHandle == nullptr)
+     {
+diff --git a/src/library/vst2x/vst2x_wrapper.cpp b/src/library/vst2x/vst2x_wrapper.cpp
+index d86e9b9..bf3d7de 100644
+--- a/src/library/vst2x/vst2x_wrapper.cpp
++++ b/src/library/vst2x/vst2x_wrapper.cpp
+@@ -90,7 +90,7 @@ ProcessorReturnCode Vst2xWrapper::init(float sample_rate)
+     _number_of_programs = _plugin_handle->numPrograms;
+     ELKLOG_LOG_INFO_IF(enabled, "Plugin supports soft bypass");
+ 
+-    _has_binary_programs = _plugin_handle->flags &= effFlagsProgramChunks;
++    _has_binary_programs = (_plugin_handle->flags & effFlagsProgramChunks) != 0;
+ 
+     // Channel setup
+     _max_input_channels = std::min(_plugin_handle->numInputs, VST_WRAPPER_MAX_N_CHANNELS);
+diff --git a/third-party/CMakeLists.txt b/third-party/CMakeLists.txt
+index b25b6cf..b167b29 100644
+--- a/third-party/CMakeLists.txt
++++ b/third-party/CMakeLists.txt
+@@ -1,6 +1,8 @@
+ add_subdirectory(fifo EXCLUDE_FROM_ALL)
+ 
+-add_subdirectory(lv2_host)
++if (SUSHI_WITH_LV2)
++    add_subdirectory(lv2_host)
++endif()
+ 
+ ###########################
+ # oscpack compile options #
+@@ -17,6 +19,7 @@ add_subdirectory(oscpack)
+ 
+ if (MSVC)
+     target_compile_options(oscpack PRIVATE "/W0")
++    target_link_libraries(oscpack PUBLIC ws2_32 winmm)
+ else()
+     # oscpack sets the -Wall flag, which is negated below, to suppress warnings.
+     target_compile_options(oscpack PRIVATE "-Wno-all")
+diff --git a/src/engine/preview_state_probe.h b/src/engine/preview_state_probe.h
+new file mode 100644
+index 0000000..4060cf9
+--- /dev/null
++++ b/src/engine/preview_state_probe.h
+@@ -0,0 +1,65 @@
++// Research-only helpers for the SoundPreviewer Sushi compatibility probe.
++// These are not part of the shipping application or the upstream Sushi API.
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <stdexcept>
++#include <string>
++#include <vector>
++
++namespace sushi::internal::jsonconfig::preview_probe {
++
++inline std::vector<std::byte> read_binary(const std::string& path)
++{
++    std::ifstream stream(std::filesystem::u8path(path), std::ios::binary | std::ios::ate);
++    if (!stream)
++        throw std::runtime_error("Cannot open state input file");
++    const auto length = stream.tellg();
++    constexpr std::streamoff max_bytes = 256 * 1024 * 1024;
++    if (length <= 0 || length > max_bytes)
++        throw std::runtime_error("State file is empty or exceeds 256 MiB probe limit");
++    std::vector<std::byte> bytes(static_cast<std::size_t>(length));
++    stream.seekg(0);
++    if (!stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
++        throw std::runtime_error("Cannot read complete state input file");
++    return bytes;
++}
++
++inline std::uint32_t big_u32(const std::vector<std::byte>& bytes, std::size_t offset)
++{
++    return (std::to_integer<std::uint32_t>(bytes.at(offset)) << 24) |
++           (std::to_integer<std::uint32_t>(bytes.at(offset + 1)) << 16) |
++           (std::to_integer<std::uint32_t>(bytes.at(offset + 2)) << 8) |
++            std::to_integer<std::uint32_t>(bytes.at(offset + 3));
++}
++
++inline std::vector<std::byte> read_fxp_chunk(const std::string& path)
++{
++    const auto bytes = read_binary(path);
++    if (bytes.size() < 60 || std::memcmp(bytes.data(), "CcnK", 4) != 0 ||
++        std::memcmp(bytes.data() + 8, "FPCh", 4) != 0)
++        throw std::runtime_error("Probe only accepts a CcnK/FPCh single-program FXP");
++    const auto declared_size = big_u32(bytes, 4);
++    const auto chunk_size = big_u32(bytes, 56);
++    // Some real FXP writers include the leading eight bytes in byteSize.
++    if ((static_cast<std::uint64_t>(declared_size) + 8 != bytes.size() && declared_size != bytes.size()) ||
++        chunk_size == 0 || static_cast<std::uint64_t>(chunk_size) + 60 != bytes.size())
++        throw std::runtime_error("Truncated or invalid FPCh chunk size");
++    return {bytes.begin() + 60, bytes.begin() + 60 + chunk_size};
++}
++
++inline void write_binary(const std::string& path, const std::vector<std::byte>& bytes)
++{
++    if (bytes.empty())
++        throw std::runtime_error("Plugin returned an empty binary state");
++    std::ofstream stream(std::filesystem::u8path(path), std::ios::binary | std::ios::trunc);
++    if (!stream || !stream.write(reinterpret_cast<const char*>(bytes.data()),
++                                 static_cast<std::streamsize>(bytes.size())))
++        throw std::runtime_error("Cannot write complete round-trip state file");
++}
++
++} // namespace sushi::internal::jsonconfig::preview_probe
+diff --git a/apps/soundpreviewer-utf8.manifest b/apps/soundpreviewer-utf8.manifest
+new file mode 100644
+index 0000000..5885b53
+--- /dev/null
++++ b/apps/soundpreviewer-utf8.manifest
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
++<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
++  <assemblyIdentity name="SoundPreviewer.SushiResearch" version="1.4.0.0" type="win32" processorArchitecture="amd64"/>
++  <asmv3:application>
++    <asmv3:windowsSettings>
++      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
++    </asmv3:windowsSettings>
++  </asmv3:application>
++</assembly>

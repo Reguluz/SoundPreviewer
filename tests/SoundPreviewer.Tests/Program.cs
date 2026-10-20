@@ -88,6 +88,8 @@ internal static partial class Program
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),
             ("Plugin discovery validates PE exports, architecture and VST3 bundle paths", TestPluginDiscoveryAsync),
             ("Renderer readiness separates configuration, architecture and actual verification", TestRenderReadinessAsync),
+            ("Sushi readiness requires native Windows x64 Serum 1 VST2 without widening preset proof", TestSushiReadinessAsync),
+            ("Sushi portable relocation preserves other renderers and plugin cache identity", TestSushiPortableSelectionAsync),
             ("Partial renderer settings persist without enabling invalid hosts", TestRendererSettingsAsync),
             ("SQLite UTF8 round trip, transactions, settings and interrupted recovery", TestStorageAsync),
             ("Child process exit, bounded pipes, timeout and cancellation", TestProcessRunnerAsync),
@@ -1237,6 +1239,12 @@ internal static partial class Program
         Equal(request.OutputPath, result.OutputPath, "Output must commit to requested final path.");
         True(File.Exists(request.OutputPath) && result.Metrics is not null && result.Notes.Count == 3, "Commit contains validated audio and mapping.");
         True(!Directory.EnumerateDirectories(directory, ".soundpreviewer-*").Any(), "Success staging must be removed.");
+        string longDirectory = directory;
+        while (longDirectory.Length < 310) longDirectory = Path.Combine(longDirectory, "long-preview-folder-中文");
+        var longRequest = Request("success", Path.Combine(longDirectory, "preview.wav"));
+        var longResult = await client.RenderAsync(longRequest, TestExecutable, CancellationToken.None);
+        True(longResult.Success && File.Exists(longRequest.OutputPath), "Deep Preview paths can launch the worker and commit audio: " + longResult.Message);
+        True(!Directory.EnumerateDirectories(longDirectory, ".soundpreviewer-*").Any(), "Deep-path staging is removed after commit.");
         byte[] committed = File.ReadAllBytes(request.OutputPath);
         foreach (string mode in new[] { "failure", "wrongpath", "nonfinite", "badnotes", "nullnotes", "nullnote", "crashafterresult", "noresult" })
         {

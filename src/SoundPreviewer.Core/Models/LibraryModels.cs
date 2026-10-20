@@ -7,7 +7,7 @@ namespace SoundPreviewer.Core.Models;
 
 public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5 }
 public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
-public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer }
+public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer, Sushi = 4 }
 public enum PreviewNoteOrder { LowMiddleHigh = 0, MiddleHighLow = 1 }
 
 public sealed class PresetRecord
@@ -240,6 +240,13 @@ public static class Fingerprints
         }
         cancellationToken.ThrowIfCancellationRequested();
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+    public static string RendererExecutableHash(PluginConfiguration plugin, CancellationToken cancellationToken = default)
+    {
+        string executable = HashFile(plugin.ExecutablePath, cancellationToken);
+        if (plugin.Backend != RenderBackend.Sushi) return executable;
+        string sidecar = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(plugin.ExecutablePath))!, "sndfile.dll");
+        return HashText(JsonSerializer.Serialize(new { Executable = executable, SndFile = HashFile(sidecar, cancellationToken) }));
     }
     public static string PluginBinaryHash(PluginConfiguration plugin, IReadOnlyList<DiscoveredPlugin> discovered, CancellationToken cancellationToken = default)
     {

@@ -22,6 +22,9 @@ public static class InitBaselineService
 
     public static bool Supports(PluginConfiguration plugin) =>
         plugin.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1 && plugin.Backend == RenderBackend.DawDreamer ||
+        plugin.Synth == SynthKind.Serum1 && plugin.Backend == RenderBackend.Sushi &&
+        PluginSelectionService.CurrentPlatform == PluginPlatform.Windows && PluginSelectionService.CurrentArchitecture == PluginArchitecture.X64 &&
+        PluginSelectionService.IsSushiExecutable(plugin.ExecutablePath) ||
         plugin.Synth == SynthKind.Sylenth1 && plugin.Backend == RenderBackend.ExternalWorker &&
         string.Equals(Path.GetFileName(plugin.ExecutablePath), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase);
 
@@ -201,11 +204,13 @@ public static class InitBaselineService
         string stateAdapterHash = plugin.Synth == SynthKind.Serum2 && plugin.Backend == RenderBackend.DawDreamer && File.Exists(stateAdapter)
             ? Fingerprints.HashFile(stateAdapter, token) : "";
         var sidecars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (plugin.Backend == RenderBackend.ExternalWorker)
+        if (plugin.Backend == RenderBackend.ExternalWorker || plugin.Backend == RenderBackend.Sushi)
         {
             string directory = Path.GetDirectoryName(Path.GetFullPath(plugin.ExecutablePath))!;
-            foreach (string name in new[] { "SoundPreviewer.Vst2Host.dll", "Jacobi.Vst.Core.dll", "Jacobi.Vst.Host.Interop.dll",
-                "Ijwhost.dll", "SoundPreviewer.Vst2Host.runtimeconfig.json", "SoundPreviewer.Vst2Host.deps.json" })
+            var names = plugin.Backend == RenderBackend.Sushi ? new[] { "sndfile.dll" } :
+                new[] { "SoundPreviewer.Vst2Host.dll", "Jacobi.Vst.Core.dll", "Jacobi.Vst.Host.Interop.dll",
+                    "Ijwhost.dll", "SoundPreviewer.Vst2Host.runtimeconfig.json", "SoundPreviewer.Vst2Host.deps.json" };
+            foreach (string name in names)
             {
                 token.ThrowIfCancellationRequested();
                 string path = Path.Combine(directory, name);

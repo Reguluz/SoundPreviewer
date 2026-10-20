@@ -32,6 +32,14 @@ public sealed class WorkerProcessClient
             await File.WriteAllTextAsync(requestFile, JsonSerializer.Serialize(stagedRequest, LibraryJson.Options), cancellationToken);
             string executable = Path.GetFullPath(workerPath);
             if (!File.Exists(executable)) throw new FileNotFoundException("缺少 SoundPreviewer.Worker 工作进程。", executable);
+            // CreateProcess still rejects a long working directory even when
+            // .NET can read every absolute request/output path successfully.
+            string workingDirectory = staging;
+            if (OperatingSystem.IsWindows() && staging.Length >= 240)
+            {
+                workingDirectory = Path.GetDirectoryName(executable)!;
+                if (workingDirectory.Length >= 240) workingDirectory = Path.GetPathRoot(executable)!;
+            }
             var arguments = new List<string>();
             if (Path.GetExtension(executable).Equals(".dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -40,7 +48,7 @@ public sealed class WorkerProcessClient
             }
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
             int maximumCaptures = request.Template.QuickPreview ? (request.Plugin.Backend == RenderBackend.VitalCli ? 3 : 4) : 1;
-            var outcome = await ProcessRunner.RunAsync(executable, arguments, staging,
+            var outcome = await ProcessRunner.RunAsync(executable, arguments, workingDirectory,
                 TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600) * maximumCaptures), cancellationToken,
                 processStarted: processStarted);
             cancellationToken.ThrowIfCancellationRequested();

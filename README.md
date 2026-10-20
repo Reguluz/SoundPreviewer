@@ -2,7 +2,7 @@
 
 把合成器音色生成短试听片段，在一个音色库里搜索、筛选和播放，减少逐个打开音源试音的时间。已有预览可以直接试听，无需打开 DAW。
 
-**当前版本：0.7.7 开发版**，供朋友测试；本文按 2026-10-21 的功能编写。使用中遇到问题，请保留音源版本、错误提示和复现步骤。
+**当前版本：0.8.0 开发版**，供朋友测试；本文按 2026-10-21 的功能编写。使用中遇到问题，请保留音源版本、错误提示和复现步骤。
 
 ## 下载与安装
 
@@ -27,7 +27,7 @@
 | 音源 | 可生成预览的音色文件 | 生成前需要准备 | 已有真实样本验证 |
 | --- | --- | --- | --- |
 | **Vital** | 独立 `.vital` | Windows / Mac 的 Vital 独立程序，使用「Vital 原生」 | Windows 历史样本；Apple Silicon 上的 Vital 1.6.4 测试音色 |
-| **Serum 1** | 独立 `.fxp` | VST2 插件及可选 DawDreamer 环境 | Windows Serum 1.334 x64；五个音色完成 1 / 2 / 4 条实测，见[实测说明](docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)；Mac 尚待真实插件验证 |
+| **Serum 1** | 独立 `.fxp` | VST2 插件及可选 DawDreamer 环境；Windows x64 可手动配置 Sushi 实验宿主 | Windows Serum 1.334 x64；DawDreamer 五音色并行实测及 Sushi 两音色测试，见[并行说明](docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)与[宿主研究](docs/headless-host-research.md)；Mac 尚待真实插件验证 |
 | **Serum 2** | 原生 `.SerumPreset` | VST3 插件及带 Serum 2 依赖的 DawDreamer 环境 | Apple Silicon / Serum 2 2.0.23 的两个工厂音色；Windows、Intel Mac 尚待真实插件验证 |
 | **Sylenth1** | 独立 `.fxp` | Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer | Windows Sylenth1 2.2.1.2 x86；五个音色完成 1 / 2 / 4 条实测，其他组合尚待验证 |
 | **Spire** | 暂不生成 | 可扫描 `.spf`、`.spf2`、`.sbf`、`.swzip`，保留为待适配记录 | 尚无真实插件生成验证 |
@@ -55,6 +55,8 @@
 检查音源的实际版本，点击「保存设置」。Python、DawDreamer 和插件需要匹配架构；Windows 的 DawDreamer 路径使用 x64，不能加载 x86 插件。
 
 「渲染程序」与「已关联插件」是两个位置：Serum 1 的 DawDreamer 方式应选择 Python 程序，插件则选择 64 位 `Serum_x64.dll`，不能把 DLL 当作 Python。未配好的音源也能先保存，不会挡住其他设置；「配置状态」会分别说明缺少什么。若已在本程序的 `Preview/renderers` 准备默认环境，空白的 DawDreamer 程序路径会自动填入；自选和暂时离线的路径会保留。
+
+**Sushi（实验）**：0.8.0 新增无需 Python 的 Windows x64 Serum 1 VST2 路径，实验宿主要求 Windows 10 1903 或以上。当前安装包未捆绑 Sushi，也不会自动替换你的生成方式；须自备带本项目预制加载补丁的 `sushi.exe` 及同目录 `sndfile.dll`。已完成两份真实音色、44.1 / 48 kHz、快速预览及启动防错的本地验证，仍须试听确认。公开分发涉及额外许可条件，使用边界与本地构建入口见[研究记录](docs/headless-host-research.md)；暂不适用于 Serum 2、Sylenth1、Mac 或银行音色。
 
 「加载防错检查」通常自动进行。内置 Windows x86 Sylenth1 宿主遇到启动声音随机波动时，可改用逐音色的精确状态回读；状态与目标不一致或无法核验时仍拒绝保存。这不表示声音比对已稳定，生成结果仍需试听确认。Vital 原生方式不支持这项声音参照检查，也不会因此被禁止生成。
 

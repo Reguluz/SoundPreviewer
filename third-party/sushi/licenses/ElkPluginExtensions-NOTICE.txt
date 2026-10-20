@@ -1,0 +1,4 @@
+/**
+* @brief Optional extension apis for Vst3 plugins
+* @copyright 2017-2025 Elk Audio AB, Stockholm
+*/

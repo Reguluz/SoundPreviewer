@@ -76,6 +76,28 @@ public static class RenderReadinessService
         if (!Enum.IsDefined(configuration.Backend)) return Result("未配置", "未知的渲染后端，请重新选择。");
         if (configuration.Backend == RenderBackend.VitalCli && configuration.Synth != SynthKind.Vital)
             return Result("格式未适配", "Vital 原生渲染后端只能处理 Vital，不能用来加载其他音源。");
+        if (configuration.Backend == RenderBackend.Sushi)
+        {
+            if (target != PluginPlatform.Windows || (architecture ?? PluginSelectionService.CurrentArchitecture) != PluginArchitecture.X64)
+                return Result("平台不兼容", "当前 Sushi 生成方式仅适用于 Windows x64；其他平台请保留原有渲染方式。");
+            if (configuration.Synth != SynthKind.Serum1)
+                return Result("格式未适配", "当前 Sushi 方式仅适配 Serum 1 x64 VST2 FXP；其他音源请保留原有渲染方式。");
+            if (!PluginSelectionService.IsSushiExecutable(configuration.ExecutablePath))
+                return Result("宿主不匹配", "Sushi 的渲染程序须选择自备的 sushi.exe，不能选择 Python、音源 DLL 或其他宿主。");
+            if (!File.Exists(configuration.ExecutablePath))
+                return Result("程序缺失", "找不到自备的 Sushi 程序，请检查已配置的程序路径。");
+            if (!PluginSelectionService.IsSushiHostAvailable(configuration.ExecutablePath))
+                return Result("宿主不完整", "Sushi 需要 x64 sushi.exe 及同目录的 x64 sndfile.dll，请检查自备渲染组件是否完整。");
+            if (selected is null || selected.Synth != configuration.Synth)
+                return Result("插件未确认", "所选插件尚未由扫描元数据确认为 Serum 1，请先扫描并关联对应版本。");
+            if (selected.Format != PluginBinaryFormat.Vst2 || !Path.GetExtension(configuration.PluginPath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+                return Result("格式未适配", "Serum 1 的 Sushi 方式需要 VST2 乐器 DLL，不能使用 VST3 或其他格式。");
+            if (!File.Exists(configuration.PluginPath) || !File.Exists(selected.BinaryPath))
+                return Result("插件缺失", "已关联的 Serum 1 插件文件不存在，请检查安装目录并重新扫描。");
+            if (selected.Architecture != PluginArchitecture.X64 || !PluginSelectionService.IsWindowsX64Binary(selected.BinaryPath) ||
+                !PluginSelectionService.IsWindowsX64Binary(configuration.PluginPath))
+                return Result("位数不兼容", "当前 Sushi 方式需要 Windows x64 Serum 1 VST2，不能加载 32 位或其他架构的插件。");
+        }
         if (configuration.Backend == RenderBackend.DawDreamer)
         {
             if (new[] { ".dll", ".vst", ".vst3", ".component" }.Contains(Path.GetExtension(configuration.ExecutablePath), StringComparer.OrdinalIgnoreCase))
@@ -122,6 +144,8 @@ public static class RenderReadinessService
                 ? "快速预览将从真实原生输出按设定时长截取每音试听，慢起音会在上限内延长采集；Vital 实际按整数秒演奏，力度固定 89。仍须人工确认音色与资源。"
                 : "Vital 独立程序和版本已配置；原生 CLI 不报告目标预制加载成功，输出仍须人工确认音色与资源。", true);
         }
+        if (configuration.Backend == RenderBackend.Sushi)
+            return Result("可尝试", "Serum 1 x64 VST2 与原生 Sushi 宿主已配置，无需 Python；生成前会建立无预制的默认声音参照，结果仍须试听确认音色与外部资源。", true);
         if (configuration.Backend == RenderBackend.DawDreamer)
             return Result("可尝试", configuration.Synth == SynthKind.Serum2
                 ? "Serum 2 VST3、匹配架构的 Python 与插件版本已配置。安装 requirements-serum2.txt 后可加载 .SerumPreset，采用当前插件实际状态格式并回读核对；旧 FXP 请先在 Serum 2 中导入并另存。尚需实际预制与外部资源验收。"

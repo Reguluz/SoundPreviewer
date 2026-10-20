@@ -6,7 +6,7 @@ using SoundPreviewer.Core.Models;
 
 namespace SoundPreviewer.Worker;
 
-public static class RenderDispatcher
+public static partial class RenderDispatcher
 {
     public const string VitalAdapterVersion = "vital-native-seconds-v1";
 
@@ -28,6 +28,7 @@ public static class RenderDispatcher
             RenderBackend.VitalCli => RenderVitalAsync(request, cancellationToken),
             RenderBackend.ExternalWorker => RenderExternalAsync(request, cancellationToken),
             RenderBackend.DawDreamer => RenderExternalAsync(request, cancellationToken, dawdreamer: true),
+            RenderBackend.Sushi => RenderSushiAsync(request, cancellationToken),
             _ => Task.FromResult(new RenderResult { Message = "尚未配置音源渲染后端。" })
         };
 

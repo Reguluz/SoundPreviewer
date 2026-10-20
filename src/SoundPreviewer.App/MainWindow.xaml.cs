@@ -84,7 +84,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
     public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
     public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), new("最近生成失败", LatestFailedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
-    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer)];
+    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
     public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
@@ -111,6 +111,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string AppVersion => "v" + typeof(App).Assembly.GetName().Version!.ToString(3);
     public string BuildLocation => $"程序：{AppContext.BaseDirectory}{Environment.NewLine}音色库：{LibraryLocation}";
     private static string X86HostPath => Path.Combine(AppContext.BaseDirectory, "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe");
+    private static string SushiHostPath => Path.Combine(AppContext.BaseDirectory, "Renderers", "Sushi", "sushi.exe");
     public string NowPlaying => _selected?.Name ?? "未选择预览";
     public int VisiblePresetCount => PresetsView.Count;
     public bool CanRenderFiltered => IsIdle && !PresetsView.IsEmpty;
@@ -147,6 +148,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         bool migratedPreviewDirectory = !string.Equals(previousPreviewDirectory, _settings.PreviewDirectory, StringComparison.Ordinal);
         _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
         int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
+        int refreshedSushi = PluginSelectionService.RefreshBundledSushiHost(_settings.Plugins, SushiHostPath);
         int localPython = PluginSelectionService.RefreshLocalDawDreamer(_settings.Plugins, App.DataDirectory);
         bool seededPluginDirectories = createdDirectoryConfiguration && _settings.PluginDirectories.Count == 0;
         if (seededPluginDirectories) _settings.PluginDirectories = ResolvePluginScanDirectories([], _settings.Plugins);
@@ -168,6 +170,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
         if (migratedPreviewDirectory) Log("预览保存目录：" + _settings.PreviewDirectory);
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
+        if (refreshedSushi > 0) Log("已定位自行放置的 Sushi 宿主，保留原有音源关联。");
         if (localPython > 0) Log("已填入本库准备好的 Python 宿主，实际音源加载仍需检查。");
         LoadCategoryRulesEditor();
         _player.Volume = _settings.PlaybackVolume;
@@ -1064,13 +1067,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (sender is not Button { Tag: PluginConfiguration plugin }) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = plugin.Backend == RenderBackend.DawDreamer ? "选择 Python 程序（不是音源 DLL）" : "选择渲染程序", AllowMultiple = false,
+            Title = plugin.Backend switch { RenderBackend.DawDreamer => "选择 Python 程序（不是音源 DLL）", RenderBackend.Sushi => "选择自备的 Sushi 程序 sushi.exe", _ => "选择渲染程序" }, AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("渲染程序 / 应用程序") { Patterns = ["*"], AppleUniformTypeIdentifiers = ["public.executable", "com.apple.application-bundle"] }, FilePickerFileTypes.All]
         });
         var executable = files.FirstOrDefault()?.TryGetLocalPath();
         if (executable is null) return;
         if (plugin.Backend == RenderBackend.DawDreamer && new[] { ".dll", ".vst", ".vst3", ".component" }.Contains(Path.GetExtension(executable), StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("DawDreamer 请选 Python 可执行文件；音源 DLL 或插件包请在“已发现音源”中关联。");
+        if (plugin.Backend == RenderBackend.Sushi && !PluginSelectionService.IsSushiHostAvailable(executable))
+            throw new ArgumentException("Sushi 请选择带有 SoundPreviewer 预制加载补丁的 Windows x64 sushi.exe，同目录需有 sndfile.dll。此实验宿主须自行准备。");
         plugin.ExecutablePath = Directory.Exists(executable) ? PluginScanService.ResolveBundleExecutable(executable) ?? throw new ArgumentException("应用程序包中没有可执行文件。") : executable;
         if (plugin.Backend == RenderBackend.Unconfigured) plugin.Backend = plugin.Synth == SynthKind.Vital ? RenderBackend.VitalCli : RenderBackend.ExternalWorker;
         if (plugin.Backend == RenderBackend.VitalCli)
@@ -1227,6 +1232,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var attempts = ParseInt(AttemptsBox.Text, "最大尝试次数");
             if (budget <= 0 || !double.IsFinite(budget) || attempts is < 1 or > 5) throw new ArgumentException("存储预算须大于 0，最大尝试次数须为 1 到 5。");
             PluginSelectionService.RefreshBundledHost(Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
+            PluginSelectionService.RefreshBundledSushiHost(Plugins, SushiHostPath);
             PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
             RenderReadinessService.ValidateSettings(Plugins);
             var candidate = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
@@ -1302,7 +1308,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 渲染程序…");
             // An offline drive must not erase the last known binary identity during an
             // unrelated settings save. Readiness still prevents executing a missing file.
-            if (File.Exists(plugin.ExecutablePath)) plugin.ExecutableHash = Fingerprints.HashFile(plugin.ExecutablePath, cancellationToken);
+            if (File.Exists(plugin.ExecutablePath)) plugin.ExecutableHash = Fingerprints.RendererExecutableHash(plugin, cancellationToken);
             progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 插件文件…");
             string pluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, cancellationToken);
             if (pluginHash.Length > 0) plugin.PluginHash = pluginHash;

@@ -21,7 +21,8 @@ public sealed class BackendLabelConverter : IValueConverter
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
     {
         RenderBackend.Unconfigured => "未配置", RenderBackend.VitalCli => "Vital 原生",
-        RenderBackend.ExternalWorker => "外部工作进程", RenderBackend.DawDreamer => "DawDreamer", _ => ""
+        RenderBackend.ExternalWorker => "外部工作进程", RenderBackend.DawDreamer => "DawDreamer",
+        RenderBackend.Sushi => "Sushi（实验）", _ => ""
     };
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
