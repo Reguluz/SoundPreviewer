@@ -31,11 +31,12 @@ public partial class MainWindow
         {
             Generated = 2, Reused = 1, Failed = 1, Unconfigured = 2, RetryLimited = 1,
             ActiveCount = 1, MaxConcurrency = 8, AllowedConcurrency = 3, EffectiveConcurrency = 1,
-            MemoryBudgetBytes = 2147483648, WorkingSetBytes = 536870912
+            MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes, WorkingSetBytes = 536870912
         };
         if (!FormatRenderProgress(progressSample).Contains("成功 3（新生成 2 / 复用 1） · 失败 1", StringComparison.Ordinal) ||
             !FormatRenderProgress(progressSample).Contains("运行 1/1", StringComparison.Ordinal) ||
-            !FormatRenderResources(progressSample).Contains("当前并行上限 1 条（设定 8，内存允许 3）", StringComparison.Ordinal))
+            !FormatRenderResources(progressSample).Contains("当前并行上限 1 条（设定 8，内存允许 3）", StringComparison.Ordinal) ||
+            !FormatRenderResources(progressSample).Contains("实占 512 / 4096 MiB", StringComparison.Ordinal))
             throw new InvalidOperationException("实时成功失败计数或有效并行分母显示不一致。");
         if (App.TestInstalledStorage && (!ApplicationPaths.SamePath(App.DataDirectory, ApplicationPaths.DefaultPreviewDirectory) ||
             !ApplicationPaths.SamePath(_settings.PreviewDirectory, App.DataDirectory) || !PreviewDirectoryBox.IsReadOnly))
@@ -177,7 +178,7 @@ public partial class MainWindow
             var fixedPageBounds = Pages.Bounds;
             _smokeLayoutPhase = name + "-long-feedback";
             _taskProgressText = "已处理 9999 / 10000 (100%) · 成功 8999（新生成 8000 / 复用 999） · 失败 1000 · 运行 4/4";
-            _taskMemoryText = "总内存 1792 / 2048 MiB · 当前并行上限 4 条（设定 16，内存允许 4）";
+            _taskMemoryText = "实占 3584 / 4096 MiB · 内存预留 128 MiB · 当前并行上限 4 条（设定 16，内存允许 4）";
             _taskSelectionText = "本次所选 14007 条 · 去重 12551 个 · 处理队列 6432 个 · 重复副本 1456 · 待识别 5130 · 暂不支持生成 989";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();

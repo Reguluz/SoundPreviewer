@@ -146,9 +146,10 @@ internal static partial class Program
                 // Keep the root stable and model another application-owned child.
                 // It contributes to total RSS but cannot inflate this worker's
                 // measured 32 MiB footprint through parent-growth calibration.
-                // Available after the global margin: 1792 - 64 - 1376 - 128
-                // = 224 MiB: above the measured 104 MiB, below unknown 256 MiB.
-                processes.Add(new(int.MaxValue - 1, Environment.ProcessId, 1376 * mib, null));
+                // Leave 224 MiB after the root and global margin under the
+                // current budget: above measured 104 MiB, below unknown 256 MiB.
+                long pressure = RenderResourcePolicy.SoftLimitBytes - (64 + 128 + 224) * mib;
+                processes.Add(new(int.MaxValue - 1, Environment.ProcessId, pressure, null));
                 PressureObserved = true;
             }
             return RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes);

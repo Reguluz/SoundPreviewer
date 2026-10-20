@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-20，当前为 0.7.2 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
+更新日期：2026-10-21，当前为 0.7.5 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -115,7 +115,7 @@ SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止�
 
 一个任务调用一个独立工作进程，默认按机型和内存目标调度。进程通过 JSON 的 `RenderRequest` / `RenderResult` 协议交换来源、插件、模板、目标路径、音区映射和结果。Windows Job Object 和 macOS 独立进程组用于超时、取消和退出时结束渲染子进程。详细参数与实际限制见 [渲染后端说明](rendering.md)。
 
-`AppSettings.MaxParallelRenders` 支持 0（自动）与 1 / 2 / 4 / 8 / 16。新设置默认自动，旧 JSON 缺字段仍解释为 1，已有显式选择保留。自动按物理核数向下选择档位；内存探针统计当前父进程及 Worker、Python / 原生宿主后代的 RSS，固定目标 2 GiB。队列先校准各音源开销，再按独立 Worker PID 归属预留内存，接近目标限制启动，超限或连续无法完整监测则取消并收束。100ms 采样不是操作系统硬配额，瞬时峰值仍可能越过目标。
+`AppSettings.MaxParallelRenders` 支持 0（自动）与 1 / 2 / 4 / 8 / 16。新设置默认自动，旧 JSON 缺字段仍解释为 1，已有显式选择保留。自动按物理核数向下选择档位；内存探针统计当前父进程及 Worker、Python / 原生宿主后代的 RSS。0.7.5 面向 16 GB 及以上内存电脑，将总 RSS 目标设为 **4 GiB（4096 MiB）**：实际占用达到 **3.75 GiB（3840 MiB）** 时暂停新增，超过 4 GiB 或连续无法完整监测则取消并收束。队列先校准各音源开销，再按独立 Worker PID 归属预留内存；启动条件仍要求实际占用、现有任务预测预留和新任务预测共同容纳于暂停阈值内，因此可能提前限流，不保证占满预算或达到 8 条并行。100ms 采样不是操作系统硬配额，瞬时峰值仍可能越过目标；预算调整不改变音频缓存键或数据库 schema 2。
 
 相同音源仍须显式启用 `PluginConfiguration.AllowParallelRendering`，缺字段默认 false，重新关联不同插件或版本会撤销许可。设置快照、同缓存键任务合并、单次声音参照准备、空间预留和集中提交由父进程协调，Worker 使用独立进程和新实例。调度设置不进入音频缓存或声音参照身份。停止会收束所有在飞任务，已完成的提交继续入库；手动建立声音参照也复用同一内存保护会话。详细验证见 [并行方案](parallel-rendering.md)。
 

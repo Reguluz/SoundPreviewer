@@ -23,15 +23,25 @@ internal static partial class Program
             Throws<ArgumentException>(() => RenderResourcePolicy.ResolveMaxConcurrency(invalid, new(16, 8)));
 
         const long mib = 1024L * 1024;
+        Equal(4096 * mib, RenderResourcePolicy.MemoryLimitBytes, "The user-approved total process-tree budget is four GiB.");
+        Equal(256 * mib, RenderResourcePolicy.MemoryLimitBytes - RenderResourcePolicy.SoftLimitBytes, "Admission retains a 256 MiB buffer below the stop boundary.");
         var normal = new RenderMemorySnapshot(256 * mib, true, 1) { RootResidentBytes = 256 * mib };
         True(RenderResourcePolicy.CanStart(normal, 128 * mib, 256 * mib), "A complete low-RSS snapshot permits a reserved new job.");
         True(!RenderResourcePolicy.CanStart(normal, RenderResourcePolicy.SoftLimitBytes, 0), "Outstanding forecasts cannot share the same remaining memory.");
         True(!RenderResourcePolicy.CanStart(normal, long.MaxValue, long.MaxValue), "Reservation overflow cannot wrap around into apparent free memory.");
         True(!RenderResourcePolicy.CanStart(normal with { IsComplete = false }, 0, 0), "An incomplete observation cannot admit another worker.");
+        foreach (long resident in new[] { 2048 * mib, 3072 * mib, 3584 * mib })
+        {
+            var approved = normal with { ResidentBytes = resident };
+            True(!RenderResourcePolicy.MustStop(approved), "Real usage between two and three-and-a-half GiB stays within the approved budget.");
+            True(RenderResourcePolicy.CanStart(approved, 128 * mib, 64 * mib), "Known small work can continue above the former two-GiB limit while retaining all admission margins.");
+        }
+        var reported = normal with { ResidentBytes = 581 * mib };
+        True(RenderResourcePolicy.CanStart(reported, 1139 * mib, 256 * mib), "The user's 581 MiB actual plus 1139 MiB reservation can admit another forecast under the new budget.");
         var soft = normal with { ResidentBytes = RenderResourcePolicy.SoftLimitBytes };
         True(!RenderResourcePolicy.CanStart(soft, 0, 0) && !RenderResourcePolicy.MustStop(soft), "Soft pressure pauses starts without mislabeling it as a hard overage.");
         True(!RenderResourcePolicy.MustStop(normal with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes }), "The hard boundary is exceeded only above the configured budget.");
-        True(RenderResourcePolicy.MustStop(normal with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1, IsComplete = false }), "Even an incomplete sample must stop when its already known RSS exceeds two GiB.");
+        True(RenderResourcePolicy.MustStop(normal with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1, IsComplete = false }), "Even an incomplete sample must stop when its already known RSS exceeds the approved four-GiB budget.");
 
         var tree = RenderMemorySnapshot.FromProcesses(10,
         [
@@ -95,6 +105,15 @@ internal static partial class Program
         {
             await WaitForParallelStartsAsync(fixture, 1, run);
             int pid = ParallelStarts(fixture).Single().Pid;
+            const long mib = 1024L * 1024;
+            foreach (long resident in new[] { 2048 * mib, 3584 * mib })
+            {
+                probe.AdditionalResidentBytes = resident - (64 + 160) * mib;
+                var observed = System.Diagnostics.Stopwatch.StartNew();
+                while (probe.LastResidentBytes < resident && observed.Elapsed < TimeSpan.FromSeconds(3)) await Task.Delay(25);
+                Equal(resident, probe.LastResidentBytes, "The live complete resource probe observes the approved higher RSS.");
+                True(!run.IsCompleted && IsRunning(pid), "An already-running worker remains alive between two and three-and-a-half GiB.");
+            }
             probe.OverBudget = true;
             RenderResourceLimitException? stopped = null;
             try { await run; }
@@ -238,6 +257,10 @@ internal static partial class Program
     private sealed class TestRenderResourceProbe(ParallelFixture? fixture = null) : IRenderResourceProbe
     {
         public volatile bool OverBudget;
+        private long additionalResidentBytes;
+        private long lastResidentBytes;
+        public long AdditionalResidentBytes { get => Interlocked.Read(ref additionalResidentBytes); set => Interlocked.Exchange(ref additionalResidentBytes, value); }
+        public long LastResidentBytes => Interlocked.Read(ref lastResidentBytes);
         public bool Incomplete { get; init; }
         public long WorkerResidentBytes { get; init; } = 160L * 1024 * 1024;
         public long RootGrowthAfterStartBytes { get; init; }
@@ -262,8 +285,12 @@ internal static partial class Program
                     processes.Add(new(trace.Pid, parent, WorkerMemorySelector?.Invoke(trace.Synth) ?? WorkerResidentBytes, null));
                 }
             }
+            if (AdditionalResidentBytes > 0)
+                processes.Add(new(int.MaxValue - 2, Environment.ProcessId, AdditionalResidentBytes, null));
             var snapshot = RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes, !Incomplete, Incomplete ? "TEST ONLY access denied" : null);
-            return OverBudget ? snapshot with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1 } : snapshot;
+            if (OverBudget) snapshot = snapshot with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1 };
+            Interlocked.Exchange(ref lastResidentBytes, snapshot.ResidentBytes);
+            return snapshot;
         }
     }
 

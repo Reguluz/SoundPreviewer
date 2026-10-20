@@ -48,8 +48,9 @@ public interface IRenderResourceProbe
 
 public static class RenderResourcePolicy
 {
-    public const long MemoryLimitBytes = 2L * 1024 * 1024 * 1024;
-    public const long SoftLimitBytes = 1792L * 1024 * 1024;
+    public const long MemoryLimitBytes = 4L * 1024 * 1024 * 1024;
+    public const long SoftLimitBytes = 3840L * 1024 * 1024;
+    public static string MemoryLimitLabel => $"{MemoryLimitBytes / (1024d * 1024 * 1024):0.##} GiB";
     private static readonly int[] levels = [1, 2, 4, 8, 16];
 
     public static int ResolveMaxConcurrency(int requested, RenderHardwareInfo hardware)

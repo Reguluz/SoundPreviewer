@@ -72,7 +72,7 @@ $manifestPath = Join-Path $output 'manifest.json'
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
 Write-Host "Prepared benchmark: $manifestPath"
 Write-Host 'Cold = new library and baseline; warm-force = new audio with existing baseline; cache-reuse is reported separately.'
-Write-Host 'Each phase reports resolved concurrency, active peak, process-tree RSS and CPU under the fixed 2 GiB queue budget.'
+Write-Host 'Each phase reports resolved concurrency, active peak, process-tree RSS and CPU under the fixed 4 GiB queue budget.'
 if (-not $Execute) {
     Write-Host 'No renderer was started. Add -Execute when real plugin execution is intended; no build is performed.'
     return

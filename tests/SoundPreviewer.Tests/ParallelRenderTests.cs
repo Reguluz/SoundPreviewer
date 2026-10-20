@@ -29,9 +29,9 @@ internal static partial class Program
                      (Global: 2, OptIn: true, Mixed: false, Expected: 2),
                      (Global: 2, OptIn: false, Mixed: true, Expected: 2),
                      (Global: 4, OptIn: true, Mixed: false, Expected: 4),
-                     (Global: 8, OptIn: true, Mixed: false, Expected: 6),
-                     (Global: 16, OptIn: true, Mixed: false, Expected: 6),
-                     (Global: 0, OptIn: true, Mixed: false, Expected: 6) })
+                     (Global: 8, OptIn: true, Mixed: false, Expected: 8),
+                     (Global: 16, OptIn: true, Mixed: false, Expected: 13),
+                     (Global: 0, OptIn: true, Mixed: false, Expected: 8) })
         {
             int count = Math.Max(4, scenario.Expected + 2);
             var fixture = CreateParallelFixture($"parallel-schedule-{scenario.Global}-{scenario.OptIn}-{scenario.Mixed}", count);
@@ -62,7 +62,7 @@ internal static partial class Program
                     True(held.ConcurrencyMessage.Contains("未启用同音源多实例并行", StringComparison.Ordinal),
                         "A serial synth explains its permission limit even when the configured target is higher.");
                 if (scenario.Expected < target && scenario.OptIn)
-                    True(held.ConcurrencyMessage.Contains("2 GiB", StringComparison.Ordinal), "Memory admission explains why an opted-in synth cannot fill the configured CPU target.");
+                    True(held.ConcurrencyMessage.Contains(RenderResourcePolicy.MemoryLimitLabel, StringComparison.Ordinal), "Memory admission explains why an opted-in synth cannot fill the configured CPU target.");
                 var originalTemplate = JsonSerializer.Serialize(fixture.Settings.Template, LibraryJson.Options);
                 if (scenario.Expected == 2 && !scenario.Mixed)
                 {

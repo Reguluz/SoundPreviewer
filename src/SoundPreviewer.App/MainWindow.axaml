@@ -266,7 +266,7 @@
             <TextBlock Text="并行数量" VerticalAlignment="Center"/>
             <ComboBox x:Name="ParallelRendering" ItemsSource="{Binding ParallelRenderChoices}" DisplayMemberBinding="{Binding Label}" IsEnabled="{Binding IsIdle}" MinWidth="210" AutomationProperties.Name="自动或手动选择并行生成数量"/>
            </StackPanel>
-           <TextBlock Text="自动按机型选择，或手动设为 1 / 2 / 4 / 8 / 16 条。生成期间总内存目标 2 GiB（包含程序和全部生成进程）；先单条校准，内存紧张时限制并行，超限则停止并保留已完成结果。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+           <TextBlock Text="自动按机型选择，或手动设为 1 / 2 / 4 / 8 / 16 条。生成期间总内存目标 4 GiB（包含程序和全部生成进程）；先单条校准，预计占用接近 3.75 GiB 时暂停新增任务，实占超限则停止并保留已完成结果。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
            <TextBlock Text="默认允许同一音源同时生成，可在下表关闭；明确关闭的选择会保留，更新或重新关联音源不会自动更改。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"/>
           </StackPanel>
           <DataGrid x:Name="PluginGrid" Grid.Row="2" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">

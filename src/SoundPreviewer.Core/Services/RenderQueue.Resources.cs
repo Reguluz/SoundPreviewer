@@ -82,7 +82,7 @@ public sealed partial class RenderQueue
             }
             if (RenderResourcePolicy.MustStop(snapshot))
             {
-                string reason = $"内存保护已停止生成：主程序及渲染进程合计 {snapshot.ResidentBytes / (1024.0 * 1024 * 1024):F2} GiB，超过 2 GiB 目标。已完成的预览保留，其余可继续。";
+                string reason = $"内存保护已停止生成：主程序及渲染进程合计 {snapshot.ResidentBytes / (1024.0 * 1024 * 1024):F2} GiB，超过 {RenderResourcePolicy.MemoryLimitLabel} 目标。已完成的预览保留，其余可继续。";
                 Interlocked.CompareExchange(ref resourceFailure, reason, null);
                 // A file/database commit can briefly hold gate. Stop other processes as
                 // soon as the sample is known, without waiting for that commit to finish.
@@ -101,7 +101,7 @@ public sealed partial class RenderQueue
                     incompleteMemorySamples++;
                     resourceMessage = "无法完整读取渲染进程树内存，暂停启动新任务。" + snapshot.Error;
                     if (incompleteMemorySamples >= 3)
-                        SetResourceFailure("无法完整监测主程序及渲染子进程的内存，已停止生成以保护 2 GiB 内存目标。" + snapshot.Error);
+                        SetResourceFailure($"无法完整监测主程序及渲染子进程的内存，已停止生成以保护 {RenderResourcePolicy.MemoryLimitLabel} 内存目标。" + snapshot.Error);
                 }
                 else
                 {
@@ -117,7 +117,7 @@ public sealed partial class RenderQueue
                         lease.ObservedChildren |= own > 0;
                     }
                     if (snapshot.ResidentBytes >= RenderResourcePolicy.SoftLimitBytes)
-                        resourceMessage = "当前内存接近目标，等待正在生成的任务结束后再启动新任务。";
+                        resourceMessage = $"当前实占内存已达到 {RenderResourcePolicy.SoftLimitBytes / 1048576d:0} MiB 启动阈值，等待正在生成的任务结束后再启动新任务。";
                 }
                 UpdateAllowedConcurrency();
                 if (memoryLeases.Count > 0 && (elapsed.Elapsed.TotalSeconds - lastResourceProgress >= 0.5 || resourceFailure is not null))
@@ -208,9 +208,9 @@ public sealed partial class RenderQueue
                 }
                 if (hasEligibleSynth)
                 {
-                    resourceMessage = "内存余量不足，暂不启动新任务，等待正在生成的任务结束。";
+                    resourceMessage = $"预计内存预算不足：实占、任务预留和下一项预测合计将超过 {RenderResourcePolicy.SoftLimitBytes / 1048576d:0} MiB 启动阈值，暂不启动新任务。";
                     if (runningCount == 0)
-                        SetResourceFailure("内存余量不足以安全启动下一个渲染任务，已停止生成。已完成的预览保留；关闭占用内存的试听或重新打开程序后可继续。");
+                        SetResourceFailure($"预计内存预算不足以安全启动下一个渲染任务，已停止生成以保护 {RenderResourcePolicy.MemoryLimitLabel} 目标。已完成的预览保留；关闭占用内存的试听或重新打开程序后可继续。");
                 }
                 else if (waitingForCalibration)
                     resourceMessage = "等待当前音源任务结束后，单独观测下一音源的首项。";
@@ -321,7 +321,7 @@ public sealed partial class RenderQueue
             var reasons = new List<string>();
             if (permissionReason.Length > 0) reasons.Add(permissionReason);
             if (allowedConcurrency < Math.Min(targetConcurrency, measuredCapacity))
-                reasons.Add($"2 GiB 内存目标限制当前最多 {allowedConcurrency} 条（含预留 {ReservedMemoryBytes / 1048576d:0} MiB）。");
+                reasons.Add($"{RenderResourcePolicy.MemoryLimitLabel} 预计内存预算限制当前最多 {allowedConcurrency} 条（含预留 {ReservedMemoryBytes / 1048576d:0} MiB）。");
             if (measuredCapacity < permissionCapacity)
                 reasons.Add("下一音源须等当前任务结束后单独测量内存。");
             if (jobCount < targetConcurrency)

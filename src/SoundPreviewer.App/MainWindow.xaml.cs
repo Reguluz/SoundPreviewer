@@ -456,7 +456,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
         Log(result.Summary);
         Log($"本次队列用时 {result.ElapsedSeconds:0.00} 秒，最多同时运行 {result.PeakActiveCount} 个任务。");
-        _taskMemoryText = $"本次总内存采样峰值 {result.PeakWorkingSetBytes / 1048576d:0} MiB / 2048 MiB · 并行目标 {result.ResolvedConcurrency} 条";
+        _taskMemoryText = $"本次总内存采样峰值 {result.PeakWorkingSetBytes / 1048576d:0} MiB / {result.MemoryBudgetBytes / 1048576d:0} MiB · 并行目标 {result.ResolvedConcurrency} 条";
         Log(_taskMemoryText);
     });
 
@@ -506,7 +506,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 Unconfigured = ex.Summary.Unconfigured, RetryLimited = ex.Summary.RetryLimited
             });
             _taskSelectionText = ex.Summary.Selection.Description;
-            _taskMemoryText = $"总内存采样峰值 {ex.Summary.PeakWorkingSetBytes / 1048576d:0} MiB / 2048 MiB；已完成的预览保留，可降低并行后继续。";
+            _taskMemoryText = $"总内存采样峰值 {ex.Summary.PeakWorkingSetBytes / 1048576d:0} MiB / {ex.Summary.MemoryBudgetBytes / 1048576d:0} MiB；已完成的预览保留，可降低并行后继续。";
             Log(_statusMessage);
             Log(_taskMemoryText);
         }
@@ -961,7 +961,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var resourceProgress = new QueueReporter(value => Dispatcher.UIThread.Post(() =>
             {
                 if (!_isBusy || _isClosing || !ReferenceEquals(_taskCancellation, resourceOwner) || _taskTitle != "正在生成默认启动基准") return;
-                _taskMemoryText = $"总内存 {value.WorkingSetBytes / 1048576d:0} / 2048 MiB · 正在建立声音参照";
+                _taskMemoryText = $"总内存 {value.WorkingSetBytes / 1048576d:0} / {value.MemoryBudgetBytes / 1048576d:0} MiB · 正在建立声音参照";
                 NotifyTaskProgress();
             }));
             var state = await Task.Run(() => new RenderQueue(_store).GenerateInitializationBaselineAsync(
