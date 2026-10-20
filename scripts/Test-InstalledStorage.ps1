@@ -53,7 +53,7 @@ foreach ($phase in @('migrate', 'reopen')) {
     $result = Get-Content -LiteralPath (Join-Path $preview 'ui-smoke.json') -Raw | ConvertFrom-Json
     if (-not $result.InstalledStorageChecked -or -not $result.ExistingPreviewsLocal -or -not $result.GeneratedViewChecked -or $result.StoredPreviewRecords -ne 2 -or -not $result.TemplatePersistenceChecked -or
         -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or
-        -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.RenderProgressCountersChecked -or
+        -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or
         -not $result.EffectiveConcurrencyDisplayChecked -or $result.Presets -ne 3 -or
         -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked -or
         [IO.Path]::GetFullPath($result.LibraryDirectory) -ne [IO.Path]::GetFullPath($preview) -or

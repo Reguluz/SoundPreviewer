@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <None Update="Config/preset-categories.default.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <EmbeddedResource Include="Config/preset-categories.default.json" LogicalName="SoundPreviewer.Core.Config.preset-categories.default.json" />
   </ItemGroup>
 </Project>

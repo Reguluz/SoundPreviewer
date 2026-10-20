@@ -45,7 +45,8 @@ public sealed class PresetCategoryService
     public void EnsureRulesFile()
     {
         if (File.Exists(RulesPath)) return;
-        string json = ReadBounded(legacyRulesPath is not null && File.Exists(legacyRulesPath) ? legacyRulesPath : DefaultFilePath);
+        string json = (legacyRulesPath is not null ? ReadIfPresent(legacyRulesPath) : null)
+            ?? ReadIfPresent(DefaultFilePath) ?? ReadEmbeddedDefaults();
         Parse(json);
         Directory.CreateDirectory(Path.GetDirectoryName(RulesPath)!);
         string temporary = RulesPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -226,6 +227,25 @@ public sealed class PresetCategoryService
     private static string ReadBounded(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return ReadBounded(stream);
+    }
+
+    private static string? ReadIfPresent(string path)
+    {
+        try { return ReadBounded(path); }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+    }
+
+    private static string ReadEmbeddedDefaults()
+    {
+        using var stream = typeof(PresetCategoryService).Assembly.GetManifestResourceStream("SoundPreviewer.Core.Config.preset-categories.default.json")
+            ?? throw new InvalidDataException("程序内置的默认分类规则不可用。");
+        return ReadBounded(stream);
+    }
+
+    private static string ReadBounded(Stream stream)
+    {
         if (stream.Length > MaximumRulesBytes) throw new InvalidDataException("规则文件超过 256 KiB 限制。");
         using var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();

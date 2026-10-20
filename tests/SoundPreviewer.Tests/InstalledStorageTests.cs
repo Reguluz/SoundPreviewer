@@ -15,13 +15,18 @@ internal static partial class Program
         string fresh = Fixture("installed-storage-new");
         string freshApplication = Path.Combine(fresh, "portable"), freshUser = Path.Combine(fresh, "user-data");
         string freshTarget = Path.Combine(freshApplication, "Preview");
+        True(!Directory.Exists(Path.Combine(freshApplication, "Config")) && !Directory.Exists(freshTarget), "The fresh fixture starts without copied configuration or previews.");
         var created = InstalledStorageService.Prepare(freshApplication, freshUser);
         Equal(freshTarget, created.Directory, "A new application always stores its library beside the executable in Preview.");
         True(Directory.Exists(freshTarget), "The installation-local Preview directory is available for subsequent output.");
+        Equal(0, new LibraryStore(Path.Combine(freshTarget, "library.db")).LoadPresets().Count, "A fresh installation opens with an empty library that can be configured and regenerated.");
+        Equal(0, created.Warnings.Count, "An installation with no historical locator needs no recovery warning.");
         True(!Directory.Exists(freshUser), "Preparing a new installation creates no user-directory fallback data.");
         string freshDatabaseHash = InstalledDatabaseHash(Path.Combine(freshTarget, "library.db"));
         Throws<DirectoryNotFoundException>(() => InstalledStorageService.Prepare(freshApplication, freshUser, Path.Combine(fresh, "missing-old-library")), "An explicitly requested missing library is refused rather than silently replaced with an empty one.");
+        Throws<DirectoryNotFoundException>(() => InstalledStorageService.Prepare(freshApplication, freshUser, Path.Combine(fresh, "missing-old-library"), replaceTarget: true), "An explicit import from a missing library is still refused.");
         Equal(freshDatabaseHash, InstalledDatabaseHash(Path.Combine(freshTarget, "library.db")), "An unavailable explicit source never changes the established installation-local database.");
+        TestInstalledMissingPreview();
 
         var legacy = CreateInstalledStorageFixture("installed-storage-legacy-wal", legacySchema: true);
         string legacyDatabase = Path.Combine(legacy.Root, "library.db");
@@ -391,6 +396,69 @@ internal static partial class Program
         .Where(path => !path.Equals(Path.Combine(root, "library.db-wal"), ApplicationPaths.PathComparison) &&
             !path.Equals(Path.Combine(root, "library.db-shm"), ApplicationPaths.PathComparison))
         .OrderBy(path => path, ApplicationPaths.PathComparer).ToArray();
+
+    private static void TestInstalledMissingPreview()
+    {
+        string root = Fixture("installed-storage-missing-local-preview");
+        string application = Path.Combine(root, "application"), user = Path.Combine(root, "user-data");
+        string preview = InstalledStorageService.Prepare(application, user).Directory;
+        string locator = ApplicationPaths.RememberDataDirectory(preview, application);
+        string locatorJson = File.ReadAllText(locator);
+        string oldDatabaseHash = InstalledDatabaseHash(Path.Combine(preview, "library.db"));
+        string retained = Path.Combine(root, "TEST ONLY retained-preview");
+        True(ApplicationPaths.IsWithin(preview, _fixtureRoot) && ApplicationPaths.IsWithin(retained, _fixtureRoot), "Only temporary fixture directories may be moved.");
+        Directory.Move(preview, retained);
+        var sourceWarnings = new List<string>();
+        Equal(preview, InstalledStorageService.GetSourceDirectory(application, user, warnings: sourceWarnings), "A remembered local Preview that was not copied no longer blocks startup source selection.");
+        True(sourceWarnings.Count == 1 && sourceWarnings[0].Contains(preview, ApplicationPaths.PathComparison), "Startup source recovery reports the unavailable original path.");
+        var recreated = InstalledStorageService.Prepare(application, user);
+        Equal(preview, recreated.Directory, "Retaining Config without Preview recreates the installation-local library.");
+        Equal(0, new LibraryStore(Path.Combine(preview, "library.db")).LoadPresets().Count, "A recreated Preview opens as an empty, usable library.");
+        True(recreated.Warnings.Count == 1 && recreated.Warnings[0].Contains(preview, ApplicationPaths.PathComparison), "Direct preparation preserves the missing-library warning for the normal UI.");
+        Equal(locatorJson, File.ReadAllText(locator), "Preparing recovery does not overwrite the historical locator.");
+        Equal(oldDatabaseHash, InstalledDatabaseHash(Path.Combine(retained, "library.db")), "Creating a replacement Preview never changes the preserved old database.");
+
+        foreach (bool userLocator in new[] { false, true })
+        {
+            string externalRoot = Fixture("installed-storage-missing-external-" + userLocator);
+            string externalApplication = Path.Combine(externalRoot, "application"), externalUser = Path.Combine(externalRoot, "user-data");
+            string missingLibrary = Path.Combine(externalRoot, "TEST ONLY unavailable-old-library");
+            string externalLocator = Path.Combine(userLocator ? externalUser : externalApplication, "Config", "library-location.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(externalLocator)!);
+            string json = JsonSerializer.Serialize(new { FormatVersion = 2, DataDirectory = missingLibrary, SavedUtc = DateTimeOffset.UtcNow });
+            File.WriteAllText(externalLocator, json);
+            var recovered = InstalledStorageService.Prepare(externalApplication, externalUser);
+            Equal(Path.Combine(externalApplication, "Preview"), recovered.Directory, "A missing automatically discovered external library falls back to this installation's Preview.");
+            True(File.Exists(Path.Combine(recovered.Directory, "library.db")), "The recovered installation has a database ready for configuration and scanning.");
+            True(recovered.Warnings.Count == 1 && recovered.Warnings[0].Contains(missingLibrary, ApplicationPaths.PathComparison), "Both program and user locators retain their original unavailable path in the warning.");
+            Equal(json, File.ReadAllText(externalLocator), "Automatic missing-library recovery leaves the original locator bytes untouched.");
+            True(!Directory.Exists(missingLibrary), "Recovery never creates an empty replacement at the unavailable historical path.");
+        }
+
+        string partialRoot = Fixture("installed-storage-missing-database-retain-files");
+        string partialApplication = Path.Combine(partialRoot, "application"), partialPreview = Path.Combine(partialApplication, "Preview");
+        Directory.CreateDirectory(partialPreview);
+        string retainedFile = Path.Combine(partialPreview, "TEST ONLY retained-user-file.txt");
+        File.WriteAllText(retainedFile, "TEST ONLY do not replace a partial Preview");
+        string retainedHash = Fingerprints.HashFile(retainedFile);
+        string partialLocator = Path.Combine(partialApplication, "Config", "library-location.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(partialLocator)!);
+        string partialLocatorJson = JsonSerializer.Serialize(new { FormatVersion = 1, DataDirectory = Path.Combine(partialRoot, "TEST ONLY missing-old-library") });
+        File.WriteAllText(partialLocator, partialLocatorJson);
+        Throws<IOException>(() => InstalledStorageService.Prepare(partialApplication, Path.Combine(partialRoot, "user-data")), "A Preview containing files without a database remains protected from automatic replacement.");
+        Equal(retainedHash, Fingerprints.HashFile(retainedFile), "Startup refusal preserves every existing partial Preview file.");
+        Equal(partialLocatorJson, File.ReadAllText(partialLocator), "Refusing a partial Preview preserves its unavailable old locator as well.");
+        True(!File.Exists(Path.Combine(partialPreview, "library.db")), "Startup does not merge a new database into unrecognized existing Preview contents.");
+
+        string invalidRoot = Fixture("installed-storage-invalid-locator");
+        string invalidApplication = Path.Combine(invalidRoot, "application");
+        string invalidLocator = Path.Combine(invalidApplication, "Config", "library-location.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(invalidLocator)!);
+        File.WriteAllText(invalidLocator, "{");
+        Throws<JsonException>(() => InstalledStorageService.Prepare(invalidApplication, Path.Combine(invalidRoot, "user-data")), "Malformed location metadata is not treated as an unavailable old library.");
+        Equal("{", File.ReadAllText(invalidLocator), "Invalid locator content is preserved for recovery.");
+        True(!Directory.Exists(Path.Combine(invalidApplication, "Preview")), "Malformed metadata never silently creates an alternate library.");
+    }
 
     private static InstalledStorageFixture CreateInstalledStorageFixture(string name, bool inPlace = false, bool externalPreview = true, bool legacySchema = false)
     {

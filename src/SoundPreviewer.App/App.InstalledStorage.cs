@@ -22,7 +22,16 @@ public partial class App
         string application = ApplicationPaths.PortableApplicationDirectory;
         string target = ApplicationPaths.DefaultPreviewDirectory;
         string? requested = dataIndex >= 0 ? args[dataIndex + 1] : null;
-        string source = Path.TrimEndingDirectorySeparator(InstalledStorageService.GetSourceDirectory(application, ApplicationPaths.UserDataDirectory, requested));
+        string userData = ApplicationPaths.UserDataDirectory;
+        int testUserIndex = Array.IndexOf(args, "--test-user-data-directory");
+        if (TestInstalledStorage && testUserIndex >= 0)
+        {
+            if (testUserIndex + 1 >= args.Length || args[testUserIndex + 1].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException("隔离启动检查需要指定历史用户目录。");
+            userData = Path.GetFullPath(args[testUserIndex + 1], application);
+        }
+        var sourceWarnings = new List<string>();
+        string source = Path.TrimEndingDirectorySeparator(InstalledStorageService.GetSourceDirectory(application, userData, requested, sourceWarnings));
         bool import = args.Contains("--import-library");
         if (import && requested is null) throw new ArgumentException("导入需要指定旧版音色库。");
         if (import && (ApplicationPaths.IsWithin(source, target) || ApplicationPaths.IsWithin(target, source)))
@@ -71,7 +80,7 @@ public partial class App
                 var progress = new Progress<string>(text => message.Text = text);
                 var prepared = await Task.Run(() =>
                 {
-                    return InstalledStorageService.Prepare(application, ApplicationPaths.UserDataDirectory, source, progress, replaceTarget: import);
+                    return InstalledStorageService.Prepare(application, userData, source, progress, replaceTarget: import);
                 });
                 retained = prepared.RetainedDirectory;
                 ApplicationPaths.ConfigureDataDirectory(prepared.Directory);
@@ -79,6 +88,7 @@ public partial class App
                 var messages = new List<string> { "预览与数据固定保存到：" + DataDirectory };
                 if (!ApplicationPaths.SamePath(source, target)) messages.Add("已从旧库复制并校验；原库与原音频保留在原位置：" + source);
                 if (retained is not null) messages.Add("导入前的本地 Preview 完整保留在：" + retained);
+                messages.AddRange(sourceWarnings);
                 messages.AddRange(prepared.Warnings);
                 StorageStartupMessages = messages;
                 ReleaseMutex(ref _sourceMutex);

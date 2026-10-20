@@ -85,6 +85,9 @@ jobs:
       - name: Verify installed Preview storage and legacy cache migration
         shell: pwsh
         run: ./scripts/Test-InstalledStorage.ps1 -Runtime '${{ matrix.runtime }}'
+      - name: Verify startup with missing Preview and Config
+        shell: pwsh
+        run: ./scripts/Test-FreshStartup.ps1 -Runtime '${{ matrix.runtime }}'
       - name: Prepare Windows installer compiler
         if: runner.os == 'Windows'
         shell: pwsh
@@ -135,5 +138,12 @@ jobs:
             artifacts/installer-smoke-*/
             artifacts/installed-storage-smoke-*/**/Preview/ui-*
             artifacts/installed-storage-smoke-*/result.json
+            artifacts/fresh-startup-smoke-*/result.json
+            artifacts/fresh-startup-smoke-*/failure.json
+            artifacts/fresh-startup-smoke-*/preserved-data-hashes.json
+            artifacts/fresh-startup-smoke-*/*-ui-smoke.json
+            artifacts/fresh-startup-smoke-*/*-stdout.txt
+            artifacts/fresh-startup-smoke-*/*-stderr.txt
+            artifacts/fresh-startup-smoke-*/application/Preview/ui-*
           if-no-files-found: ignore
           retention-days: 7

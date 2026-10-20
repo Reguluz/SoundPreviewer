@@ -12,6 +12,7 @@ internal static partial class Program
 {
     private static async Task TestPresetCategoriesAsync()
     {
+        TestMissingCategoryConfiguration();
         string directory = Fixture("preset-categories");
         string bundled = Path.Combine(FindRepository(), "src", "SoundPreviewer.Core", "Config", "preset-categories.default.json");
         string path = Path.Combine(directory, "Config", "preset-categories.json");
@@ -124,5 +125,56 @@ internal static partial class Program
         File.WriteAllBytes(path, original);
         var fixedRulesScan = await scanner.ScanAsync([source], failedRulesScan.Presets);
         True(fixedRulesScan.Presets.Single().CategoryTags.SequenceEqual(["Bass / 贝斯"]), "Fixing the rules lets a later scan refresh previously preserved categories.");
+    }
+
+    private static void TestMissingCategoryConfiguration()
+    {
+        string directory = Fixture("missing-category-config");
+        string config = Path.Combine(directory, "Config");
+        string path = Path.Combine(config, "preset-categories.json");
+        string bundled = Path.Combine(config, "preset-categories.default.json");
+        string legacy = Path.Combine(directory, "Preview", "Config", "preset-categories.json");
+        var categories = new PresetCategoryService(path, bundled, legacy);
+        True(!Directory.Exists(config), "The recovery fixture starts without the entire Config directory.");
+        categories.EnsureRulesFile();
+        True(categories.Load().Success && categories.Classify("BS_01 Deep").Contains("Bass / 贝斯"),
+            "Missing Config and bundled JSON recover working editable rules from the program's embedded defaults.");
+        string source = Path.Combine(FindRepository(), "src", "SoundPreviewer.Core", "Config", "preset-categories.default.json");
+        Equal(File.ReadAllText(source), File.ReadAllText(path), "Embedded defaults come from the same JSON as the shipped default rules.");
+        True(!File.Exists(bundled), "Recovery creates personal rules without requiring or recreating the external bundled JSON.");
+        File.Delete(path);
+        categories.EnsureRulesFile();
+        True(categories.Load().Success, "Missing personal rules also recover when the Config directory already exists.");
+
+        const string personal = "{\"version\":1,\"categories\":[{\"label\":\"Restored personal category\",\"tokens\":[\"personal\"]}]}";
+        File.WriteAllText(path, personal);
+        new PresetCategoryService(path, bundled, legacy).EnsureRulesFile();
+        Equal(personal, File.ReadAllText(path), "Manually restored personal rules win even when the bundled JSON is absent.");
+        File.WriteAllText(path, "{broken personal rules");
+        var invalidPersonal = new PresetCategoryService(path, bundled, legacy);
+        invalidPersonal.EnsureRulesFile();
+        True(!invalidPersonal.Load().Success, "Damaged existing personal rules report failure rather than silently using embedded defaults.");
+        Equal("{broken personal rules", File.ReadAllText(path), "Recovery never replaces a damaged personal rules file.");
+
+        File.Delete(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(legacy)!);
+        File.WriteAllText(legacy, personal);
+        categories.EnsureRulesFile();
+        Equal(personal, File.ReadAllText(path), "Existing legacy personal rules retain priority over embedded defaults.");
+        Equal(personal, File.ReadAllText(legacy), "Legacy rules recovery keeps the original file unchanged.");
+        File.Delete(path);
+        File.WriteAllText(legacy, "{broken legacy rules");
+        Throws<JsonException>(() => categories.EnsureRulesFile(), "Damaged legacy personal rules must not silently fall back to defaults.");
+        True(!File.Exists(path), "A failed legacy import publishes no replacement rules.");
+        Equal("{broken legacy rules", File.ReadAllText(legacy), "Failed recovery leaves damaged legacy rules available for manual repair.");
+
+        File.Delete(legacy);
+        File.WriteAllText(bundled, "{broken bundled rules");
+        Throws<JsonException>(() => categories.EnsureRulesFile(), "An existing damaged default file is reported rather than treated as missing.");
+        Equal("{broken bundled rules", File.ReadAllText(bundled), "Damaged default files are not overwritten during recovery.");
+        True(!File.Exists(path), "Rejected default rules cannot create a partial editable rules file.");
+        File.WriteAllText(bundled, personal);
+        categories.EnsureRulesFile();
+        Equal(personal, File.ReadAllText(path), "A present valid external default file retains its existing precedence.");
     }
 }

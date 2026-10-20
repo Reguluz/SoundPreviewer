@@ -27,6 +27,8 @@ public partial class MainWindow
         CheckPluginScanDefaults();
         CheckSourceFilterCounts();
         CheckDirectoryConfiguration();
+        if (!_categoryService.Load().Success || !File.Exists(_categoryService.RulesPath) || string.IsNullOrWhiteSpace(RulesEditor.Text))
+            throw new InvalidOperationException("分类规则未能从已有配置或程序内置默认值加载。");
         var progressSample = new QueueProgress(7, 20, "", "", null)
         {
             Generated = 2, Reused = 1, Failed = 1, Unconfigured = 2, RetryLimited = 1,
@@ -286,6 +288,8 @@ public partial class MainWindow
             RendererSettingsChecked = rendererSettingsChecked,
             PresetFileTransferChecked = true, SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, DirectoryConfigurationChecked = true,
+            CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
+            StartupWarnings = App.StorageStartupMessages,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
             QueueSelectionCountsChecked = true, ProgressLayoutStableChecked = true,
             DirectoryConfigurationPath = DirectoryConfigurationLocation, DirectoryPluginDirectories = _settings.PluginDirectories,

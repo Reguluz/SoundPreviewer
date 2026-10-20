@@ -12,7 +12,8 @@ public sealed record InstalledStorageResult(string Directory, string SourceDirec
 /// <summary>Imports historical libraries into Preview beside the application without changing their originals.</summary>
 public static class InstalledStorageService
 {
-    public static string GetSourceDirectory(string applicationDirectory, string userDataDirectory, string? sourceDirectory = null)
+    public static string GetSourceDirectory(string applicationDirectory, string userDataDirectory, string? sourceDirectory = null,
+        ICollection<string>? warnings = null)
     {
         string application = Path.GetFullPath(applicationDirectory);
         string target = Path.Combine(application, "Preview");
@@ -27,7 +28,12 @@ public static class InstalledStorageService
         }
         // Once imported, an old locator must never redirect output back outside this installation.
         if (File.Exists(Path.Combine(target, "library.db"))) return target;
-        return ApplicationPaths.ResolveDefaultDataDirectory(application, userDataDirectory);
+        try { return ApplicationPaths.ResolveDefaultDataDirectory(application, userDataDirectory); }
+        catch (DirectoryNotFoundException error)
+        {
+            warnings?.Add("上次记录的音色库不可用，将使用程序旁 Preview；可重新配置目录并生成预览。旧路径中的文件未删除。详情：" + error.Message);
+            return target;
+        }
     }
 
     public static InstalledStorageResult Prepare(string applicationDirectory, string userDataDirectory,
@@ -35,7 +41,8 @@ public static class InstalledStorageService
     {
         string application = Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory));
         string target = Path.Combine(application, "Preview");
-        string source = Path.TrimEndingDirectorySeparator(GetSourceDirectory(application, userDataDirectory, sourceDirectory));
+        var warnings = new List<string>();
+        string source = Path.TrimEndingDirectorySeparator(GetSourceDirectory(application, userDataDirectory, sourceDirectory, warnings));
         bool inPlace = ApplicationPaths.SamePath(source, target);
         EnsureNoLinks(application);
         EnsureNoLinks(target);
@@ -62,7 +69,7 @@ public static class InstalledStorageService
                 fresh.SaveSettings(new AppSettings { PreviewDirectory = target });
                 Publish(stage, target);
                 published = true;
-                return new(target, source, 0, []);
+                return new(target, source, 0, warnings);
             }
             progress?.Report("正在将旧音色库安全复制到程序旁 Preview；原库和原音频保留。");
             EnsureNoLinks(sourceDatabase);
@@ -77,6 +84,7 @@ public static class InstalledStorageService
             var destination = new LibraryStore(stagedDatabase);
             destination.Initialize(); // Only the private copy is upgraded; the old library remains usable by its old version.
             var plan = new ImportPlan(source, target, stage, inPlace);
+            plan.Warnings.AddRange(warnings);
             ReadAndPreparePaths(stagedDatabase, plan);
             if (!inPlace) CopyConfig(Path.Combine(source, "Config"), Path.Combine(stage, "Config"), plan);
             bool changed = SavePathChanges(stagedDatabase, plan);
