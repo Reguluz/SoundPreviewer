@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using SoundPreviewer.Core.Services;
 
 namespace SoundPreviewer.Core.Models;
 
@@ -11,6 +12,7 @@ public static class ApplicationPaths
     public static string ApplicationDirectory => Path.GetFullPath(AppContext.BaseDirectory);
     public static string PortableApplicationDirectory => ResolvePortableApplicationDirectory(ApplicationDirectory, OperatingSystem.IsMacOS());
     public static string DefaultPreviewDirectory => Path.Combine(PortableApplicationDirectory, "Preview");
+    public static string DirectoryConfigurationPath => Path.Combine(PortableApplicationDirectory, DirectoryConfigurationService.FileName);
     public static string LibraryLocationPath => Path.Combine(PortableApplicationDirectory, "library-location.json");
     public static string LegacyDataDirectory => Path.Combine(ApplicationDirectory, "local-data");
     public static string UserDataDirectory => OperatingSystem.IsMacOS()

@@ -190,7 +190,10 @@
          <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*" MinWidth="330"/></Grid.ColumnDefinitions>
          <Grid Margin="0,10,0,0">
           <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="240"/></Grid.RowDefinitions>
-          <TextBlock Text="预制目录" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <DockPanel>
+           <Button x:Name="OpenDirectoryConfigurationButton" DockPanel.Dock="Right" Content="目录 JSON" Click="OpenDirectoryConfiguration_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="{Binding DirectoryConfigurationHint}" Padding="10,4" Margin="8,0,0,0"/>
+           <TextBlock Text="预制目录" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          </DockPanel>
           <Grid Grid.Row="1" Margin="0,6,0,10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
            <ComboBox x:Name="SourceSynthChoice" ItemsSource="{Binding SourceChoices}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" Margin="0,0,0,8" AutomationProperties.Name="目录音源识别方式"/>
            <StackPanel Grid.Row="1" Orientation="Horizontal">

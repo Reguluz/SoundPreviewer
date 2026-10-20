@@ -11,13 +11,13 @@ publish_dir="$project_dir/artifacts/publish-$runtime"
 release_dir="$project_dir/artifacts/releases"
 stage_dir="$project_dir/artifacts/package-$runtime"
 [[ ! -L "$project_dir/artifacts" && ! -L "$stage_dir" ]] || { echo 'Refusing a linked staging directory.' >&2; exit 2; }
-if [[ -d "$stage_dir" && -n "$(find "$stage_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
+if [[ -d "$stage_dir" && -n "$(find "$stage_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Existing package staging contains user data. Preserve or move the old directory first; no files were deleted.' >&2; exit 2
 fi
 for file in SoundPreviewer SoundPreviewer.Worker libcoreclr.dylib; do
     [[ -f "$publish_dir/$file" ]] || { echo "Publish first; missing $file" >&2; exit 1; }
 done
-if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
+if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Publish output contains local user data; publish into a clean directory again.' >&2; exit 1
 fi
 rm -rf -- "$stage_dir"
@@ -49,7 +49,7 @@ SoundPreviewer 预发行版
 DMG 是只读磁盘，请勿直接在其中启动应用。
 
 首次使用会在 app 旁建立 Preview 文件夹，保存音色索引、设置和试听缓存。
-升级时退出应用并替换 SoundPreviewer.app，保留 Preview 和 library-location.json。
+升级时退出应用并替换 SoundPreviewer.app，保留 Preview、directories.json 和 library-location.json。
 移动应用时，请将这些文件一起保留。
 
 Applications 快捷方式供拥有该目录写入权限的用户使用。

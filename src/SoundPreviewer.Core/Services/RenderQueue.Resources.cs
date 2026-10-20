@@ -16,6 +16,14 @@ public sealed partial class RenderQueue
 
     private sealed partial class Execution
     {
+        private sealed class SynthJobDemand(PluginConfiguration plugin)
+        {
+            public PluginConfiguration Plugin { get; } = plugin;
+            public int Waiting { get; set; }
+            public int Leased { get; set; }
+            public int Total => Waiting + Leased;
+        }
+
         private const long MinimumJobMemory = 256L * 1024 * 1024;
         private const long GlobalMemoryReserve = 128L * 1024 * 1024;
         private readonly IRenderResourceProbe resourceProbe;
@@ -31,6 +39,8 @@ public sealed partial class RenderQueue
         private int incompleteMemorySamples;
         private int allowedConcurrency = 1;
         private double lastResourceProgress;
+        private List<RenderJob>? trackedWaitingJobs;
+        private readonly Dictionary<SynthKind, SynthJobDemand> synthJobDemand = new();
 
         private async Task MonitorResourcesAsync(CancellationToken monitorToken)
         {
@@ -125,6 +135,7 @@ public sealed partial class RenderQueue
         {
             lock (gate)
             {
+                TrackWaitingJobs(waiting);
                 next = null;
                 if (resourceFailure is not null || !memorySnapshot.IsComplete || runningCount >= targetConcurrency) return false;
                 bool observing = running.Any(active => !memoryProfiles.ContainsKey(active.Plugin.Synth));
@@ -145,10 +156,16 @@ public sealed partial class RenderQueue
                         // only enough later synths to permit useful backfilling.
                         // Otherwise finish the current synth before switching just
                         // to calibrate an unrelated one.
-                        int knownCapacity = waiting.Where(job => memoryProfiles.ContainsKey(job.Plugin.Synth))
-                            .GroupBy(job => job.Plugin.Synth)
-                            .Sum(group => group.First().Plugin.AllowParallelRendering ? group.Count() : 1);
-                        if (knownCapacity < targetConcurrency)
+                        int knownCapacity = 0;
+                        bool hasUnmeasured = false;
+                        foreach (var demand in synthJobDemand.Values)
+                        {
+                            if (demand.Waiting == 0) continue;
+                            if (memoryProfiles.ContainsKey(demand.Plugin.Synth))
+                                knownCapacity += demand.Plugin.AllowParallelRendering ? demand.Waiting : 1;
+                            else hasUnmeasured = true;
+                        }
+                        if (knownCapacity < targetConcurrency && hasUnmeasured)
                         {
                             int candidate = waiting.FindIndex(job => !memoryProfiles.ContainsKey(job.Plugin.Synth));
                             // This calibration is an optional backfill optimization.
@@ -177,6 +194,9 @@ public sealed partial class RenderQueue
                     if (!RenderResourcePolicy.CanStart(memorySnapshot, UnobservedReservations() + GlobalMemoryReserve, forecast)) continue;
                     memoryLeases.Add(job, new(forecast, memorySnapshot.RootResidentBytes > 0 ? memorySnapshot.RootResidentBytes : memorySnapshot.ResidentBytes));
                     waiting.RemoveAt(index);
+                    var demand = synthJobDemand[job.Plugin.Synth];
+                    demand.Waiting--;
+                    demand.Leased++;
                     next = job;
                     resourceMessage = !memoryProfiles.ContainsKey(job.Plugin.Synth)
                         ? "先单独完成当前音源的首项，观察实际内存后再增加同时生成数量。"
@@ -223,6 +243,7 @@ public sealed partial class RenderQueue
         private void CompleteResourceLease(RenderJob job)
         {
             if (!memoryLeases.Remove(job, out var lease)) return;
+            synthJobDemand[job.Plugin.Synth].Leased--;
             if (lease.ObservedChildren)
             {
                 long forecast = Math.Max(64L * 1024 * 1024, (long)Math.Min(RenderResourcePolicy.MemoryLimitBytes,
@@ -245,6 +266,61 @@ public sealed partial class RenderQueue
             long available = RenderResourcePolicy.SoftLimitBytes - memorySnapshot.ResidentBytes - UnobservedReservations() - GlobalMemoryReserve;
             int additional = available <= 0 ? 0 : (int)Math.Min(targetConcurrency, available / forecast);
             allowedConcurrency = Math.Min(targetConcurrency, memoryLeases.Count + additional);
+        }
+
+        private (int Capacity, string Reason) CurrentConcurrency()
+        {
+            if (resourceFailure is not null) return (activeWorkers, resourceFailure);
+            if (!memorySnapshot.IsComplete) return (activeWorkers, "内存采样未完整，暂停启动新任务。");
+            int jobCount = 0, permissionCapacity = 0, measuredCapacity = 0;
+            bool observing = false;
+            var serial = new List<string>();
+            foreach (var demand in synthJobDemand.Values)
+            {
+                int count = demand.Total;
+                if (count == 0) continue;
+                jobCount += count;
+                int permitted = demand.Plugin.AllowParallelRendering ? count : 1;
+                permissionCapacity += permitted;
+                if (memoryProfiles.ContainsKey(demand.Plugin.Synth)) measuredCapacity += permitted;
+                else observing |= demand.Leased > 0;
+                if (count > 1 && !demand.Plugin.AllowParallelRendering) serial.Add(demand.Plugin.Synth.ToString());
+            }
+            if (jobCount == 0) return (activeWorkers, "本批次没有等待生成的任务。");
+            string serialSynths = string.Join("、", serial);
+            string permissionReason = serialSynths.Length == 0 ? "" : serialSynths + " 未启用同音源多实例并行。";
+            if (observing || memoryProfiles.Count == 0)
+                return (Math.Max(activeWorkers, Math.Min(1, allowedConcurrency)),
+                    "先单独完成首项，测量实际内存。" + permissionReason);
+            // An unmeasured later synth starts alone at an idle boundary. It does
+            // not count as a usable slot alongside this synth's running tasks.
+            if (measuredCapacity == 0) measuredCapacity = 1;
+            int capacity = Math.Max(activeWorkers, Math.Min(targetConcurrency, Math.Min(allowedConcurrency, measuredCapacity)));
+            var reasons = new List<string>();
+            if (permissionReason.Length > 0) reasons.Add(permissionReason);
+            if (allowedConcurrency < Math.Min(targetConcurrency, measuredCapacity))
+                reasons.Add($"2 GiB 内存目标限制当前最多 {allowedConcurrency} 条。");
+            if (measuredCapacity < permissionCapacity)
+                reasons.Add("下一音源须等当前任务结束后单独测量内存。");
+            if (jobCount < targetConcurrency)
+                reasons.Add($"本批次剩余 {jobCount} 个独立渲染任务。");
+            return (capacity, reasons.Count == 0 ? "按音源分组连续生成。" : string.Join("", reasons));
+        }
+
+        private void TrackWaitingJobs(List<RenderJob> waiting)
+        {
+            if (ReferenceEquals(trackedWaitingJobs, waiting)) return;
+            trackedWaitingJobs = waiting;
+            synthJobDemand.Clear();
+            // Count once per batch. Dispatch and lease release maintain these
+            // small per-synth counters; frequent progress reports never walk
+            // or allocate arrays for the potentially thousands of waiting jobs.
+            foreach (var job in waiting)
+            {
+                if (!synthJobDemand.TryGetValue(job.Plugin.Synth, out var demand))
+                    synthJobDemand.Add(job.Plugin.Synth, demand = new(job.Plugin));
+                demand.Waiting++;
+            }
         }
 
         private void SetResourceFailure(string reason)

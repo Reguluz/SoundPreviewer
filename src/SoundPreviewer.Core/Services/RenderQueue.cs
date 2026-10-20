@@ -26,6 +26,15 @@ public sealed record QueueProgress(int Completed, int Total, string PresetName, 
     public long MemoryBudgetBytes { get; init; }
     public string ResourceMessage { get; init; } = "";
     public int AllowedConcurrency { get; init; } = 1;
+    public int EffectiveConcurrency { get; init; }
+    public int PreparingCount { get; init; }
+    public string ConcurrencyMessage { get; init; } = "";
+    public int Generated { get; init; }
+    public int Reused { get; init; }
+    public int Failed { get; init; }
+    public int Unconfigured { get; init; }
+    public int RetryLimited { get; init; }
+    public int Succeeded => Generated + Reused;
 }
 
 public sealed class RenderResourceLimitException(string message, QueueResult summary) : InvalidOperationException(message)

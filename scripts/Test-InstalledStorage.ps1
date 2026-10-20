@@ -24,6 +24,8 @@ Get-ChildItem -LiteralPath $legacy, "$legacy-audio" -File -Recurse | Where-Objec
     $originals[$_.FullName] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
 }
 $preview = Join-Path $application 'Preview'
+$directoryConfiguration = Join-Path $application 'directories.json'
+$manualPluginDirectory = Join-Path $diagnostics 'TEST ONLY manual plugin directory'
 $results = @()
 foreach ($phase in @('migrate', 'reopen')) {
     foreach ($name in @('ui-smoke.json', 'ui-error.txt', 'ui-startup-error.txt', 'ui-exit.json')) {
@@ -47,10 +49,25 @@ foreach ($phase in @('migrate', 'reopen')) {
     finally { $process.Dispose() }
     $result = Get-Content -LiteralPath (Join-Path $preview 'ui-smoke.json') -Raw | ConvertFrom-Json
     if (-not $result.InstalledStorageChecked -or -not $result.ExistingPreviewsLocal -or -not $result.GeneratedViewChecked -or $result.StoredPreviewRecords -ne 2 -or -not $result.TemplatePersistenceChecked -or
-        -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or $result.Presets -ne 3 -or
+        -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or
+        -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.RenderProgressCountersChecked -or
+        -not $result.EffectiveConcurrencyDisplayChecked -or $result.Presets -ne 3 -or
         [IO.Path]::GetFullPath($result.LibraryDirectory) -ne [IO.Path]::GetFullPath($preview) -or
         [IO.Path]::GetFullPath($result.PreviewDirectory) -ne [IO.Path]::GetFullPath($preview)) {
         throw "Installed storage $phase did not verify the fixed Preview root: $diagnostics"
+    }
+    if (-not (Test-Path -LiteralPath $directoryConfiguration -PathType Leaf) -or
+        [IO.Path]::GetFullPath($result.DirectoryConfigurationPath) -ne [IO.Path]::GetFullPath($directoryConfiguration)) {
+        throw "Installed storage $phase did not persist the directory JSON beside the application."
+    }
+    $configuration = Get-Content -LiteralPath $directoryConfiguration -Raw | ConvertFrom-Json
+    if ($phase -eq 'migrate') {
+        $configuration.PluginDirectories = @($configuration.PluginDirectories) + @($manualPluginDirectory)
+        $configuration | Add-Member -NotePropertyName TestOnlyUnknownField -NotePropertyValue 'preserve-across-reopen'
+        $configuration | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $directoryConfiguration -Encoding utf8
+    }
+    elseif ($manualPluginDirectory -notin $result.DirectoryPluginDirectories -or $configuration.TestOnlyUnknownField -ne 'preserve-across-reopen') {
+        throw 'The reopened application did not load the manually edited directory JSON or preserve its unknown field.'
     }
     foreach ($file in $originals.Keys) {
         if (-not (Test-Path -LiteralPath $file) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $originals[$file]) {

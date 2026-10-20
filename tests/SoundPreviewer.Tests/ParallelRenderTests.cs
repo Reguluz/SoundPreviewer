@@ -53,6 +53,14 @@ internal static partial class Program
                 Equal(scenario.Expected, ParallelActive(fixture).Count, "After one serial calibration, held real children obey both global and per-synth limits.");
                 int calibrationCount = scenario.Expected > 1 ? fixture.Presets.Select(preset => preset.Synth).Distinct().Count() : 0;
                 Equal(scenario.Expected + calibrationCount, ParallelStarts(fixture).Count, "Each synth calibrates alone before the CPU and reserved-memory limits open more slots.");
+                var held = progress.Values[^1];
+                Equal(scenario.Expected, held.EffectiveConcurrency, "The running denominator combines memory admission, per-synth permission and remaining independent jobs.");
+                Equal(scenario.Expected, held.ActiveCount, "Held workers occupy the effective slots advertised in progress.");
+                if (!scenario.OptIn && !scenario.Mixed)
+                    True(held.ConcurrencyMessage.Contains("未启用同音源多实例并行", StringComparison.Ordinal),
+                        "A serial synth explains its permission limit even when the configured target is higher.");
+                if (scenario.Expected < target && scenario.OptIn)
+                    True(held.ConcurrencyMessage.Contains("2 GiB", StringComparison.Ordinal), "Memory admission explains why an opted-in synth cannot fill the configured CPU target.");
                 var originalTemplate = JsonSerializer.Serialize(fixture.Settings.Template, LibraryJson.Options);
                 if (scenario.Expected == 2 && !scenario.Mixed)
                 {
@@ -74,7 +82,14 @@ internal static partial class Program
                 Equal(scenario.Global, result.RequestedConcurrency, "The result retains the explicit or automatic selection.");
                 Equal(target, result.ResolvedConcurrency, "The CPU target remains distinguishable from dynamic memory admission.");
                 True(progress.Values.All(value => value.ActiveCount >= 0 && value.ActiveCount <= target && value.MaxConcurrency == target), "Progress never exceeds the CPU target even when memory reduces actual admission.");
+                True(progress.Values.All(value => value.EffectiveConcurrency >= value.ActiveCount && value.EffectiveConcurrency <= target),
+                    "The effective running denominator never contradicts active workers or the configured ceiling.");
+                True(progress.Values.All(value => value.Completed == value.Succeeded + value.Failed + value.Unconfigured + value.RetryLimited),
+                    "Live outcome counters account for all completed work independently of record status.");
+                Equal(count, progress.Values[^1].Succeeded, "Final progress exposes committed and reused successes.");
+                Equal(0, progress.Values[^1].Failed, "Successful batches never infer failures from unconfirmed preview status.");
                 Equal(0, progress.Values[^1].ActiveCount, "Terminal progress has no active worker.");
+                Equal(0, progress.Values[^1].EffectiveConcurrency, "A finished batch has no available running slots.");
                 foreach (var preset in fixture.Presets)
                 {
                     Equal(originalTemplate, preset.TemplateJson, "All scheduled items use the template captured at batch start.");
@@ -90,6 +105,42 @@ internal static partial class Program
             invalid.Settings.MaxParallelRenders = limit;
             await ThrowsAsync<ArgumentException>(() => new RenderQueue(invalid.Store, new TestRenderResourceProbe(invalid)).RunAsync(invalid.Settings, invalid.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None));
         }
+        await TestLiveRenderOutcomeCountersAsync();
+    }
+
+    private static async Task TestLiveRenderOutcomeCountersAsync()
+    {
+        var fixture = CreateParallelFixture("parallel-live-outcomes", 3);
+        ReleaseParallel(fixture);
+        var queue = new RenderQueue(fixture.Store, new TestRenderResourceProbe(fixture));
+        var first = await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None);
+        Equal(3, first.Generated, "The counter fixture has three committed previews to protect.");
+        var failed = fixture.Presets[1];
+        string oldPath = failed.PreviewPath;
+        byte[] oldAudio = File.ReadAllBytes(oldPath);
+        failed.Name = "parallel-crash";
+        var failureControl = JsonSerializer.Deserialize<ParallelChildControl>(File.ReadAllText(failed.SourcePath), LibraryJson.Options)!;
+        failureControl.DelayMilliseconds = 10;
+        File.WriteAllText(failed.SourcePath, JsonSerializer.Serialize(failureControl, LibraryJson.Options));
+        var forcedProgress = new ParallelProgress();
+        var forced = await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, forcedProgress, CancellationToken.None, forceRegenerate: true);
+        Equal(2, forced.Generated, "Successful forced replacements commit separately from a failed child.");
+        Equal(1, forced.Failed, "The failed replacement counts once even though an old usable preview remains.");
+        True(failed.Status is PresetStatus.Ready or PresetStatus.NeedsReview, "A failed replacement preserves the previous usable record status.");
+        Equal(oldPath, failed.PreviewPath, "A failed replacement retains the previous path.");
+        True(File.ReadAllBytes(oldPath).SequenceEqual(oldAudio), "The failed replacement preserves the previous audio bytes.");
+        var final = forcedProgress.Values[^1];
+        Equal(2, final.Succeeded, "The live success counter does not mistake preserved old audio for a newly successful render.");
+        Equal(1, final.Failed, "The live failure counter matches the final batch result.");
+        True(forcedProgress.Values.Any(value => value.Completed < value.Total && value.Failed == 1), "Failure counts become visible before all queued tasks finish.");
+        True(forcedProgress.Values.All(value => value.Completed == value.Succeeded + value.Failed + value.Unconfigured + value.RetryLimited),
+            "Every live snapshot separates successful, failed and skipped outcomes.");
+        var reuseProgress = new ParallelProgress();
+        var reused = await queue.RunAsync(fixture.Settings, fixture.Presets, TestExecutable, reuseProgress, CancellationToken.None);
+        Equal(3, reused.Reused, "The next batch reuses all three preserved previews.");
+        Equal(3, reuseProgress.Values[^1].Reused, "Reused audio is explicitly available in progress.");
+        Equal(3, reuseProgress.Values[^1].Succeeded, "Success includes valid reused previews.");
+        Equal(0, reuseProgress.Values[^1].Failed, "A fresh batch resets the previous failure counter.");
     }
 
     private static async Task TestParallelSharedCacheAsync()

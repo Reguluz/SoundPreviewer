@@ -6,6 +6,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Services;
 
 namespace SoundPreviewer.App;
 
@@ -25,6 +26,17 @@ public partial class MainWindow
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
         CheckSourceFilterCounts();
+        CheckDirectoryConfiguration();
+        var progressSample = new QueueProgress(7, 20, "", "", null)
+        {
+            Generated = 2, Reused = 1, Failed = 1, Unconfigured = 2, RetryLimited = 1,
+            ActiveCount = 1, MaxConcurrency = 8, AllowedConcurrency = 3, EffectiveConcurrency = 1,
+            MemoryBudgetBytes = 2147483648, WorkingSetBytes = 536870912
+        };
+        if (!FormatRenderProgress(progressSample).Contains("成功 3（新生成 2 / 复用 1） · 失败 1", StringComparison.Ordinal) ||
+            !FormatRenderProgress(progressSample).Contains("运行 1/1", StringComparison.Ordinal) ||
+            !FormatRenderResources(progressSample).Contains("当前并行上限 1 条（设定 8，内存允许 3）", StringComparison.Ordinal))
+            throw new InvalidOperationException("实时成功失败计数或有效并行分母显示不一致。");
         if (App.TestInstalledStorage && (!ApplicationPaths.SamePath(App.DataDirectory, ApplicationPaths.DefaultPreviewDirectory) ||
             !ApplicationPaths.SamePath(_settings.PreviewDirectory, App.DataDirectory) || !PreviewDirectoryBox.IsReadOnly))
             throw new InvalidOperationException("安装版与 Portable 的音色库及生成目录没有固定在程序旁 Preview。");
@@ -133,7 +145,8 @@ public partial class MainWindow
             var pending = Enumerable.Range(0, 10000).Select(index => new PresetRecord { Id = $"TEST-ONLY-progress-{index}", Name = $"TEST ONLY progress {index}", Synth = unconfigured.Synth, Status = PresetStatus.Pending }).ToList();
             await Generate(pending);
             if (!IsIdle || !TaskStatusBand.IsVisible || GenerationProgressBar.IsIndeterminate || ProgressValue != 100 ||
-                TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未配置", StringComparison.Ordinal) || !TaskSettingsVisibility)
+                TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未配置", StringComparison.Ordinal) || !TaskSettingsVisibility ||
+                !TaskProgressText.Contains("成功 0（新生成 0 / 复用 0） · 失败 0 · 未配置 10000", StringComparison.Ordinal))
                 throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果。");
             generationFeedbackChecked = true;
         }
@@ -158,8 +171,8 @@ public partial class MainWindow
             var progressText = _taskProgressText;
             var memoryText = _taskMemoryText;
             _smokeLayoutPhase = name + "-long-feedback";
-            _taskProgressText = "已处理 9999 / 10000 (100%) · 运行 16/16";
-            _taskMemoryText = "总内存 1792 / 2048 MiB · 目标并行 16 条，当前允许 4 条";
+            _taskProgressText = "已处理 9999 / 10000 (100%) · 成功 8999（新生成 8000 / 复用 999） · 失败 1000 · 运行 4/4";
+            _taskMemoryText = "总内存 1792 / 2048 MiB · 当前并行上限 4 条（设定 16，内存允许 4）";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();
             await SettleLayoutAsync();
@@ -254,6 +267,9 @@ public partial class MainWindow
             TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
             RendererSettingsChecked = rendererSettingsChecked,
             PresetFileTransferChecked = true, SourceRevealCommandChecked = true, SourceCountsChecked = true,
+            CrossSourceDuplicatesChecked = true, DirectoryConfigurationChecked = true,
+            RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
+            DirectoryConfigurationPath = DirectoryConfigurationLocation, DirectoryPluginDirectories = _settings.PluginDirectories,
             InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
             ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
             StoredPreviewRecords = Presets.Count(row => row.Record.PreviewPath.Length > 0),
@@ -269,17 +285,20 @@ public partial class MainWindow
     {
         string originalSource = (SourceFilter.SelectedItem as Choice<string>)?.Value ?? "";
         string sourceId = "TEST-ONLY-source-counts-" + Guid.NewGuid().ToString("N");
+        string secondSourceId = sourceId + "-other";
         string path = Path.Combine(App.DataDirectory, "TEST ONLY count source", "preset.vital");
         var canonical = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
         var duplicate = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path, DuplicateOfId = canonical.Record.Id });
         var added = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
+        var crossPath = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = secondSourceId,
+            SourcePath = Path.Combine(App.DataDirectory, "TEST ONLY other source", "copy.vital"), DuplicateOfId = canonical.Record.Id });
         try
         {
             Presets.Add(canonical);
             Presets.Add(duplicate);
             RefreshFilterChoices();
             var choice = SourceFilters.Single(item => item.Value == sourceId);
-            if (choice.Label != Path.GetDirectoryName(path) + "（2 个音色，含 1 个重复副本）")
+            if (choice.Label != Path.GetDirectoryName(path) + "（2 个音色，去重 1 个，重复副本 1 个）")
                 throw new InvalidOperationException("来源下拉未显示对应路径的音色总量和重复副本数量。");
             SourceFilter.SelectedItem = choice;
             if (PresetsView.Count != 1) throw new InvalidOperationException("来源计数改变了默认重复项筛选。");
@@ -295,23 +314,58 @@ public partial class MainWindow
             Presets.Add(added);
             RefreshFilterChoices();
             if (SourceFilter.SelectedItem is not Choice<string> selected || selected.Value != sourceId ||
-                selected.Label != Path.GetDirectoryName(path) + "（3 个音色，含 1 个重复副本）")
+                selected.Label != Path.GetDirectoryName(path) + "（3 个音色，去重 2 个，重复副本 1 个）")
                 throw new InvalidOperationException("来源计数刷新后未保留所选来源 ID 或新增音色数量。");
-            int duplicates = Presets.Count(row => row.Record.DuplicateOfId.Length > 0);
-            string all = duplicates > 0 ? $"全部来源（{Presets.Count} 个音色，含 {duplicates} 个重复副本）" : $"全部来源（{Presets.Count} 个音色）";
-            if (SourceFilters[0].Label != all) throw new InvalidOperationException("全部来源的音色总量不正确。");
+            Presets.Add(crossPath);
+            RefreshFilterChoices();
+            if (!SourceFilters.Single(item => item.Value == sourceId).Label.Contains("跨来源相同 2 个", StringComparison.Ordinal) ||
+                !SourceFilters.Single(item => item.Value == secondSourceId).Label.Contains("1 个音色，去重 1 个，跨来源相同 1 个", StringComparison.Ordinal))
+                throw new InvalidOperationException("跨路径重复统计遗漏了主项或其他来源副本。");
+            SourceFilter.SelectedItem = SourceFilters.Single(item => item.Value == secondSourceId);
+            if (PresetsView.Count != 1 || PresetsView.Cast<PresetRow>().Single() != crossPath ||
+                _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(item => item.Record)).Single() != canonical.Record)
+                throw new InvalidOperationException("仅含跨路径副本的来源未保留本地代表，或生成未归并到主项。");
+            PresetGrid.SelectedItem = crossPath;
+            if (!CanRenderSelection) throw new InvalidOperationException("来源副本无法通过主项重新生成。");
+            if (!SourceFilters[0].Label.StartsWith($"全部来源（{Presets.Count} 个音色，去重 ", StringComparison.Ordinal))
+                throw new InvalidOperationException("全部来源的音色总量不正确。");
         }
         finally
         {
+            PresetGrid.SelectedItem = null;
+            SourceFilter.SelectedItem = SourceFilters[0];
             SearchBox.Clear();
             ShowDuplicates.IsChecked = false;
-            Presets.Remove(canonical);
-            Presets.Remove(duplicate);
-            Presets.Remove(added);
-            RefreshFilterChoices();
+            // Reset currency before removing selected fixtures from a filtered Avalonia view.
+            PresetsView.Filter = null;
+            PresetsView.MoveCurrentToPosition(-1);
+            try
+            {
+                Presets.Remove(canonical);
+                Presets.Remove(duplicate);
+                Presets.Remove(added);
+                Presets.Remove(crossPath);
+                RefreshFilterChoices();
+            }
+            finally { PresetsView.Filter = FilterPreset; }
             SourceFilter.SelectedItem = SourceFilters.FirstOrDefault(item => item.Value == originalSource) ?? SourceFilters[0];
             PresetsView.Refresh();
         }
+    }
+
+    private void CheckDirectoryConfiguration()
+    {
+        string expectedRoot = App.TestInstalledStorage ? ApplicationPaths.PortableApplicationDirectory : App.DataDirectory;
+        if (!ApplicationPaths.SamePath(DirectoryConfigurationLocation, Path.Combine(expectedRoot, "directories.json")) ||
+            !File.Exists(DirectoryConfigurationLocation))
+            throw new InvalidOperationException("目录 JSON 没有保存在要求的程序根目录。");
+        using var document = JsonDocument.Parse(File.ReadAllText(DirectoryConfigurationLocation),
+            new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        var root = document.RootElement;
+        if (!root.GetProperty("Sources").EnumerateArray().Select(source => source.GetProperty("Id").GetString()).SequenceEqual(_settings.Sources.Select(source => source.Id)) ||
+            !root.GetProperty("PluginDirectories").EnumerateArray().Select(directory => directory.GetString()).SequenceEqual(_settings.PluginDirectories) ||
+            !DirectoryConfigurationHint.Contains(DirectoryConfigurationLocation, StringComparison.Ordinal))
+            throw new InvalidOperationException("目录 JSON 与启动时目录设置或界面位置提示不一致。");
     }
 
     private async Task CheckClosingCallbacksAsync()

@@ -689,13 +689,22 @@ public sealed partial class RenderQueue
         private void Report(string stage, string message, QueueItem? item = null, bool indeterminate = false, double itemElapsed = 0)
         {
             lock (gate)
+            {
+                var concurrency = CurrentConcurrency();
+                bool terminal = stage is QueueStages.Completed or QueueStages.Stopped or QueueStages.Failed && !indeterminate && item is null;
                 progress.Report(new(summary.Processed, prepared ? summary.Eligible : summary.Requested, item?.Original.Name ?? "", message, item?.Original)
                 {
                     Stage = stage, IsIndeterminate = indeterminate, ActiveCount = activeWorkers,
                     MaxConcurrency = targetConcurrency, ItemElapsedSeconds = itemElapsed,
                     WorkingSetBytes = memorySnapshot.ResidentBytes, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes,
-                    ResourceMessage = resourceMessage, AllowedConcurrency = allowedConcurrency
+                    ResourceMessage = resourceMessage, AllowedConcurrency = allowedConcurrency,
+                    EffectiveConcurrency = terminal ? 0 : concurrency.Capacity,
+                    PreparingCount = terminal ? 0 : Math.Max(0, memoryLeases.Count - activeWorkers),
+                    ConcurrencyMessage = terminal ? "" : concurrency.Reason,
+                    Generated = summary.Generated, Reused = summary.Reused, Failed = summary.Failed,
+                    Unconfigured = summary.Unconfigured, RetryLimited = summary.RetryLimited
                 });
+            }
         }
     }
 

@@ -46,8 +46,10 @@ $userData = Join-Path $installDirectory 'Preview'
 $fixtureDirectory = Join-Path $userData "installer-smoke-$runId"
 $marker = Join-Path $fixtureDirectory 'preserve.txt'
 $database = Join-Path $fixtureDirectory 'library.db'
+$directoryConfiguration = Join-Path $installDirectory 'directories.json'
 New-Item -ItemType Directory -Path $fixtureDirectory | Out-Null
 [IO.File]::WriteAllText($marker, "TEST ONLY installer preservation fixture $runId")
+[IO.File]::WriteAllText($directoryConfiguration, '{"FormatVersion":1,"Sources":[],"PluginDirectories":[],"TestOnlyPreserve":true}')
 $createDatabase = @'
 import sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as database:
@@ -58,7 +60,7 @@ with sqlite3.connect(sys.argv[1]) as database:
 & python -c $createDatabase $database
 if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated SQLite preservation fixture.' }
 $hashes = @{}
-foreach ($file in @($marker, $database)) { $hashes[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
+foreach ($file in @($marker, $database, $directoryConfiguration)) { $hashes[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
 [IO.File]::WriteAllText((Join-Path $diagnostics 'fixture-hashes.json'), ($hashes | ConvertTo-Json))
 function Assert-PreservedUserData {
     foreach ($file in $hashes.Keys) {

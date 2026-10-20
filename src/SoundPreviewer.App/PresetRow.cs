@@ -13,7 +13,7 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
     public string SynthLabel => Labels.Synth(Record.Synth);
     public string Package => Record.Package;
     public string StatusLabel => Record.DuplicateOfId.Length > 0 ? "重复副本" : Labels.Status(Record.Status);
-    public string DuplicateLabel => Record.DuplicateOfId.Length > 0 ? "相同内容已有保留项，此副本不参与生成。" : "";
+    public string DuplicateLabel => Record.DuplicateOfId.Length > 0 ? "相同内容已有保留项，生成时共用保留项的预览；可查看保留项试听。" : "";
     public string Message => Record.Message;
     public string TagsLabel => string.Join(" · ", Record.Tags);
     public string CategoryTagsLabel => string.Join(" · ", Record.CategoryTags);
