@@ -24,8 +24,19 @@
     <Copy SourceFiles="@(RendererFiles)" DestinationFolder="$(OutDir)Renderers/" />
   </Target>
   <Target Name="PublishRenderWorker" AfterTargets="Publish">
+    <PropertyGroup>
+      <WorkerPublishDirectory>$([MSBuild]::EnsureTrailingSlash('$(MSBuildProjectDirectory)/obj/worker-publish/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)'))</WorkerPublishDirectory>
+    </PropertyGroup>
+    <!-- A shared PublishDir can already contain the ordinary worker apphost
+         copied by the desktop build. Its timestamp must not satisfy the
+         worker bundler's incremental output check. Publish independently. -->
+    <Error Condition="!$([System.IO.Path]::GetFullPath('$(WorkerPublishDirectory)').StartsWith('$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)/obj/worker-publish/'))'))"
+           Text="Worker publish staging must remain under this project's obj/worker-publish directory." />
+    <RemoveDir Directories="$(WorkerPublishDirectory)" />
     <MSBuild Projects="../SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" Targets="Publish"
-             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)" />
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=$(PublishSingleFile);IncludeNativeLibrariesForSelfExtract=$(IncludeNativeLibrariesForSelfExtract);EnableCompressionInSingleFile=$(EnableCompressionInSingleFile);PublishTrimmed=$(PublishTrimmed);PublishDir=$(WorkerPublishDirectory)" />
+    <ItemGroup><PublishedWorkerFiles Include="$(WorkerPublishDirectory)**/*" /></ItemGroup>
+    <Copy SourceFiles="@(PublishedWorkerFiles)" DestinationFiles="@(PublishedWorkerFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
   <Target Name="CopyX86Host" AfterTargets="Build" Condition="Exists('$(NormalizedX86HostDirectory)SoundPreviewer.Vst2Host.exe') and ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))))">
     <ItemGroup><X86HostFiles Include="$(NormalizedX86HostDirectory)**\*" /></ItemGroup>

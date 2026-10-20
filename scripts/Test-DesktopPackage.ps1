@@ -40,13 +40,22 @@ try {
     $workerStart = [Diagnostics.ProcessStartInfo]::new((Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))) $workerName))
     $workerStart.UseShellExecute = $false
     $workerStart.CreateNoWindow = $true
+    $workerStart.RedirectStandardError = $true
+    $workerStart.RedirectStandardOutput = $true
     foreach ($argument in @('--request', $request, '--result', $response)) { $workerStart.ArgumentList.Add($argument) }
     $worker = [Diagnostics.Process]::new()
     $worker.StartInfo = $workerStart
     try {
         [void]$worker.Start()
+        $workerError = $worker.StandardError.ReadToEndAsync()
+        $workerOutput = $worker.StandardOutput.ReadToEndAsync()
         if (-not $worker.WaitForExit(20000)) { $worker.Kill($true); throw 'Published worker validation timed out.' }
-        if ($worker.ExitCode -ne 1 -or -not (Test-Path -LiteralPath $response -PathType Leaf)) { throw 'Published worker did not return a protocol validation result.' }
+        $workerErrorText = $workerError.GetAwaiter().GetResult()
+        [IO.File]::WriteAllText((Join-Path $dataDirectory 'worker-stderr.txt'), $workerErrorText)
+        [IO.File]::WriteAllText((Join-Path $dataDirectory 'worker-stdout.txt'), $workerOutput.GetAwaiter().GetResult())
+        if ($worker.ExitCode -ne 1 -or -not (Test-Path -LiteralPath $response -PathType Leaf)) {
+            throw "Published worker did not return a protocol validation result (exit $($worker.ExitCode)): $workerErrorText"
+        }
         $workerResult = Get-Content -LiteralPath $response -Raw | ConvertFrom-Json
         if ($workerResult.Success -or [string]::IsNullOrWhiteSpace($workerResult.Message)) { throw 'Published worker did not reject the invalid sample-rate request.' }
     }
