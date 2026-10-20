@@ -58,7 +58,17 @@ README
 ln -s /Applications "$stage_dir/Applications"
 zip_path="$release_dir/SoundPreviewer-$version-$runtime.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$zip_path"
-hdiutil create -volname SoundPreviewer -srcfolder "$stage_dir" -ov -format UDZO "$release_dir/SoundPreviewer-$version-$runtime.dmg"
+# Use logical file lengths rather than allocated blocks: sparse or compressed
+# single-file executables can require more space when copied into the image.
+# Do not traverse the Applications symlink while measuring the staged payload.
+payload_bytes="$(find -P "$stage_dir" -type f -exec stat -f '%z' {} + | awk '{ total += $1 } END { printf "%.0f\n", total }')"
+[[ "$payload_bytes" =~ ^[0-9]+$ && "$payload_bytes" -gt 0 ]] || { echo 'Could not determine the staged payload size.' >&2; exit 2; }
+padded_bytes="$(( (payload_bytes * 5 + 3) / 4 + 64 * 1024 * 1024 ))"
+image_megabytes="$(( (padded_bytes + 1024 * 1024 - 1) / (1024 * 1024) ))"
+echo "DMG payload: $payload_bytes logical bytes; image capacity: $image_megabytes MiB (25% plus 64 MiB padding)."
+du -sk "$stage_dir"
+df -k "$stage_dir" "$release_dir" "${TMPDIR:-/tmp}"
+hdiutil create -volname SoundPreviewer -srcfolder "$stage_dir" -size "${image_megabytes}m" -fs HFS+ -ov -format UDZO "$release_dir/SoundPreviewer-$version-$runtime.dmg"
 (
     cd "$release_dir"
     shasum -a 256 "SoundPreviewer-$version-$runtime.zip" "SoundPreviewer-$version-$runtime.dmg" > "SHA256SUMS-$runtime.txt"
