@@ -16,7 +16,7 @@ public sealed class PresetCategoryService
     private CompiledCategory[]? rules;
     private readonly string? legacyRulesPath;
 
-    public static string DefaultRulesPath => Path.Combine(ApplicationPaths.DataDirectory, "Config", "preset-categories.json");
+    public static string DefaultRulesPath => Path.Combine(ApplicationPaths.ConfigurationDirectory, "preset-categories.json");
     public static string BundledRulesPath => Path.Combine(AppContext.BaseDirectory, "Config", "preset-categories.default.json");
     public string RulesPath { get; }
     public string DefaultFilePath { get; }
@@ -31,6 +31,8 @@ public sealed class PresetCategoryService
     private static string FindLegacyRulesPath()
     {
         string dataDirectory = Path.TrimEndingDirectorySeparator(ApplicationPaths.DataDirectory);
+        string previousRules = Path.Combine(dataDirectory, "Config", "preset-categories.json");
+        if (File.Exists(previousRules)) return previousRules;
         if (Path.GetFileName(dataDirectory).Equals("local-data", ApplicationPaths.PathComparison))
         {
             string? parent = Path.GetDirectoryName(dataDirectory);

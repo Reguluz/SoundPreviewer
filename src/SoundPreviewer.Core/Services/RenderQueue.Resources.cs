@@ -4,11 +4,10 @@ namespace SoundPreviewer.Core.Services;
 
 public sealed partial class RenderQueue
 {
-    private sealed class MemoryLease(long forecast, long rootAtStart)
+    private sealed class MemoryLease(long forecast)
     {
         public long Forecast { get; } = forecast;
-        public long RootAtStart { get; } = rootAtStart;
-        public long ObservedIncrement { get; set; }
+        public long ObservedPeakResidentBytes { get; set; }
         public bool ObservedChildren { get; set; }
         public HashSet<int> WorkerIds { get; } = [];
         public long ObservedResidentBytes { get; set; }
@@ -30,6 +29,7 @@ public sealed partial class RenderQueue
         private readonly object probeGate = new();
         private readonly Dictionary<RenderJob, MemoryLease> memoryLeases = new();
         private readonly Dictionary<SynthKind, long> memoryProfiles = new();
+        private long peakRootResidentBytes;
         private readonly int targetConcurrency;
         private RenderMemorySnapshot memorySnapshot = new(0, false, 0, "尚未检测内存。");
         private TaskCompletionSource resourcesChanged = NewSignal();
@@ -106,12 +106,14 @@ public sealed partial class RenderQueue
                 else
                 {
                     incompleteMemorySamples = 0;
+                    peakRootResidentBytes = Math.Max(peakRootResidentBytes, snapshot.RootResidentBytes);
                     foreach (var lease in memoryLeases.Values)
                     {
                         long own = RenderResourcePolicy.WorkerTreeResidentBytes(snapshot, lease.WorkerIds);
                         lease.ObservedResidentBytes = own;
-                        long parentGrowth = Math.Max(0, snapshot.RootResidentBytes - lease.RootAtStart);
-                        lease.ObservedIncrement = Math.Max(lease.ObservedIncrement, own + parentGrowth);
+                        // The root is already included in total RSS. Its shared growth
+                        // must not be multiplied into every worker's future forecast.
+                        lease.ObservedPeakResidentBytes = Math.Max(lease.ObservedPeakResidentBytes, own);
                         lease.ObservedChildren |= own > 0;
                     }
                     if (snapshot.ResidentBytes >= RenderResourcePolicy.SoftLimitBytes)
@@ -172,7 +174,7 @@ public sealed partial class RenderQueue
                             // Its conservative unknown-synth reservation must not stop
                             // a smaller, already measured preferred job that still fits.
                             if (candidate >= 0 && RenderResourcePolicy.CanStart(memorySnapshot,
-                                UnobservedReservations() + GlobalMemoryReserve, ForecastMemory(waiting[candidate].Plugin.Synth)))
+                                ReservedMemoryBytes, ForecastMemory(waiting[candidate].Plugin.Synth)))
                                 calibrationIndex = candidate;
                         }
                     }
@@ -191,8 +193,8 @@ public sealed partial class RenderQueue
                     if (!job.Plugin.AllowParallelRendering && running.Any(active => active.Plugin.Synth == job.Plugin.Synth)) continue;
                     hasEligibleSynth = true;
                     long forecast = ForecastMemory(job.Plugin.Synth);
-                    if (!RenderResourcePolicy.CanStart(memorySnapshot, UnobservedReservations() + GlobalMemoryReserve, forecast)) continue;
-                    memoryLeases.Add(job, new(forecast, memorySnapshot.RootResidentBytes > 0 ? memorySnapshot.RootResidentBytes : memorySnapshot.ResidentBytes));
+                    if (!RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, forecast)) continue;
+                    memoryLeases.Add(job, new(forecast));
                     waiting.RemoveAt(index);
                     var demand = synthJobDemand[job.Plugin.Synth];
                     demand.Waiting--;
@@ -224,6 +226,10 @@ public sealed partial class RenderQueue
 
         private long UnobservedReservations() => memoryLeases.Values.Sum(lease => Math.Max(0, lease.Forecast - lease.ObservedResidentBytes));
 
+        private long MainProcessHeadroom() => Math.Max(0, peakRootResidentBytes - memorySnapshot.RootResidentBytes);
+
+        private long ReservedMemoryBytes => UnobservedReservations() + MainProcessHeadroom() + GlobalMemoryReserve;
+
         private void RegisterWorker(RenderJob job, int processId)
         {
             lock (gate)
@@ -247,7 +253,7 @@ public sealed partial class RenderQueue
             if (lease.ObservedChildren)
             {
                 long forecast = Math.Max(64L * 1024 * 1024, (long)Math.Min(RenderResourcePolicy.MemoryLimitBytes,
-                    lease.ObservedIncrement * 1.25 + 64L * 1024 * 1024));
+                    lease.ObservedPeakResidentBytes * 1.25 + 64L * 1024 * 1024));
                 memoryProfiles[job.Plugin.Synth] = Math.Max(memoryProfiles.GetValueOrDefault(job.Plugin.Synth), forecast);
             }
             resourceMessage = resourceFailure ?? (lease.ObservedChildren
@@ -262,9 +268,25 @@ public sealed partial class RenderQueue
             if (resourceFailure is not null || !memorySnapshot.IsComplete) { allowedConcurrency = 0; return; }
             if (memoryProfiles.Count == 0 || memoryLeases.Keys.Any(job => !memoryProfiles.ContainsKey(job.Plugin.Synth)))
             { allowedConcurrency = Math.Min(1, targetConcurrency); return; }
-            long forecast = memoryProfiles.Values.DefaultIfEmpty(MinimumJobMemory).Max();
-            long available = RenderResourcePolicy.SoftLimitBytes - memorySnapshot.ResidentBytes - UnobservedReservations() - GlobalMemoryReserve;
-            int additional = available <= 0 ? 0 : (int)Math.Min(targetConcurrency, available / forecast);
+            long available = RenderResourcePolicy.SoftLimitBytes - memorySnapshot.ResidentBytes - ReservedMemoryBytes;
+            int additional = 0;
+            // Follow the pending synth groups rather than the largest synth ever
+            // observed. Completed heavy synths cannot restrict a later light group.
+            foreach (var demand in synthJobDemand.Values)
+            {
+                if (demand.Waiting == 0 || !memoryProfiles.ContainsKey(demand.Plugin.Synth) || available <= 0) continue;
+                long forecast = ForecastMemory(demand.Plugin.Synth);
+                int count = (int)Math.Min(demand.Waiting, Math.Min(targetConcurrency - memoryLeases.Count - additional, available / forecast));
+                additional += count;
+                available -= count * forecast;
+                if (memoryLeases.Count + additional >= targetConcurrency) break;
+            }
+            if (memoryLeases.Count == 0 && additional == 0)
+            {
+                var calibration = synthJobDemand.Values.FirstOrDefault(demand => demand.Waiting > 0 && !memoryProfiles.ContainsKey(demand.Plugin.Synth));
+                if (calibration is not null && RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, ForecastMemory(calibration.Plugin.Synth)))
+                    additional = 1;
+            }
             allowedConcurrency = Math.Min(targetConcurrency, memoryLeases.Count + additional);
         }
 
@@ -299,7 +321,7 @@ public sealed partial class RenderQueue
             var reasons = new List<string>();
             if (permissionReason.Length > 0) reasons.Add(permissionReason);
             if (allowedConcurrency < Math.Min(targetConcurrency, measuredCapacity))
-                reasons.Add($"2 GiB 内存目标限制当前最多 {allowedConcurrency} 条。");
+                reasons.Add($"2 GiB 内存目标限制当前最多 {allowedConcurrency} 条（含预留 {ReservedMemoryBytes / 1048576d:0} MiB）。");
             if (measuredCapacity < permissionCapacity)
                 reasons.Add("下一音源须等当前任务结束后单独测量内存。");
             if (jobCount < targetConcurrency)

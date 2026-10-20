@@ -7,8 +7,10 @@ internal static partial class Program
     private static Task TestPortablePathsAsync()
     {
         string originalDirectory = ApplicationPaths.DataDirectory;
+        string originalConfigurationRoot = Path.GetDirectoryName(ApplicationPaths.ConfigurationDirectory)!;
         string directory = Fixture("application-paths");
         string application = Path.Combine(directory, "release-v1"), userData = Path.Combine(directory, "user-data");
+        ApplicationPaths.ConfigureConfigurationDirectory(application);
         Equal(Path.Combine(application, "Preview"), ApplicationPaths.ResolveDefaultDataDirectory(application, userData), "New installations keep database, previews and user metadata in Preview beside the application.");
         string legacy = Path.Combine(application, "local-data");
         Directory.CreateDirectory(legacy);
@@ -23,13 +25,17 @@ internal static partial class Program
         File.WriteAllText(Path.Combine(otherLibrary, "library.db"), "TEST ONLY second location fixture");
         ApplicationPaths.RememberDataDirectory(otherLibrary, application);
         Equal(otherLibrary, ApplicationPaths.ResolveDefaultDataDirectory(application, userData), "Another process can remember a different library for future launches.");
+        string retainedRootLocator = Path.Combine(application, "library-location.json");
+        File.WriteAllText(retainedRootLocator, "{obsolete root locator");
+        Equal(otherLibrary, ApplicationPaths.ResolveDefaultDataDirectory(application, userData), "A current Config locator takes precedence over the retained root locator.");
+        Equal("{obsolete root locator", File.ReadAllText(retainedRootLocator), "Reading the preferred Config locator never edits the old root copy.");
         Equal(legacy, ApplicationPaths.DataDirectory, "An already configured process keeps its original library when the shared locator changes.");
-        Equal(Path.Combine(legacy, "Config", "preset-categories.json"), SoundPreviewer.Core.Services.PresetCategoryService.DefaultRulesPath, "Editable category rules stay with the open library after another process changes the locator.");
+        Equal(Path.Combine(application, "Config", "preset-categories.json"), SoundPreviewer.Core.Services.PresetCategoryService.DefaultRulesPath, "Editable category rules share the installation Config directory and do not change when another process updates the library locator.");
         ApplicationPaths.RememberDataDirectory(legacy, application);
         File.Delete(Path.Combine(legacy, "library.db"));
         Throws<DirectoryNotFoundException>(() => ApplicationPaths.ResolveDefaultDataDirectory(application, userData), "An unavailable remembered library must not silently become an empty library.");
         Throws<DirectoryNotFoundException>(() => ApplicationPaths.RememberDataDirectory(legacy, application), "Only an existing library can replace the remembered location.");
-        File.WriteAllText(Path.Combine(application, "library-location.json"), "{\"FormatVersion\":99,\"DataDirectory\":\"relative\"}");
+        File.WriteAllText(Path.Combine(application, "Config", "library-location.json"), "{\"FormatVersion\":99,\"DataDirectory\":\"relative\"}");
         Throws<InvalidDataException>(() => ApplicationPaths.ResolveDefaultDataDirectory(application, userData), "Unknown location formats cannot silently fall back to a new library.");
         string portable = Path.Combine(directory, "portable"), movedPortable = Path.Combine(directory, "portable-moved");
         string portableData = Path.Combine(portable, "Preview");
@@ -40,10 +46,10 @@ internal static partial class Program
         Directory.Move(portable, movedPortable);
         Equal(Path.Combine(movedPortable, "Preview"), ApplicationPaths.ResolveDefaultDataDirectory(movedPortable, userData), "A relative program-local locator follows a moved portable folder.");
         string blockedApplication = Path.Combine(directory, "blocked-application"), fallbackUser = Path.Combine(directory, "fallback-user");
-        Directory.CreateDirectory(Path.Combine(blockedApplication, "library-location.json"));
+        Directory.CreateDirectory(Path.Combine(blockedApplication, "Config", "library-location.json"));
         Directory.CreateDirectory(Path.Combine(blockedApplication, "Preview"));
         File.WriteAllText(Path.Combine(blockedApplication, "Preview", "library.db"), "TEST ONLY old default library");
-        Equal(Path.Combine(fallbackUser, "library-location.json"), ApplicationPaths.RememberDataDirectory(otherLibrary, blockedApplication, fallbackUser), "A non-writable program locator can fall back to a small user locator.");
+        Equal(Path.Combine(fallbackUser, "Config", "library-location.json"), ApplicationPaths.RememberDataDirectory(otherLibrary, blockedApplication, fallbackUser), "A non-writable program locator can fall back to a small user Config locator.");
         Equal(otherLibrary, ApplicationPaths.ResolveDefaultDataDirectory(blockedApplication, fallbackUser), "An explicit fallback selection takes precedence over an older default Preview library.");
         string recoveryApplication = Path.Combine(directory, "recovery-application"), recoveryUser = Path.Combine(directory, "recovery-user");
         Directory.CreateDirectory(recoveryApplication);
@@ -59,6 +65,14 @@ internal static partial class Program
         Directory.CreateDirectory(legacyUser);
         File.WriteAllText(Path.Combine(legacyUser, "library-location.json"), System.Text.Json.JsonSerializer.Serialize(new { FormatVersion = 1, DataDirectory = otherLibrary }));
         Equal(otherLibrary, ApplicationPaths.ResolveDefaultDataDirectory(Path.Combine(directory, "new-installation"), legacyUser), "Old user-directory locators remain readable for compatibility.");
+        string oldApplication = Path.Combine(directory, "old-root-locator");
+        Directory.CreateDirectory(oldApplication);
+        string oldRootPath = Path.Combine(oldApplication, "library-location.json");
+        string oldRootJson = System.Text.Json.JsonSerializer.Serialize(new { FormatVersion = 1, DataDirectory = otherLibrary });
+        File.WriteAllText(oldRootPath, oldRootJson);
+        Equal(otherLibrary, ApplicationPaths.ResolveDefaultDataDirectory(oldApplication, Path.Combine(directory, "unused-user")), "Previous root-level locators remain usable before a Config locator exists.");
+        Equal(Path.Combine(oldApplication, "Config", "library-location.json"), ApplicationPaths.RememberDataDirectory(otherLibrary, oldApplication), "A successful open records future location metadata under Config.");
+        Equal(oldRootJson, File.ReadAllText(oldRootPath), "Recording Config metadata preserves the original root locator for recovery.");
         Equal(Path.Combine(directory, "Applications"), ApplicationPaths.ResolvePortableApplicationDirectory(Path.Combine(directory, "Applications", "SoundPreviewer.app", "Contents", "MacOS"), true), "A Mac app stores Preview beside the bundle, not inside Contents.");
         ApplicationPaths.ConfigureDataDirectory("portable-library");
         Equal(Path.Combine(AppContext.BaseDirectory, "portable-library"), ApplicationPaths.DataDirectory, "Relative overrides never depend on shell working directory.");
@@ -73,6 +87,7 @@ internal static partial class Program
         True(!ApplicationPaths.SamePath("", ""), "Unset plugin paths do not accidentally match.");
         True(Path.GetFileName(ApplicationPaths.WorkerPath) is "SoundPreviewer.Worker" or "SoundPreviewer.Worker.exe" or "SoundPreviewer.Worker.dll", "Worker discovery supports native apphosts and DLL fallback.");
         ApplicationPaths.ConfigureDataDirectory(originalDirectory);
+        ApplicationPaths.ConfigureConfigurationDirectory(originalConfigurationRoot);
         return Task.CompletedTask;
     }
 }

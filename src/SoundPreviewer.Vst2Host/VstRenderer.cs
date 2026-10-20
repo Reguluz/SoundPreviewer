@@ -144,17 +144,25 @@ internal static class VstRenderer
         finally { commands.EndSetProgram(); }
         // Verify after EndSetProgram, against the full state actually used for this note.
         if (preset.Chunk is not null)
-            return (commands.GetChunk(true) ?? []).AsSpan().SequenceEqual(preset.Chunk);
-        return preset.Parameters!.Select((value, index) => commands.GetParameter(index) is var actual &&
-            float.IsFinite(actual) && Math.Abs(actual - value) <= 0.000001f).All(value => value);
+        {
+            byte[] actual = commands.GetChunk(true) ?? [];
+            if (!SylenthPresetState.Matches(preset.Chunk, actual))
+                throw new PresetStateCompatibilityException("目标预制加载核验失败：" + SylenthPresetState.DescribeMismatch(preset.Chunk, actual));
+            return true;
+        }
+        if (!preset.Parameters!.Select((value, index) => commands.GetParameter(index) is var actual &&
+            float.IsFinite(actual) && Math.Abs(actual - value) <= 0.000001f).All(value => value))
+            throw new PresetStateCompatibilityException("目标预制加载核验失败：插件回读参数与源 FXP 不一致，请使用匹配版本的 Sylenth1 重新导出独立 FXP。");
+        return true;
     }
 
     internal static void ValidateChunkLoaded(int consumed, ReadOnlySpan<byte> before, ReadOnlySpan<byte> after, ReadOnlySpan<byte> target)
     {
-        if (consumed < 0) throw new InvalidDataException("插件拒绝载入 FXP。");
+        if (consumed < 0) throw new PresetStateCompatibilityException("插件拒绝载入 FXP。" + SylenthPresetState.DescribeMismatch(target, after));
         if (!before.IsEmpty && !after.IsEmpty && before.SequenceEqual(after))
-            throw new InvalidDataException("SetChunk 后音色状态完全未变，即使插件返回正值也不能把默认状态当成目标音色。");
-        if (consumed == 0 && !after.SequenceEqual(target) && (before.IsEmpty || after.IsEmpty))
+            throw new PresetStateCompatibilityException("SetChunk 后音色状态完全未变，拒绝把默认状态当成目标音色。" +
+                SylenthPresetState.DescribeMismatch(target, after));
+        if (consumed == 0 && !SylenthPresetState.Matches(target, after) && (before.IsEmpty || after.IsEmpty))
             throw new InvalidDataException("插件未确认载入 FXP，也没有可核验的音色状态变化。");
     }
 

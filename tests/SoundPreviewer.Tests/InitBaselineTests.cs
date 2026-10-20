@@ -300,12 +300,23 @@ internal static partial class Program
             var mixed = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
             True(mixed.Success && mixed.PresetLoadProof is null && !PresetLoadVerification.IsValid(mixed, request.Preset, request.Template),
                 "A missing proof in the first contributing round cannot be blessed by valid later rounds.");
+            request.Preset.Name = "TEST-ONLY-state-proof-quick-permanent";
+            request.OutputPath = Path.Combine(directory, "TEST-ONLY-quick-incompatible.wav");
+            var incompatible = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
+            True(!incompatible.Success && incompatible.NonRetryable && !File.Exists(request.OutputPath),
+                "Native compatibility failures retain their no-retry classification through the actual quick Worker and publish no WAV.");
         }
         finally { Environment.SetEnvironmentVariable(architectureRoot, previousRoot); }
     }
 
     private static async Task<int> StateProofFakeWorkerAsync(RenderRequest request, string resultPath)
     {
+        if (request.Preset.Name.EndsWith("-permanent", StringComparison.Ordinal))
+        {
+            await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult { NonRetryable = true,
+                Message = "TEST ONLY incompatible preset state." }, LibraryJson.Options));
+            return 1;
+        }
         double duration = request.Template.HoldSeconds + request.Template.TailSeconds;
         int frames = (int)Math.Round(request.Template.SampleRate * duration);
         var audio = Tone(request.Template.SampleRate, 1, frames * 3 / (double)request.Template.SampleRate);

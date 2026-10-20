@@ -79,7 +79,7 @@ public sealed class PluginConfiguration
     public string PluginHash { get; set; } = "";
     public string InitBaselinePath { get; set; } = "";
     public int TimeoutSeconds { get; set; } = 120;
-    public bool AllowParallelRendering { get; set; }
+    public bool AllowParallelRendering { get; set; } = true;
 }
 
 public sealed class PreviewTemplate : IJsonOnDeserialized
@@ -197,6 +197,7 @@ public sealed class RenderRequest
 public sealed class RenderResult
 {
     public bool Success { get; set; }
+    public bool NonRetryable { get; set; }
     public string OutputPath { get; set; } = "";
     public string Message { get; set; } = "";
     public bool NeedsReview { get; set; }

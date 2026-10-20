@@ -17,9 +17,9 @@ if [[ -d "$output_dir" && -n "$(find "$output_dir" \( -iname Preview -o -name lo
     echo 'Existing publish output contains user data. Preserve or move the old directory before publishing; no files were deleted.' >&2; exit 2
 fi
 rm -rf -- "$output_dir"
-"$dotnet_command" restore src/SoundPreviewer.App/SoundPreviewer.App.csproj --configfile NuGet.Config -r "$runtime" -p:SelfContained=true -p:NuGetAudit=false
+"$dotnet_command" restore src/SoundPreviewer.App/SoundPreviewer.App.csproj --configfile NuGet.Config -r "$runtime" -p:SelfContained=true -p:PublishSingleFile=true -p:NuGetAudit=false
 "$dotnet_command" publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -r "$runtime" \
-    --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o "$output_dir"
+    --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o "$output_dir"
 for file in SoundPreviewer SoundPreviewer.Worker Renderers/dawdreamer_worker.py Renderers/serum2_state.py; do
     [[ -f "$output_dir/$file" ]] || { echo "Missing published file: $file" >&2; exit 1; }
 done

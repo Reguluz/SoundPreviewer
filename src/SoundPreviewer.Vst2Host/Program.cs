@@ -47,7 +47,7 @@ internal static class Program
         }
         catch (Exception error)
         {
-            result = new RenderResult { Message = error.Message };
+            result = new RenderResult { Message = error.Message, NonRetryable = error is PresetStateCompatibilityException };
             Console.Error.WriteLine(error);
         }
         string target = Path.GetFullPath(resultPath);

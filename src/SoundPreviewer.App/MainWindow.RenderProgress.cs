@@ -18,6 +18,6 @@ public partial class MainWindow
     }
 
     private static string FormatRenderResources(QueueProgress progress) => progress.MemoryBudgetBytes <= 0 ? "" :
-        $"总内存 {progress.WorkingSetBytes / 1048576d:0} / {progress.MemoryBudgetBytes / 1048576d:0} MiB" +
+        $"实占 {progress.WorkingSetBytes / 1048576d:0} / {progress.MemoryBudgetBytes / 1048576d:0} MiB · 内存预留 {progress.ReservedMemoryBytes / 1048576d:0} MiB" +
         $" · 当前并行上限 {progress.EffectiveConcurrency} 条（设定 {progress.MaxConcurrency}，内存允许 {progress.AllowedConcurrency}）";
 }

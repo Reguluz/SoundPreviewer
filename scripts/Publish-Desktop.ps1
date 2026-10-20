@@ -42,9 +42,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'x86 host restore failed.' }
     dotnet publish src/SoundPreviewer.Vst2Host/SoundPreviewer.Vst2Host.csproj -c Release -r win-x86 --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o $hostDirectory
     if ($LASTEXITCODE -ne 0) { throw 'x86 host publish failed.' }
-    dotnet restore src/SoundPreviewer.App/SoundPreviewer.App.csproj --configfile NuGet.Config -r $Runtime -p:SelfContained=true -p:NuGetAudit=false
+    dotnet restore src/SoundPreviewer.App/SoundPreviewer.App.csproj --configfile NuGet.Config -r $Runtime -p:SelfContained=true -p:PublishSingleFile=true -p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw 'Desktop restore failed.' }
-    dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -r $Runtime --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o $outputDirectory
+    dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -r $Runtime --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o $outputDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
     foreach ($file in @('SoundPreviewer.exe', 'SoundPreviewer.Worker.exe', 'Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Vst2Host-x86/SoundPreviewer.Vst2Host.exe', 'Vst2Host-x86/coreclr.dll')) {
         if (-not (Test-Path -LiteralPath (Join-Path $outputDirectory $file))) { throw "Missing published file: $file" }

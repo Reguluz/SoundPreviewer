@@ -14,7 +14,9 @@ internal static partial class Program
     {
         var old = JsonSerializer.Deserialize<AppSettings>("{\"Plugins\":[{\"Synth\":0,\"Backend\":2}]}", LibraryJson.Options)!;
         Equal(1, old.MaxParallelRenders, "Old settings retain one worker by default.");
-        True(old.Plugins.All(plugin => !plugin.AllowParallelRendering), "Old plugin configurations do not implicitly enable concurrent instances.");
+        True(old.Plugins.All(plugin => plugin.AllowParallelRendering), "Missing per-synth options default to parallel rendering.");
+        var explicitSerial = JsonSerializer.Deserialize<PluginConfiguration>("{\"AllowParallelRendering\":false}", LibraryJson.Options)!;
+        True(!explicitSerial.AllowParallelRendering, "An explicit serial choice remains disabled after reopening.");
         var cachePreset = Preset("parallel-options-cache-identity");
         var cachePlugin = ParallelPlugin(SynthKind.Vital);
         var cacheTemplate = new PreviewTemplate();
@@ -533,7 +535,11 @@ internal static partial class Program
         True(plugin.AllowParallelRendering, "Reselecting an identical executable and version retains its explicit concurrency choice.");
         selected.Version = "TEST ONLY 2";
         PluginSelectionService.Assign(plugin, selected, platform: PluginPlatform.Windows, architecture: PluginArchitecture.X64);
-        True(!plugin.AllowParallelRendering, "Changing the selected plugin version requires a fresh concurrency opt-in.");
+        True(plugin.AllowParallelRendering, "Changing the selected version preserves the concurrency choice.");
+        plugin.AllowParallelRendering = false;
+        selected.Version = "TEST ONLY 3";
+        PluginSelectionService.Assign(plugin, selected, platform: PluginPlatform.Windows, architecture: PluginArchitecture.X64);
+        True(!plugin.AllowParallelRendering, "Changing versions also preserves an explicit serial choice.");
         string host = Path.Combine(directory, "new", "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(host)!);
         File.WriteAllText(host, "TEST ONLY replacement host, never executed.");
@@ -543,7 +549,7 @@ internal static partial class Program
             ExecutablePath = Path.Combine(directory, "old", "Vst2Host-x86", "SoundPreviewer.Vst2Host.exe")
         };
         Equal(1, PluginSelectionService.RefreshBundledHost([sylenth], host, PluginPlatform.Windows), "A bundled host upgrade refreshes its installation path.");
-        True(!sylenth.AllowParallelRendering, "A replaced bundled host also requires a fresh concurrency opt-in.");
+        True(sylenth.AllowParallelRendering, "A bundled host upgrade preserves parallel rendering.");
     }
 
     private sealed record ParallelFixture(string Root, string TraceDirectory, string GatePath, LibraryStore Store, AppSettings Settings, PresetRecord[] Presets);

@@ -36,9 +36,9 @@ public partial class MainWindow
             }
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Version = "TEST ONLY changed plugin version";
             await RunTask(SaveSettingsCoreAsync);
-            if (_store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering ||
-                Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
-                throw new InvalidOperationException("手工更改音源版本后没有撤销并行许可。");
+            if (!_store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering ||
+                !Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
+                throw new InvalidOperationException("手工更改音源版本后丢失并行设置。");
             var template = persistedSettings.Template;
             if (template.QuickPreviewSeconds != 1.25 || !template.QuickPreview ||
                 template.LowNote != 37 || template.MiddleNote != 60 || template.HighNote != 93)

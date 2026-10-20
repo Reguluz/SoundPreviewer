@@ -14,7 +14,7 @@ stage_dir="$project_dir/artifacts/package-$runtime"
 if [[ -d "$stage_dir" && -n "$(find "$stage_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Existing package staging contains user data. Preserve or move the old directory first; no files were deleted.' >&2; exit 2
 fi
-for file in SoundPreviewer SoundPreviewer.Worker libcoreclr.dylib; do
+for file in SoundPreviewer SoundPreviewer.Worker; do
     [[ -f "$publish_dir/$file" ]] || { echo "Publish first; missing $file" >&2; exit 1; }
 done
 if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
@@ -49,7 +49,8 @@ SoundPreviewer 预发行版
 DMG 是只读磁盘，请勿直接在其中启动应用。
 
 首次使用会在 app 旁建立 Preview 文件夹，保存音色索引、设置和试听缓存。
-升级时退出应用并替换 SoundPreviewer.app，保留 Preview、directories.json 和 library-location.json。
+个人目录、分类规则与定位配置统一保存到 app 旁的 Config 文件夹。
+升级时退出应用并替换 SoundPreviewer.app，保留 Preview、Config 以及旧版根目录配置。
 移动应用时，请将这些文件一起保留。
 
 Applications 快捷方式供拥有该目录写入权限的用户使用。

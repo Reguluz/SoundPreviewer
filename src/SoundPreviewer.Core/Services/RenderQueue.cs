@@ -24,6 +24,8 @@ public sealed record QueueProgress(int Completed, int Total, string PresetName, 
     public double ItemElapsedSeconds { get; init; }
     public long WorkingSetBytes { get; init; }
     public long MemoryBudgetBytes { get; init; }
+    public long ReservedMemoryBytes { get; init; }
+    public QueueSelectionCounts? Selection { get; init; }
     public string ResourceMessage { get; init; } = "";
     public int AllowedConcurrency { get; init; } = 1;
     public int EffectiveConcurrency { get; init; }
@@ -53,6 +55,13 @@ public sealed class QueueResult
     public int Unconfigured { get; internal set; }
     public int RetryLimited { get; internal set; }
     public int Excluded { get; internal set; }
+    public int ExcludedDuplicates { get; private set; }
+    public int ExcludedUnidentified { get; private set; }
+    public int ExcludedUnsupported { get; private set; }
+    public int ExcludedMissing { get; private set; }
+    public int ExcludedRepeatedSelection { get; private set; }
+    public QueueSelectionCounts Selection => new(Requested, Eligible, ExcludedDuplicates, ExcludedUnidentified,
+        ExcludedUnsupported, ExcludedMissing, ExcludedRepeatedSelection);
     public double ElapsedSeconds { get; internal set; }
     public int PeakActiveCount { get; internal set; }
     public int RequestedConcurrency { get; internal set; }
@@ -67,10 +76,11 @@ public sealed class QueueResult
     {
         get
         {
-            if (Eligible == 0) return $"没有可生成项目：所选 {Requested} 项，排除 {Excluded} 项（重复项或当前不可生成项目）。";
+            if (Eligible == 0) return "没有可生成项目：" + Selection.Description + "。";
             string prefix = Generated == 0 && Reused == 0 ? "本次没有生成预览。" : "";
             string missing = Unconfigured == 0 ? "" : " 尚未配置渲染器：" + string.Join("、", unconfiguredSynths.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key} {pair.Value} 项")) + "。";
-            return prefix + $"新生成 {Generated} 项，复用 {Reused} 项，失败 {Failed} 项，未配置 {Unconfigured} 项，重试上限 {RetryLimited} 项，排除 {Excluded} 项。" + missing;
+            return prefix + $"新生成 {Generated} 项，复用 {Reused} 项，失败 {Failed} 项，未配置 {Unconfigured} 项，重试上限 {RetryLimited} 项。" +
+                Selection.Description + "。" + missing;
         }
     }
 
@@ -78,6 +88,16 @@ public sealed class QueueResult
     {
         Unconfigured++;
         unconfiguredSynths[synth] = unconfiguredSynths.GetValueOrDefault(synth) + 1;
+    }
+
+    internal void AddExcluded(PresetRecord preset, bool repeatedSelection)
+    {
+        Excluded++;
+        if (repeatedSelection) ExcludedRepeatedSelection++;
+        else if (preset.DuplicateOfId.Length > 0) ExcludedDuplicates++;
+        else if (preset.Synth == SynthKind.Unknown || preset.Status == PresetStatus.Unidentified) ExcludedUnidentified++;
+        else if (preset.Status == PresetStatus.Missing) ExcludedMissing++;
+        else ExcludedUnsupported++;
     }
 }
 

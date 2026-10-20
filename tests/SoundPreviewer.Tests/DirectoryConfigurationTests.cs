@@ -21,7 +21,7 @@ internal static partial class Program
         };
         var service = new DirectoryConfigurationService(root);
         True(service.LoadOrCreate(settings), "The first startup exports legacy database directories to explicit JSON.");
-        Equal(Path.Combine(root, "directories.json"), service.FilePath, "The editable directory configuration is beside the installed program, outside Preview.");
+        Equal(Path.Combine(root, "Config", "directories.json"), service.FilePath, "The editable directory configuration is grouped under the installation's Config directory.");
         string initial = File.ReadAllText(service.FilePath);
         True(initial.Contains("\n") && initial.Contains("\"Serum1\""), "The file is indented and names synthesizers for manual editing.");
         True(!initial.Contains("PlaybackVolume") && !initial.Contains("MaxParallelRenders"), "Unrelated rendering and playback settings remain in the compatible database.");
@@ -126,7 +126,51 @@ internal static partial class Program
         File.Delete(service.FilePath);
         Throws<InvalidOperationException>(() => conflict.Save(settings), "Deleting the file externally also requires reloading rather than silently recreating stale settings.");
         True(!File.Exists(service.FilePath), "A deleted configuration is not recreated by a stale service instance.");
-        True(Directory.GetFiles(root, "directories.json.*.tmp").Length == 0, "Rejected saves leave no temporary directory configuration files.");
+        True(Directory.GetFiles(Path.GetDirectoryName(service.FilePath)!, "directories.json.*.tmp").Length == 0, "Rejected saves leave no temporary directory configuration files.");
+
+        string legacyRoot = Fixture("directory-configuration-legacy");
+        string legacyFile = Path.Combine(legacyRoot, "directories.json");
+        string legacyJson = "{\"FormatVersion\":1,\"Sources\":[],\"PluginDirectories\":[],\"LegacyUnknown\":{\"preserve\":true}}";
+        File.WriteAllText(legacyFile, legacyJson);
+        var migratedSettings = new AppSettings { PluginDirectories = [Path.Combine(legacyRoot, "ignored-database-directory")] };
+        var migration = new DirectoryConfigurationService(legacyRoot);
+        True(!migration.LoadOrCreate(migratedSettings), "Moving an existing explicit JSON into Config does not reseed deliberately empty directories.");
+        Equal(0, migratedSettings.PluginDirectories.Count, "Legacy explicit empty directories win over database fallback.");
+        Equal(legacyJson, File.ReadAllText(legacyFile), "Migrating root JSON leaves its original bytes available for previous versions and recovery.");
+        True(JsonNode.Parse(File.ReadAllText(migration.FilePath))!["LegacyUnknown"]!["preserve"]!.GetValue<bool>(), "Moving the JSON retains unknown future configuration fields.");
+        File.WriteAllText(legacyFile, "{broken old root file");
+        new DirectoryConfigurationService(legacyRoot).LoadOrCreate(migratedSettings);
+        Equal(0, migratedSettings.PluginDirectories.Count, "Once Config exists, an obsolete or invalid root file cannot override it.");
+        string rejectedRoot = Fixture("directory-configuration-invalid-legacy");
+        File.WriteAllText(Path.Combine(rejectedRoot, "directories.json"), "{broken");
+        Throws<InvalidDataException>(() => new DirectoryConfigurationService(rejectedRoot).LoadOrCreate(new AppSettings()), "An invalid migration source is preserved and must be fixed rather than silently replaced with database defaults.");
+        True(!File.Exists(Path.Combine(rejectedRoot, "Config", "directories.json")), "A rejected legacy migration does not publish partial Config data.");
+        string originalData = ApplicationPaths.DataDirectory;
+        string originalConfigurationRoot = Path.GetDirectoryName(ApplicationPaths.ConfigurationDirectory)!;
+        string rulesRoot = Fixture("configuration-rules-migration"), rulesData = Path.Combine(rulesRoot, "Preview");
+        string oldRules = Path.Combine(rulesData, "Config", "preset-categories.json");
+        const string customRules = "{\"version\":1,\"categories\":[{\"label\":\"Personal category\",\"tokens\":[\"personal\"]}]}";
+        Directory.CreateDirectory(Path.GetDirectoryName(oldRules)!);
+        File.WriteAllText(oldRules, customRules);
+        try
+        {
+            ApplicationPaths.ConfigureDataDirectory(rulesData);
+            ApplicationPaths.ConfigureConfigurationDirectory(rulesRoot);
+            var categories = new PresetCategoryService();
+            categories.EnsureRulesFile();
+            Equal(Path.Combine(rulesRoot, "Config", "preset-categories.json"), categories.RulesPath, "Personal classification rules are consolidated with the other installation Config files.");
+            Equal(customRules, File.ReadAllText(categories.RulesPath), "The first Config rules file copies the former Preview rules rather than replacing them with bundled defaults.");
+            Equal(customRules, File.ReadAllText(oldRules), "The former Preview rules are retained for compatibility and recovery.");
+            True(categories.Load().Success && categories.Classify("Personal sound").Contains("Personal category"), "Migrated personal categories remain usable.");
+            File.WriteAllText(oldRules, "{broken obsolete rules");
+            new PresetCategoryService().EnsureRulesFile();
+            Equal(customRules, File.ReadAllText(categories.RulesPath), "Established Config rules win over obsolete Preview copies.");
+        }
+        finally
+        {
+            ApplicationPaths.ConfigureDataDirectory(originalData);
+            ApplicationPaths.ConfigureConfigurationDirectory(originalConfigurationRoot);
+        }
         return Task.CompletedTask;
     }
 }

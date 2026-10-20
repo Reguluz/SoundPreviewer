@@ -21,23 +21,24 @@
     </StackPanel>
    </Grid>
   </Border>
-  <Border x:Name="TaskStatusBand" IsVisible="{Binding TaskBandVisible}" Grid.Row="1" Background="#EAF0EC" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,10" AutomationProperties.Name="任务进度与结果">
+  <Border x:Name="TaskStatusBand" IsVisible="{Binding TaskBandVisible}" Grid.Row="1" Height="188" Background="#EAF0EC" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,10" AutomationProperties.Name="任务进度与结果">
    
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="28"/><RowDefinition Height="32"/><RowDefinition Height="36"/><RowDefinition Height="32"/><RowDefinition Height="8"/></Grid.RowDefinitions>
     <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0"/>
     <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-     <TextBlock Text="{Binding TaskProgressText}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0"/>
      <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,12,0"/>
      <Button Content="打开新音色库" Click="OpenRelocatedLibrary_Click" IsVisible="{Binding RelocatedLibraryVisibility}" Margin="0,0,6,0" Padding="8,4" Height="30"/>
      <Button x:Name="ViewGeneratedButton" Click="ViewGenerated_Click" IsVisible="{Binding GeneratedResultsVisibility}" ToolTip.Tip="查看已生成的预览，包含待试听确认项" Margin="0,0,6,0" Padding="8,4" Height="30"><StackPanel Orientation="Horizontal"><TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="查看已生成"/></StackPanel></Button>
      <Button Classes="icon" Content="↗" Click="ViewTasks_Click" ToolTip.Tip="查看任务与运行记录" Width="30" Height="30" Margin="0,0,6,0"/>
      <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与渲染器设置" IsVisible="{Binding TaskSettingsVisibility}" Width="30" Height="30" Margin="0"/>
     </StackPanel>
-    <TextBlock x:Name="TaskProgressDetails" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="48" LineHeight="16"  FontSize="12" Margin="0,4,0,8"/>
-    <TextBlock x:Name="TaskResourceDetails" Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" TextWrapping="Wrap" MaxHeight="32" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
-    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="3" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
+    <TextBlock x:Name="TaskCountersText" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding TaskProgressText}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="14" FontSize="12" ToolTip.Tip="{Binding TaskProgressText}"/>
+    <TextBlock x:Name="TaskSelectionDetails" Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding TaskSelectionText}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskSelectionText}"/>
+    <TextBlock x:Name="TaskProgressDetails" Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding StatusMessage}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16" FontSize="12" ToolTip.Tip="{Binding StatusMessage}"/>
+    <TextBlock x:Name="TaskResourceDetails" Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" TextWrapping="Wrap" MaxHeight="32" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskMemoryText}"/>
+    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="5" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
    </Grid>
   </Border>
   <TabControl x:Name="Pages" Grid.Row="2" Margin="24,18,24,0" BorderThickness="0" Background="White">
@@ -266,7 +267,7 @@
             <ComboBox x:Name="ParallelRendering" ItemsSource="{Binding ParallelRenderChoices}" DisplayMemberBinding="{Binding Label}" IsEnabled="{Binding IsIdle}" MinWidth="210" AutomationProperties.Name="自动或手动选择并行生成数量"/>
            </StackPanel>
            <TextBlock Text="自动按机型选择，或手动设为 1 / 2 / 4 / 8 / 16 条。生成期间总内存目标 2 GiB（包含程序和全部生成进程）；先单条校准，内存紧张时限制并行，超限则停止并保留已完成结果。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
-           <TextBlock Text="同一音源须在下表允许同时生成，旧设置会保留。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"/>
+           <TextBlock Text="默认允许同一音源同时生成，可在下表关闭；明确关闭的选择会保留，更新或重新关联音源不会自动更改。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"/>
           </StackPanel>
           <DataGrid x:Name="PluginGrid" Grid.Row="2" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>

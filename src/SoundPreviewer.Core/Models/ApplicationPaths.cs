@@ -9,11 +9,13 @@ namespace SoundPreviewer.Core.Models;
 public static class ApplicationPaths
 {
     private static string? dataDirectory;
+    private static string? configurationDirectory;
     public static string ApplicationDirectory => Path.GetFullPath(AppContext.BaseDirectory);
     public static string PortableApplicationDirectory => ResolvePortableApplicationDirectory(ApplicationDirectory, OperatingSystem.IsMacOS());
     public static string DefaultPreviewDirectory => Path.Combine(PortableApplicationDirectory, "Preview");
-    public static string DirectoryConfigurationPath => Path.Combine(PortableApplicationDirectory, DirectoryConfigurationService.FileName);
-    public static string LibraryLocationPath => Path.Combine(PortableApplicationDirectory, "library-location.json");
+    public static string ConfigurationDirectory => configurationDirectory ?? GetConfigurationDirectory(PortableApplicationDirectory);
+    public static string DirectoryConfigurationPath => Path.Combine(ConfigurationDirectory, DirectoryConfigurationService.FileName);
+    public static string LibraryLocationPath => Path.Combine(ConfigurationDirectory, "library-location.json");
     public static string LegacyDataDirectory => Path.Combine(ApplicationDirectory, "local-data");
     public static string UserDataDirectory => OperatingSystem.IsMacOS()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "SoundPreviewer")
@@ -37,12 +39,18 @@ public static class ApplicationPaths
             : Path.GetFullPath(directory, application);
     }
 
+    public static string GetConfigurationDirectory(string applicationRoot) => Path.Combine(Path.GetFullPath(applicationRoot), "Config");
+
+    // Isolated desktop diagnostics supply their private root before constructing UI services.
+    public static void ConfigureConfigurationDirectory(string? applicationRoot = null) =>
+        configurationDirectory = applicationRoot is null ? null : GetConfigurationDirectory(applicationRoot);
+
     public static string ResolveDefaultDataDirectory(string applicationDirectory, string userDataDirectory)
     {
         string application = Path.GetFullPath(applicationDirectory);
-        string locationPath = Path.Combine(application, "library-location.json");
+        string locationPath = PreferredLocationPath(application);
         string oldUserDirectory = Path.GetFullPath(userDataDirectory);
-        string oldLocation = Path.Combine(oldUserDirectory, "library-location.json");
+        string oldLocation = PreferredLocationPath(oldUserDirectory);
         var (primary, primaryError) = TryReadLocationMetadata(locationPath);
         var (fallback, fallbackError) = TryReadLocationMetadata(oldLocation);
         var primaryTime = primary?.SavedUtc ?? new DateTimeOffset(File.Exists(locationPath) ? File.GetLastWriteTimeUtc(locationPath) : DateTime.MinValue, TimeSpan.Zero);
@@ -59,6 +67,12 @@ public static class ApplicationPaths
         if (fallbackError is not null) throw fallbackError;
         if (File.Exists(oldLocation)) return ReadLibraryLocation(oldLocation);
         return File.Exists(Path.Combine(oldUserDirectory, "library.db")) ? oldUserDirectory : previewDirectory;
+    }
+
+    private static string PreferredLocationPath(string root)
+    {
+        string current = Path.Combine(GetConfigurationDirectory(root), "library-location.json");
+        return File.Exists(current) ? current : Path.Combine(root, "library-location.json");
     }
 
     private static (LibraryLocation? Location, Exception? Error) TryReadLocationMetadata(string path)
@@ -113,14 +127,15 @@ public static class ApplicationPaths
 
     private static string WriteLibraryLocation(string fullPath, string userDirectory)
     {
-        Directory.CreateDirectory(userDirectory);
-        string locationPath = Path.Combine(userDirectory, "library-location.json");
+        string config = GetConfigurationDirectory(userDirectory);
+        Directory.CreateDirectory(config);
+        string locationPath = Path.Combine(config, "library-location.json");
         string temporary = locationPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                string savedPath = IsWithin(fullPath, userDirectory) ? Path.GetRelativePath(userDirectory, fullPath) : fullPath;
+                string savedPath = IsWithin(fullPath, userDirectory) ? Path.GetRelativePath(config, fullPath) : fullPath;
                 JsonSerializer.Serialize(stream, new LibraryLocation(2, savedPath, DateTimeOffset.UtcNow));
                 stream.Flush(flushToDisk: true);
             }

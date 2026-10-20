@@ -146,7 +146,9 @@ public partial class MainWindow
             await Generate(pending);
             if (!IsIdle || !TaskStatusBand.IsVisible || GenerationProgressBar.IsIndeterminate || ProgressValue != 100 ||
                 TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未配置", StringComparison.Ordinal) || !TaskSettingsVisibility ||
-                !TaskProgressText.Contains("成功 0（新生成 0 / 复用 0） · 失败 0 · 未配置 10000", StringComparison.Ordinal))
+                !TaskProgressText.Contains("成功 0（新生成 0 / 复用 0） · 失败 0 · 未配置 10000", StringComparison.Ordinal) ||
+                !TaskSelectionText.Contains("本次所选 10000 条 · 去重 10000 个 · 处理队列 10000 个", StringComparison.Ordinal) ||
+                TaskSelectionDetails.Text != TaskSelectionText)
                 throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果。");
             generationFeedbackChecked = true;
         }
@@ -170,19 +172,34 @@ public partial class MainWindow
             var feedback = _statusMessage;
             var progressText = _taskProgressText;
             var memoryText = _taskMemoryText;
+            var selectionText = _taskSelectionText;
+            var fixedTaskBounds = TaskStatusBand.Bounds;
+            var fixedPageBounds = Pages.Bounds;
             _smokeLayoutPhase = name + "-long-feedback";
             _taskProgressText = "已处理 9999 / 10000 (100%) · 成功 8999（新生成 8000 / 复用 999） · 失败 1000 · 运行 4/4";
             _taskMemoryText = "总内存 1792 / 2048 MiB · 当前并行上限 4 条（设定 16，内存允许 4）";
+            _taskSelectionText = "本次所选 14007 条 · 去重 12551 个 · 处理队列 6432 个 · 重复副本 1456 · 待识别 5130 · 暂不支持生成 989";
             _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
             NotifyTaskProgress();
             await SettleLayoutAsync();
             CheckSmokeLayout();
-            if (TaskProgressDetails.Bounds.Height > 48.1 || TaskResourceDetails.Bounds.Height > 32.1 || TaskStatusBand.Bounds.Height > 165)
+            if (TaskProgressDetails.Bounds.Height > 32.1 || TaskResourceDetails.Bounds.Height > 32.1 ||
+                Math.Abs(TaskStatusBand.Bounds.Height - 188) > .1 || TaskStatusBand.Bounds != fixedTaskBounds || Pages.Bounds != fixedPageBounds)
                 throw SmokeLayoutFailure("长渲染错误挤占音色库内容区域。");
             CaptureSmokeImage($"ui-long-feedback-{name}.png");
+            foreach (string detail in new[] { "TEST ONLY short", "TEST ONLY first line\nTEST ONLY second line", "" })
+            {
+                _statusMessage = detail;
+                _taskMemoryText = detail;
+                NotifyTaskProgress();
+                await SettleLayoutAsync();
+                if (TaskStatusBand.Bounds != fixedTaskBounds || Pages.Bounds != fixedPageBounds)
+                    throw SmokeLayoutFailure("进度说明从一行变成两行或内存说明显隐时改变了任务区域或音色库位置。");
+            }
             _statusMessage = feedback;
             _taskProgressText = progressText;
             _taskMemoryText = memoryText;
+            _taskSelectionText = selectionText;
             NotifyTaskProgress();
             ResetFilterControls();
             for (var page = 0; page < 3; page++)
@@ -269,6 +286,7 @@ public partial class MainWindow
             PresetFileTransferChecked = true, SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, DirectoryConfigurationChecked = true,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
+            QueueSelectionCountsChecked = true, ProgressLayoutStableChecked = true,
             DirectoryConfigurationPath = DirectoryConfigurationLocation, DirectoryPluginDirectories = _settings.PluginDirectories,
             InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
             ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
@@ -356,7 +374,7 @@ public partial class MainWindow
     private void CheckDirectoryConfiguration()
     {
         string expectedRoot = App.TestInstalledStorage ? ApplicationPaths.PortableApplicationDirectory : App.DataDirectory;
-        if (!ApplicationPaths.SamePath(DirectoryConfigurationLocation, Path.Combine(expectedRoot, "directories.json")) ||
+        if (!ApplicationPaths.SamePath(DirectoryConfigurationLocation, Path.Combine(expectedRoot, "Config", "directories.json")) ||
             !File.Exists(DirectoryConfigurationLocation))
             throw new InvalidOperationException("目录 JSON 没有保存在要求的程序根目录。");
         using var document = JsonDocument.Parse(File.ReadAllText(DirectoryConfigurationLocation),

@@ -84,6 +84,7 @@ internal static partial class Program
             ("Manual labels and categories persist across rules, scans and legacy storage", TestManualPresetMetadataAsync),
             ("Initialization comparison rejects only strict three-note similarity", TestInitAudioComparisonAsync),
             ("Startup baselines validate identities and reject before audio replacement", TestInitBaselineWorkflowAsync),
+            ("Sylenth state metadata rewrites preserve every parameter and permanent failures do not retry", TestSylenthPresetStateAsync),
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),
             ("Plugin discovery validates PE exports, architecture and VST3 bundle paths", TestPluginDiscoveryAsync),
             ("Renderer readiness separates configuration, architecture and actual verification", TestRenderReadinessAsync),
@@ -1588,6 +1589,13 @@ internal static partial class Program
         var excludedResult = await queue.RunAsync(settings, excluded, TestExecutable, excludedProgress, CancellationToken.None);
         Equal(5, excludedResult.Requested, "All original paths are represented in requested counts.");
         Equal(5, excludedResult.Excluded, "Unknown, unidentified, duplicate, unsupported and missing records are counted as excluded.");
+        Equal(1, excludedResult.ExcludedDuplicates, "Duplicate records are separated from unsupported unique presets.");
+        Equal(2, excludedResult.ExcludedUnidentified, "Unknown synth and unidentified status share an actionable exclusion count.");
+        Equal(1, excludedResult.ExcludedUnsupported, "Unsupported format or bank records are disclosed separately.");
+        Equal(1, excludedResult.ExcludedMissing, "Missing source records are disclosed separately.");
+        Equal(4, excludedResult.Selection.Unique, "Unique selection count removes only duplicate copies.");
+        Equal(excludedResult.Requested, excludedResult.Selection.Excluded + excludedResult.Eligible,
+            "Every requested entry is either in the work queue or a named exclusion.");
         Equal(0, excludedResult.Eligible, "An entirely excluded list has no eligible work.");
         True(excluded.All(p => p.Attempts == 0), "Excluded records never consume render attempts.");
         CheckFinished(excludedProgress, excludedResult);
@@ -1948,9 +1956,9 @@ internal static partial class Program
         }
         if (mode == "wait") { await Task.Delay(TimeSpan.FromSeconds(30)); return 0; }
         if (mode == "noresult") return 9;
-        if (mode == "failure")
+        if (mode is "failure" or "permanent-compatibility-failure")
         {
-            await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult { Message = "Test-only intentional failure." }, LibraryJson.Options));
+            await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult { Message = "Test-only intentional failure.", NonRetryable = mode == "permanent-compatibility-failure" }, LibraryJson.Options));
             return 1;
         }
         double duration = request.Template.HoldSeconds + request.Template.TailSeconds;

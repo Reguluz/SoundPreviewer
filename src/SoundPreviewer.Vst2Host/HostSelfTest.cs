@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Audio;
 
 namespace SoundPreviewer.Vst2Host;
 
@@ -64,7 +65,17 @@ internal static class HostSelfTest
             Require(knownProgram.ProgramIndex(128) == 0, "An unknown chunk header was interpreted as a program slot.");
             Require(new FxpPreset(0x73796c31, [1, 2, 3, 4], null, "TEST ONLY").ProgramIndex(128) == 0,
                 "An unknown chunk length was interpreted as a program slot.");
-            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"ProgramSlotBounds\":true,\"PluginsLoaded\":0}");
+            var headerTarget = new byte[1028];
+            "1lys"u8.CopyTo(headerTarget);
+            BinaryPrimitives.WriteInt32LittleEndian(headerTarget.AsSpan(4), 2202);
+            BinaryPrimitives.WriteInt32LittleEndian(headerTarget.AsSpan(8), 1);
+            BinaryPrimitives.WriteInt32LittleEndian(headerTarget.AsSpan(12), 243);
+            byte[] headerActual = [.. headerTarget];
+            BinaryPrimitives.WriteInt32LittleEndian(headerActual.AsSpan(4), 2200);
+            Require(SylenthPresetState.Matches(headerTarget, headerActual), "The observed metadata-only rewrite was rejected.");
+            headerActual[20] = 1;
+            Require(!SylenthPresetState.Matches(headerTarget, headerActual), "A changed parameter was accepted as metadata.");
+            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"ProgramSlotBounds\":true,\"CompatibleHeaderReadback\":true,\"PluginsLoaded\":0}");
         }
         finally { File.Delete(path); }
     }

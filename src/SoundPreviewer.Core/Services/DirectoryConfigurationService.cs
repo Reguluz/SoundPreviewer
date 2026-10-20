@@ -13,13 +13,15 @@ public sealed class DirectoryConfigurationService
     private const int MaximumFileBytes = 4 * 1024 * 1024;
     private static readonly JsonSerializerOptions Options = CreateOptions();
     private readonly string applicationDirectory;
+    private readonly string legacyPath;
     private Configuration? loaded;
     private string? loadedHash;
 
     public DirectoryConfigurationService(string? applicationDirectory = null)
     {
         this.applicationDirectory = Path.GetFullPath(applicationDirectory ?? ApplicationPaths.PortableApplicationDirectory);
-        FilePath = Path.Combine(this.applicationDirectory, FileName);
+        FilePath = Path.Combine(ApplicationPaths.GetConfigurationDirectory(this.applicationDirectory), FileName);
+        legacyPath = Path.Combine(this.applicationDirectory, FileName);
     }
 
     public string FilePath { get; }
@@ -29,11 +31,13 @@ public sealed class DirectoryConfigurationService
     {
         ArgumentNullException.ThrowIfNull(settings);
         bool created = !File.Exists(FilePath);
+        bool migrating = created && File.Exists(legacyPath);
         Configuration configuration;
         string? hash;
         if (created)
         {
-            configuration = Normalize(new Configuration { Sources = Clone(settings.Sources), PluginDirectories = [.. settings.PluginDirectories] }, settings.Sources);
+            configuration = migrating ? Read(ReadBytes(legacyPath), settings) :
+                Normalize(new Configuration { Sources = Clone(settings.Sources), PluginDirectories = [.. settings.PluginDirectories] }, settings.Sources);
             hash = Write(configuration, expectedHash: null);
         }
         else
@@ -47,7 +51,8 @@ public sealed class DirectoryConfigurationService
         settings.PluginDirectories = [.. configuration.PluginDirectories!];
         loaded = configuration;
         loadedHash = hash;
-        return created;
+        // An explicitly empty legacy JSON list remains deliberate after its migration.
+        return created && !migrating;
     }
 
     /// <summary>Saves UI directory edits, rejecting a file changed by an external editor since loading.</summary>
@@ -159,7 +164,7 @@ public sealed class DirectoryConfigurationService
         try
         {
             CheckUnchanged(expectedHash);
-            Directory.CreateDirectory(applicationDirectory);
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 stream.Write(bytes);
@@ -183,9 +188,9 @@ public sealed class DirectoryConfigurationService
             throw new InvalidOperationException($"目录配置文件已被其他程序修改：{FilePath}。请重新启动应用以读取修改，再调整目录；未覆盖手动修改的文件。");
     }
 
-    private byte[] ReadBytes()
+    private byte[] ReadBytes(string? path = null)
     {
-        using var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = new FileStream(path ?? FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (stream.Length > MaximumFileBytes) throw Invalid("目录配置文件超过 4 MiB");
         byte[] bytes = new byte[checked((int)stream.Length)];
         stream.ReadExactly(bytes);

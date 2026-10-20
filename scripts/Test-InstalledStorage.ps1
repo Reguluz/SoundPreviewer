@@ -24,7 +24,10 @@ Get-ChildItem -LiteralPath $legacy, "$legacy-audio" -File -Recurse | Where-Objec
     $originals[$_.FullName] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
 }
 $preview = Join-Path $application 'Preview'
-$directoryConfiguration = Join-Path $application 'directories.json'
+$directoryConfiguration = Join-Path $application 'Config/directories.json'
+$legacyDirectoryConfiguration = Join-Path $application 'directories.json'
+[IO.File]::WriteAllText($legacyDirectoryConfiguration, '{"FormatVersion":1,"LegacyMigrationTest":"preserve-original"}')
+$originals[$legacyDirectoryConfiguration] = (Get-FileHash -LiteralPath $legacyDirectoryConfiguration -Algorithm SHA256).Hash
 $manualPluginDirectory = Join-Path $diagnostics 'TEST ONLY manual plugin directory'
 $results = @()
 foreach ($phase in @('migrate', 'reopen')) {
@@ -52,15 +55,20 @@ foreach ($phase in @('migrate', 'reopen')) {
         -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or
         -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.RenderProgressCountersChecked -or
         -not $result.EffectiveConcurrencyDisplayChecked -or $result.Presets -ne 3 -or
+        -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked -or
         [IO.Path]::GetFullPath($result.LibraryDirectory) -ne [IO.Path]::GetFullPath($preview) -or
         [IO.Path]::GetFullPath($result.PreviewDirectory) -ne [IO.Path]::GetFullPath($preview)) {
         throw "Installed storage $phase did not verify the fixed Preview root: $diagnostics"
     }
     if (-not (Test-Path -LiteralPath $directoryConfiguration -PathType Leaf) -or
         [IO.Path]::GetFullPath($result.DirectoryConfigurationPath) -ne [IO.Path]::GetFullPath($directoryConfiguration)) {
-        throw "Installed storage $phase did not persist the directory JSON beside the application."
+        throw "Installed storage $phase did not persist the directory JSON under the application Config directory."
     }
     $configuration = Get-Content -LiteralPath $directoryConfiguration -Raw | ConvertFrom-Json
+    if ($configuration.LegacyMigrationTest -ne 'preserve-original' -or
+        -not (Test-Path -LiteralPath (Join-Path $application 'Config/preset-categories.json') -PathType Leaf)) {
+        throw 'The application did not consolidate directory settings and personal classification rules into Config.'
+    }
     if ($phase -eq 'migrate') {
         $configuration.PluginDirectories = @($configuration.PluginDirectories) + @($manualPluginDirectory)
         $configuration | Add-Member -NotePropertyName TestOnlyUnknownField -NotePropertyValue 'preserve-across-reopen'

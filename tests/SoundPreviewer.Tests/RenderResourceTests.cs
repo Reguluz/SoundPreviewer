@@ -126,7 +126,71 @@ internal static partial class Program
         Equal(3, serial.Generated, "Short or unobserved workers still finish without inventing a measured memory profile.");
         Equal(1, serial.PeakActiveCount, "Without a complete worker-tree observation the queue continues one worker at a time.");
         Equal(1, ParallelPeak(unobserved), "Real child lifetimes confirm that a missing calibration never opens extra slots.");
+        await TestCalibratedMemoryAdmissionAsync();
         await TestBaselineResourceStopAsync();
+    }
+
+    private static async Task TestCalibratedMemoryAdmissionAsync()
+    {
+        const long mib = 1024L * 1024;
+        var light = CreateParallelFixture("resource-shared-root-growth", 10);
+        light.Settings.MaxParallelRenders = 8;
+        ReleaseParallelCalibration(light);
+        var lightProbe = new TestRenderResourceProbe(light)
+        {
+            WorkerResidentBytes = 64 * mib, RootGrowthAfterStartBytes = 192 * mib
+        };
+        var lightProgress = new ParallelProgress();
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var run = new RenderQueue(light.Store, lightProbe).RunAsync(light.Settings, light.Presets,
+                TestExecutable, lightProgress, cancellation.Token);
+            try
+            {
+                await WaitForParallelActiveAsync(light, 8, run);
+                await Task.Delay(150);
+                Equal(8, ParallelActive(light).Count, "Measured light workers fill all eight requested slots despite shared main-process growth.");
+                True(lightProgress.Values.Any(value => value.ActiveCount == 8 && value.AllowedConcurrency == 8),
+                    "Memory admission advertises all eight affordable slots instead of multiplying the root's shared RSS into every worker.");
+                ReleaseParallel(light);
+                var result = await run;
+                Equal(10, result.Generated, "Every light worker commits after the calibrated eight-slot batch.");
+                Equal(8, result.PeakActiveCount, "Real held children prove eight-way concurrency.");
+                True(result.PeakWorkingSetBytes <= 800 * mib, "The deterministic process tree stays below 800 MiB while safely using eight slots.");
+            }
+            finally { await StopParallelFixtureAsync(light, run, cancellation); }
+        }
+
+        var mixed = CreateInterleavedSynthFixture("resource-completed-heavy-synth", 20, 8, true);
+        ReleaseParallelCalibration(mixed);
+        foreach (var preset in mixed.Presets.Where(preset => preset.Synth == SynthKind.Vital))
+        {
+            var control = JsonSerializer.Deserialize<ParallelChildControl>(File.ReadAllText(preset.SourcePath), LibraryJson.Options)!;
+            control.GatePath = "";
+            control.DelayMilliseconds = 350;
+            File.WriteAllText(preset.SourcePath, JsonSerializer.Serialize(control, LibraryJson.Options));
+        }
+        var mixedProgress = new ParallelProgress();
+        var mixedProbe = new TestRenderResourceProbe(mixed)
+        {
+            WorkerMemorySelector = synth => (synth == SynthKind.Vital ? 320 : 64) * mib
+        };
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var run = new RenderQueue(mixed.Store, mixedProbe).RunAsync(mixed.Settings, mixed.Presets,
+                TestExecutable, mixedProgress, cancellation.Token);
+            try
+            {
+                await WaitForParallelActiveAsync(mixed, 8, run);
+                True(ParallelActive(mixed).All(trace => trace.Synth == SynthKind.Serum1),
+                    "The light synth fills eight slots after the heavy synth has finished.");
+                True(mixedProgress.Values.Any(value => value.Preset?.Synth == SynthKind.Serum1 && value.ActiveCount is > 0 and < 8 && value.AllowedConcurrency == 8),
+                    "While the light group is filling, the displayed memory limit uses its forecast rather than the completed heavy synth's historical maximum.");
+                ReleaseParallel(mixed);
+                Equal(20, (await run).Generated, "Both heavy and light synth groups preserve every requested job.");
+            }
+            finally { await StopParallelFixtureAsync(mixed, run, cancellation); }
+        }
     }
 
     private static async Task TestBaselineResourceStopAsync()
@@ -175,22 +239,27 @@ internal static partial class Program
     {
         public volatile bool OverBudget;
         public bool Incomplete { get; init; }
+        public long WorkerResidentBytes { get; init; } = 160L * 1024 * 1024;
+        public long RootGrowthAfterStartBytes { get; init; }
+        public Func<SynthKind, long>? WorkerMemorySelector { get; init; }
         public RenderHardwareInfo Hardware { get; } = new(16, 8) { DetectionMethod = "TEST ONLY injected topology" };
         public RenderMemorySnapshot Capture()
         {
             const long mib = 1024L * 1024;
-            var processes = new List<RenderProcessUsage> { new(Environment.ProcessId, 0, 64 * mib, null) };
+            var starts = fixture is null ? [] : ParallelStarts(fixture);
+            long root = 64 * mib + (starts.Count > 0 ? RootGrowthAfterStartBytes : 0);
+            var processes = new List<RenderProcessUsage> { new(Environment.ProcessId, 0, root, null) };
             if (fixture is not null)
             {
                 var finished = ParallelFinishes(fixture).Select(trace => (trace.Pid, trace.StartedTicks)).ToHashSet();
-                foreach (var trace in ParallelStarts(fixture).Where(trace => !finished.Contains((trace.Pid, trace.StartedTicks)) && IsRunning(trace.Pid)))
+                foreach (var trace in starts.Where(trace => !finished.Contains((trace.Pid, trace.StartedTicks)) && IsRunning(trace.Pid)))
                 {
                     int parent = trace.ParentPid > 0 ? trace.ParentPid : Environment.ProcessId;
                     // macOS registers the shell supervisor as the controlled process root.
                     // Keep its real ancestry while normalizing only the test RSS counters.
                     if (parent != Environment.ProcessId && processes.All(process => process.ProcessId != parent))
                         processes.Add(new(parent, Environment.ProcessId, 0, null));
-                    processes.Add(new(trace.Pid, parent, 160 * mib, null));
+                    processes.Add(new(trace.Pid, parent, WorkerMemorySelector?.Invoke(trace.Synth) ?? WorkerResidentBytes, null));
                 }
             }
             var snapshot = RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes, !Incomplete, Incomplete ? "TEST ONLY access denied" : null);

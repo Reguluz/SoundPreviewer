@@ -22,9 +22,31 @@ try {
     if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Published application smoke test timed out.' }
     if ($process.ExitCode -ne 0) { throw "Published application smoke test failed; see $dataDirectory" }
     $result = Get-Content -LiteralPath (Join-Path $dataDirectory 'ui-smoke.json') -Raw | ConvertFrom-Json
-    if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked) {
+    if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {
         throw "Published application smoke test did not complete; see $dataDirectory"
     }
+    # Launch the shipped worker too: bundling the desktop alone must not hide a
+    # missing worker dependency. Invalid input exercises its real JSON protocol
+    # without opening any synthesizer, fixture audio or user library.
+    $request = Join-Path $dataDirectory 'worker-invalid-request.json'
+    $response = Join-Path $dataDirectory 'worker-invalid-result.json'
+    [IO.File]::WriteAllText($request, '{"Template":{"SampleRate":1}}')
+    $workerName = if ($Runtime -eq 'win-x64') { 'SoundPreviewer.Worker.exe' } else { 'SoundPreviewer.Worker' }
+    $workerStart = [Diagnostics.ProcessStartInfo]::new((Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))) $workerName))
+    $workerStart.UseShellExecute = $false
+    $workerStart.CreateNoWindow = $true
+    foreach ($argument in @('--request', $request, '--result', $response)) { $workerStart.ArgumentList.Add($argument) }
+    $worker = [Diagnostics.Process]::new()
+    $worker.StartInfo = $workerStart
+    try {
+        [void]$worker.Start()
+        if (-not $worker.WaitForExit(20000)) { $worker.Kill($true); throw 'Published worker validation timed out.' }
+        if ($worker.ExitCode -ne 1 -or -not (Test-Path -LiteralPath $response -PathType Leaf)) { throw 'Published worker did not return a protocol validation result.' }
+        $workerResult = Get-Content -LiteralPath $response -Raw | ConvertFrom-Json
+        if ($workerResult.Success -or [string]::IsNullOrWhiteSpace($workerResult.Message)) { throw 'Published worker did not reject the invalid sample-rate request.' }
+    }
+    finally { $worker.Dispose() }
+    $result | Add-Member -NotePropertyName PublishedWorkerProtocolChecked -NotePropertyValue $true
     $result | ConvertTo-Json
 }
 finally { $process.Dispose() }

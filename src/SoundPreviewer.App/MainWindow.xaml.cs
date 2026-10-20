@@ -57,6 +57,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _taskTitle = "";
     private string _taskProgressText = "";
     private string _taskMemoryText = "";
+    private string _taskSelectionText = "";
     private bool _updatingFilterChoices;
     private PresetDuplicateView _duplicateView = new([]);
     private const string MissingFilter = "\0";
@@ -125,6 +126,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string TaskTitle => _taskTitle;
     public string TaskProgressText => _taskProgressText;
     public string TaskMemoryText => _taskMemoryText;
+    public string TaskSelectionText => _taskSelectionText;
     public bool TaskMemoryVisible => _taskMemoryText.Length > 0;
     public string TaskElapsed => $"用时 {(_taskWatch.Elapsed.TotalHours >= 1 ? _taskWatch.Elapsed.ToString(@"h\:mm\:ss") : _taskWatch.Elapsed.ToString(@"m\:ss"))}";
     public bool IsProgressIndeterminate => IsBusy && _progressIndeterminate;
@@ -384,6 +386,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _progressIndeterminate = p.IsIndeterminate;
             _taskProgressText = FormatRenderProgress(p);
             _taskMemoryText = FormatRenderResources(p);
+            _taskSelectionText = p.Selection?.Description ?? "正在统计本次队列…";
             if (!_stopRequested)
             {
                 _taskTitle = p.Stage == "完成" ? "预览任务已结束" : $"正在{p.Stage}";
@@ -447,6 +450,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Generated = result.Generated, Reused = result.Reused, Failed = result.Failed,
             Unconfigured = result.Unconfigured, RetryLimited = result.RetryLimited
         });
+        _taskSelectionText = result.Selection.Description;
         RefreshCompatibility();
         await RefreshInitBaselinesAsync();
         if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
@@ -469,6 +473,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _statusMessage = "正在准备任务…";
         _taskProgressText = "准备中";
         _taskMemoryText = "";
+        _taskSelectionText = "";
         _taskWatch.Restart();
         _taskTimer.Start();
         _taskCancellation = new CancellationTokenSource();
@@ -495,7 +500,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _flushTaskProgress?.Invoke();
             _taskTitle = "生成已安全停止";
             _statusMessage = ex.Message;
-            _taskProgressText = $"已处理 {ex.Summary.Processed} / {ex.Summary.Eligible}";
+            _taskProgressText = FormatRenderProgress(new QueueProgress(ex.Summary.Processed, ex.Summary.Eligible, "", "", null)
+            {
+                Generated = ex.Summary.Generated, Reused = ex.Summary.Reused, Failed = ex.Summary.Failed,
+                Unconfigured = ex.Summary.Unconfigured, RetryLimited = ex.Summary.RetryLimited
+            });
+            _taskSelectionText = ex.Summary.Selection.Description;
             _taskMemoryText = $"总内存采样峰值 {ex.Summary.PeakWorkingSetBytes / 1048576d:0} MiB / 2048 MiB；已完成的预览保留，可降低并行后继续。";
             Log(_statusMessage);
             Log(_taskMemoryText);
@@ -600,7 +610,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void NotifyTaskProgress()
     {
-        foreach (var name in new[] { nameof(TaskTitle), nameof(StatusMessage), nameof(TaskProgressText), nameof(TaskMemoryText), nameof(TaskMemoryVisible), nameof(TaskElapsed), nameof(ProgressValue), nameof(IsProgressIndeterminate), nameof(TaskBandVisible) })
+        foreach (var name in new[] { nameof(TaskTitle), nameof(StatusMessage), nameof(TaskProgressText), nameof(TaskSelectionText), nameof(TaskMemoryText), nameof(TaskMemoryVisible), nameof(TaskElapsed), nameof(ProgressValue), nameof(IsProgressIndeterminate), nameof(TaskBandVisible) })
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
@@ -1224,15 +1234,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.Sources = Sources.ToList();
             candidate.PluginDirectories = PluginDirectories.ToList();
             await Task.Run(() => RefreshBinaryHashes(candidate, token), token);
-            foreach (var plugin in candidate.Plugins)
-            {
-                var previous = _settings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth);
-                if (previous is not null && ((previous.Backend, previous.ExecutablePath, previous.PluginPath, previous.Version) !=
-                    (plugin.Backend, plugin.ExecutablePath, plugin.PluginPath, plugin.Version) ||
-                    previous.ExecutableHash.Length > 0 && previous.ExecutableHash != plugin.ExecutableHash ||
-                    previous.PluginHash.Length > 0 && previous.PluginHash != plugin.PluginHash))
-                    plugin.AllowParallelRendering = false;
-            }
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
             candidate.MaxParallelRenders = (ParallelRendering.SelectedItem as Choice<int>)?.Value ?? 0;

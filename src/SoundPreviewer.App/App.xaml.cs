@@ -53,6 +53,7 @@ public partial class App : Application
                 throw new ArgumentException("--data-directory 需要指定音色库目录。");
             ApplicationPaths.ConfigureDataDirectory(dataIndex >= 0 ? args[dataIndex + 1] : null);
             DataDirectory = ApplicationPaths.DataDirectory;
+            ApplicationPaths.ConfigureConfigurationDirectory(DataDirectory);
             _rememberLibraryOnOpen = !SmokeTest && (args.Contains("--remember-data-directory") ||
                 (dataIndex < 0 && ApplicationPaths.SamePath(DataDirectory, ApplicationPaths.LegacyDataDirectory)));
             Directory.CreateDirectory(DataDirectory);
@@ -116,7 +117,7 @@ public partial class App : Application
             throw new ArgumentException("所选目录没有 library.db，请选择原来的音色库数据目录。");
         var start = new ProcessStartInfo(Environment.ProcessPath ?? throw new InvalidOperationException("无法定位当前程序。")) { UseShellExecute = false };
         if (string.Equals(Path.GetFileNameWithoutExtension(start.FileName), "dotnet", StringComparison.OrdinalIgnoreCase))
-            start.ArgumentList.Add(typeof(App).Assembly.Location);
+            start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "SoundPreviewer.dll"));
         start.ArgumentList.Add("--data-directory");
         start.ArgumentList.Add(directory);
         start.ArgumentList.Add("--remember-data-directory");

@@ -165,13 +165,14 @@ public sealed partial class RenderQueue
                 var item = new QueueItem(original);
                 var preset = item.Record;
                 requestedItems.TryAdd(preset.Id, item);
-                if (!ids.Add(preset.Id) || preset.Synth == SynthKind.Unknown || !string.IsNullOrEmpty(preset.DuplicateOfId) ||
+                bool repeatedSelection = !ids.Add(preset.Id);
+                if (repeatedSelection || preset.Synth == SynthKind.Unknown || !string.IsNullOrEmpty(preset.DuplicateOfId) ||
                     preset.Status is PresetStatus.Unsupported or PresetStatus.Missing or PresetStatus.Unidentified)
-                    summary.Excluded++;
+                    summary.AddExcluded(preset, repeatedSelection);
                 else { candidates.Add(item); summary.Eligible++; }
             }
             prepared = true;
-            Report(QueueStages.Preparing, $"待处理 {summary.Eligible} 项，排除 {summary.Excluded} 项。", indeterminate: true);
+            Report(QueueStages.Preparing, summary.Selection.Description, indeterminate: true);
             foreach (var item in candidates)
             {
                 token.ThrowIfCancellationRequested();
@@ -324,7 +325,7 @@ public sealed partial class RenderQueue
                             preset.Message = failure ?? "渲染工作进程未返回有效结果。";
                             preset.LastRenderOutcome = "失败";
                             preset.LastRenderMessage = preset.Message;
-                            bool finished = preset.Attempts >= settings.MaxAttempts || preset.Message.StartsWith(InitBaselineService.RejectionPrefix, StringComparison.Ordinal);
+                            bool finished = result?.NonRetryable == true || preset.Attempts >= settings.MaxAttempts || preset.Message.StartsWith(InitBaselineService.RejectionPrefix, StringComparison.Ordinal);
                             if (finished)
                             {
                                 if (item.Previous is not null) RestorePreview(preset, item.Previous, "重新生成失败，保留上次预览：" + preset.Message);
@@ -697,6 +698,7 @@ public sealed partial class RenderQueue
                     Stage = stage, IsIndeterminate = indeterminate, ActiveCount = activeWorkers,
                     MaxConcurrency = targetConcurrency, ItemElapsedSeconds = itemElapsed,
                     WorkingSetBytes = memorySnapshot.ResidentBytes, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes,
+                    ReservedMemoryBytes = ReservedMemoryBytes, Selection = prepared ? summary.Selection : null,
                     ResourceMessage = resourceMessage, AllowedConcurrency = allowedConcurrency,
                     EffectiveConcurrency = terminal ? 0 : concurrency.Capacity,
                     PreparingCount = terminal ? 0 : Math.Max(0, memoryLeases.Count - activeWorkers),
