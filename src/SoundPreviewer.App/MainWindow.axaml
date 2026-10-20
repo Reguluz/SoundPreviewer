@@ -42,7 +42,7 @@
    </Grid>
   </Border>
   <TabControl x:Name="Pages" Grid.Row="2" Margin="24,18,24,0" BorderThickness="0" Background="White">
-   <TabItem Header="音色库">
+   <TabItem x:Name="LibraryTab" Header="音色库">
     <Grid Background="White">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="290"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -373,6 +373,9 @@
       <Button Content="高" Click="PlayNote_Click" Tag="High" Padding="10,6" Width="40" Height="36" ToolTip.Tip="试听高音区" IsEnabled="{Binding CanPlay}"/>
       <Button Content="低" Click="PlayNote_Click" Tag="Low" Padding="10,6" Width="40" Height="36" ToolTip.Tip="试听低音区" IsEnabled="{Binding CanPlay}"/>
      </StackPanel>
+     <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="#EAF0EC" CornerRadius="4" Padding="8,3" Margin="0,7,0,0" HorizontalAlignment="Left" AutomationProperties.Name="空格键从头播放当前音色预览">
+      <TextBlock Text="空格键 · 从头播放当前预览" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
+     </Border>
     </StackPanel>
     <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="20"/></Grid.RowDefinitions>
      <local:WaveformView x:Name="Waveform"/>

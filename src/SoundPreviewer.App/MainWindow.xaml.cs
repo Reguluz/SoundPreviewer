@@ -155,6 +155,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PresetsView = new DataGridCollectionView(Presets);
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
+        InitializePreviewShortcut();
         Title += " (" + AppVersion + ")";
         DataContext = this;
         Pages.SelectionChanged += (_, _) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TaskBandVisible)));

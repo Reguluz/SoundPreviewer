@@ -113,6 +113,7 @@ public partial class MainWindow
             _player.Volume = _settings.PlaybackVolume;
             playbackChecked = true;
         }
+        bool shortcutPlaybackChecked = await CheckPreviewShortcutAsync();
         var stopChecked = false;
         await RunTask(async token =>
         {
@@ -210,6 +211,8 @@ public partial class MainWindow
                 _smokeLayoutPhase = $"{name}-page-{page}";
                 Pages.SelectedIndex = page;
                 await SettleLayoutAsync();
+                if (page != 0 && PreviewShortcutHint.IsEffectivelyVisible)
+                    throw SmokeLayoutFailure("其他页面显示了仅在音色库生效的空格快捷键提示。");
                 if (page == 0)
                 {
                     PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && PresetDragUnavailableReason(row.Record).Length == 0);
@@ -281,6 +284,7 @@ public partial class MainWindow
         {
             Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = actualViewports.Count, ActualViewports = actualViewports,
+            PreviewShortcutChecked = true, PreviewShortcutPlaybackChecked = shortcutPlaybackChecked, PreviewShortcutHintViewports = 2,
             MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
@@ -456,6 +460,7 @@ public partial class MainWindow
     {
         var content = (Control)Content!;
         var area = new Rect(content.Bounds.Size);
+        CheckPreviewShortcutHint();
         if (BuildVersionLabel.Text != AppVersion || !BuildVersionLabel.IsEffectivelyVisible ||
             SmokeBounds(BuildVersionLabel).Intersects(SmokeBounds(StatusFooterText)))
             throw SmokeLayoutFailure("版本标识缺失或与状态文字重叠。");
