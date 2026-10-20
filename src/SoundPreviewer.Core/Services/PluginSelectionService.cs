@@ -23,7 +23,8 @@ public static class PluginSelectionService
               (plugin.Architecture == cpu || plugin.Architecture == PluginArchitecture.Universal));
     }
 
-    public static int RefreshBundledHost(IList<PluginConfiguration> configurations, string? newHostPath, PluginPlatform? platform = null)
+    public static int RefreshBundledHost(IList<PluginConfiguration> configurations, string? newHostPath, PluginPlatform? platform = null,
+        IReadOnlyList<DiscoveredPlugin>? discovered = null)
     {
         ArgumentNullException.ThrowIfNull(configurations);
         if ((platform ?? CurrentPlatform) != PluginPlatform.Windows) return 0;
@@ -32,16 +33,51 @@ public static class PluginSelectionService
         int changed = 0;
         foreach (var configuration in configurations)
         {
-            if (configuration.Synth != SynthKind.Sylenth1 || configuration.Backend != RenderBackend.ExternalWorker ||
+            if (configuration.Synth != SynthKind.Sylenth1 || configuration.Backend is not (RenderBackend.ExternalWorker or RenderBackend.DawDreamer) ||
                 string.IsNullOrWhiteSpace(configuration.ExecutablePath)) continue;
             string previousPath;
             try { previousPath = Path.GetFullPath(configuration.ExecutablePath); }
             catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
             { continue; }
-            if (string.Equals(previousPath, nextPath, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(Path.GetFileName(previousPath), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(Path.GetFileName(Path.GetDirectoryName(previousPath)), "Vst2Host-x86", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsBundledX86Host(previousPath)) continue;
+            bool restoreBackend = configuration.Backend == RenderBackend.DawDreamer && discovered?.Any(plugin =>
+                Matches(configuration, plugin) && plugin.Platform == PluginPlatform.Windows &&
+                plugin.Architecture == PluginArchitecture.X86 && plugin.Format == PluginBinaryFormat.Vst2) == true;
+            if (configuration.Backend == RenderBackend.DawDreamer && !restoreBackend ||
+                string.Equals(previousPath, nextPath, StringComparison.OrdinalIgnoreCase) && !restoreBackend) continue;
+            configuration.Backend = RenderBackend.ExternalWorker;
             configuration.ExecutablePath = nextPath;
+            configuration.ExecutableHash = "";
+            configuration.InitBaselinePath = "";
+            configuration.AllowParallelRendering = false;
+            changed++;
+        }
+        return changed;
+    }
+
+    public static bool IsBundledX86Host(string path)
+    {
+        try
+        {
+            return string.Equals(Path.GetFileName(path), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetFileName(Path.GetDirectoryName(path)), "Vst2Host-x86", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    public static int RefreshLocalDawDreamer(IList<PluginConfiguration> configurations, string dataDirectory, PluginPlatform? platform = null)
+    {
+        string python = (platform ?? CurrentPlatform) == PluginPlatform.Windows
+            ? Path.Combine(dataDirectory, "renderers", "dawdreamer-cpython-x64", "Scripts", "python.exe")
+            : Path.Combine(dataDirectory, "renderers", "dawdreamer-cpython", "bin", "python");
+        if (!File.Exists(python)) return 0;
+        int changed = 0;
+        foreach (var configuration in configurations.Where(configuration => configuration.Backend == RenderBackend.DawDreamer &&
+            (configuration.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1) && string.IsNullOrWhiteSpace(configuration.ExecutablePath)))
+        {
+            // Only the setup script's known environment inside this library is eligible.
+            // Existing custom/offline paths and backend choices remain the user's selection.
+            configuration.ExecutablePath = Path.GetFullPath(python);
             configuration.ExecutableHash = "";
             configuration.InitBaselinePath = "";
             configuration.AllowParallelRendering = false;

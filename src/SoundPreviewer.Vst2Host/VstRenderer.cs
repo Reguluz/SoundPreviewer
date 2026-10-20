@@ -8,7 +8,7 @@ namespace SoundPreviewer.Vst2Host;
 
 internal static class VstRenderer
 {
-    public const string AdapterVersion = "vstnet-2.1.0-sylenth-x86-v1";
+    public const string AdapterVersion = PresetLoadVerification.NativeSylenthAdapterVersion;
 
     public static void CheckBufferInterop()
     {
@@ -36,6 +36,7 @@ internal static class VstRenderer
         var segments = new List<WaveData>();
         var notes = new List<NotePreview>();
         var names = new List<string>();
+        bool allPitchesVerified = preset is not null && !request.IsInitializationBaseline;
         foreach (int pitch in request.Template.Pitches)
         {
             Console.Error.WriteLine($"加载 x86 Sylenth1，演奏 MIDI {pitch}");
@@ -51,7 +52,7 @@ internal static class VstRenderer
                 throw new NotSupportedException("插件不支持预期的单声道/立体声 float32 处理。");
             commands.SetSampleRate(rate);
             commands.SetBlockSize(HostCallbacks.BlockSize);
-            if (preset is not null) LoadPreset(context, preset);
+            if (preset is not null) allPitchesVerified &= LoadPreset(context, preset);
             else if (!request.IsInitializationBaseline) throw new InvalidDataException("普通渲染必须明确加载 FXP。");
             names.Add(commands.GetProgramName());
             using var inputs = new VstAudioBufferManager(context.PluginInfo.AudioInputCount, HostCallbacks.BlockSize);
@@ -104,6 +105,11 @@ internal static class VstRenderer
         return new RenderResult
         {
             Success = true, OutputPath = output, Metrics = combinedMetrics, Notes = notes, AdapterVersion = AdapterVersion, NeedsReview = true,
+            PresetLoadProof = allPitchesVerified ? new PresetLoadProof
+            {
+                Scheme = PresetLoadVerification.Scheme, SourceSha256 = request.Preset.ContentHash,
+                Pitches = request.Template.Pitches.ToList()
+            } : null,
             Message = (request.IsInitializationBaseline
                 ? "默认启动基准：每音使用全新 Sylenth1 实例，未加载预制或调用 SetChunk。插件报告音色："
                 : "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色：") + string.Join(" / ", names.Distinct())
@@ -113,13 +119,13 @@ internal static class VstRenderer
     private static VstMidiEvent Midi(int offset, int status, int pitch, int velocity) =>
         new(offset, 0, 0, [(byte)status, (byte)pitch, (byte)velocity, 0], 0, 0);
 
-    private static void LoadPreset(VstPluginContext context, FxpPreset preset)
+    private static bool LoadPreset(VstPluginContext context, FxpPreset preset)
     {
         var commands = context.PluginCommandStub.Commands;
         commands.BeginSetProgram();
         try
         {
-            commands.SetProgram(0);
+            commands.SetProgram(preset.ProgramIndex(context.PluginInfo.ProgramCount));
             if (preset.Chunk is not null)
             {
                 if ((context.PluginInfo.Flags & VstPluginFlags.ProgramChunks) == 0) throw new NotSupportedException("插件未声明 chunk 预制支持。");
@@ -136,6 +142,11 @@ internal static class VstRenderer
             }
         }
         finally { commands.EndSetProgram(); }
+        // Verify after EndSetProgram, against the full state actually used for this note.
+        if (preset.Chunk is not null)
+            return (commands.GetChunk(true) ?? []).AsSpan().SequenceEqual(preset.Chunk);
+        return preset.Parameters!.Select((value, index) => commands.GetParameter(index) is var actual &&
+            float.IsFinite(actual) && Math.Abs(actual - value) <= 0.000001f).All(value => value);
     }
 
     internal static void ValidateChunkLoaded(int consumed, ReadOnlySpan<byte> before, ReadOnlySpan<byte> after, ReadOnlySpan<byte> target)

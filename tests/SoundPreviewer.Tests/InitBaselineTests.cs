@@ -171,5 +171,168 @@ internal static partial class Program
         plugin.Backend = RenderBackend.VitalCli;
         True(!InitBaselineService.Supports(plugin) && !(await InitBaselineService.InspectAsync(settings, plugin)).CanCompare,
             "Vital CLI has no fabricated Init-file fallback and clearly reports unsupported protection.");
+        await TestVerifiedPresetLoadFallbackAsync();
+    }
+
+    private static async Task TestVerifiedPresetLoadFallbackAsync()
+    {
+        string directory = Fixture("TEST-ONLY-verified-state-fallback");
+        string executable = Path.Combine(directory, "SoundPreviewer.Vst2Host.exe");
+        string binary = Path.Combine(directory, "TEST-ONLY-plugin.dll");
+        string source = Path.Combine(directory, "TEST-ONLY-target.fxp");
+        await File.WriteAllTextAsync(executable, "TEST ONLY placeholder; never executed.");
+        await File.WriteAllTextAsync(binary, "TEST ONLY placeholder; never loaded.");
+        await File.WriteAllTextAsync(source, "TEST ONLY source bytes; the fake worker generates synthetic PCM.");
+        var plugin = new PluginConfiguration { Synth = SynthKind.Sylenth1, Backend = RenderBackend.ExternalWorker,
+            ExecutablePath = executable, PluginPath = binary, Version = "TEST-ONLY-unstable-state-proof" };
+        var settings = new AppSettings { Plugins = [plugin], PreviewDirectory = Path.Combine(directory, "Preview"), MaxAttempts = 1,
+            Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.5, TailSeconds = 0 } };
+        var state = await InitBaselineService.GenerateAsync(settings, plugin, TestExecutable);
+        True(!state.CanCompare && state.CanRenderWithVerifiedPresetLoad && state.Notes.Count == 3,
+            "An unstable native startup is explicitly unavailable for audio comparison but requires exact per-preset load proof.");
+        var inspected = await InitBaselineService.InspectAsync(settings, plugin);
+        True(!inspected.CanCompare && inspected.CanRenderWithVerifiedPresetLoad, "The alternate mode reopens only after all original reference hashes and instability are verified.");
+        string locator = plugin.InitBaselinePath;
+        string originalMetadata = await File.ReadAllTextAsync(locator);
+        var metadata = JsonNode.Parse(originalMetadata)!;
+        Equal("VerifiedPresetLoad", metadata["Mode"]!.GetValue<string>(), "The persisted fallback is a distinct mode and never masquerades as stable audio calibration.");
+        Equal(3, metadata["References"]!.AsArray().Count, "Alternate mode retains three independent, hashed startup observations.");
+        metadata["References"]![1]!["WavSha256"] = new string('0', 64);
+        await File.WriteAllTextAsync(locator, metadata.ToJsonString());
+        var corrupt = await InitBaselineService.InspectAsync(settings, plugin);
+        True(!corrupt.CanCompare && !corrupt.CanRenderWithVerifiedPresetLoad, "A corrupted fallback reference fails closed rather than enabling unverified rendering.");
+        await File.WriteAllTextAsync(locator, originalMetadata);
+        var unknownMode = JsonNode.Parse(originalMetadata)!;
+        unknownMode["Mode"] = "TEST-ONLY-future-mode";
+        await File.WriteAllTextAsync(locator, unknownMode.ToJsonString());
+        var future = await InitBaselineService.InspectAsync(settings, plugin);
+        True(!future.CanCompare && !future.CanRenderWithVerifiedPresetLoad, "Unknown persisted modes cannot enable alternate protection.");
+        var unknownAdapter = JsonNode.Parse(originalMetadata)!;
+        foreach (var reference in unknownAdapter["References"]!.AsArray())
+            reference!["Result"]!["AdapterVersion"] = "TEST-ONLY-future-native-adapter";
+        await File.WriteAllTextAsync(locator, unknownAdapter.ToJsonString());
+        var foreign = await InitBaselineService.InspectAsync(settings, plugin);
+        True(!foreign.CanCompare && !foreign.CanRenderWithVerifiedPresetLoad, "An unknown native reference adapter cannot authorize exact-state fallback.");
+        await File.WriteAllTextAsync(locator, originalMetadata);
+
+        var record = new PresetRecord { Id = "TEST-ONLY-state-proof-target", Name = "TEST-ONLY-state-proof-valid", Synth = SynthKind.Sylenth1,
+            SourcePath = source, ContentHash = Fingerprints.HashFile(source) };
+        var store = new LibraryStore(Path.Combine(directory, "library.db"));
+        var queue = new RenderQueue(store);
+        var generated = await queue.RunAsync(settings, [record], TestExecutable, new InlineProgress(), CancellationToken.None);
+        Equal(1, generated.Generated, "An unstable native startup permits generation only with the matching exact-state proof.");
+        True(record.Status == PresetStatus.NeedsReview && record.Message.Contains("逐音区核对目标预制状态"),
+            "A state-verified result still requires listening and does not claim stable audio comparison.");
+        string path = record.PreviewPath, hash = Fingerprints.HashFile(path);
+        foreach (string invalid in new[] { "missing", "wrong-source", "wrong-pitch", "wrong-adapter", "wrong-scheme" })
+        {
+            record.Name = "TEST-ONLY-state-proof-" + invalid;
+            var rejected = await queue.RunAsync(settings, [record], TestExecutable, new InlineProgress(), CancellationToken.None, forceRegenerate: true);
+            Equal(1, rejected.Failed, "Unstable audio must not excuse an invalid target-load proof: " + invalid);
+            Equal(path, record.PreviewPath, "Rejected proof preserves the prior committed preview mapping: " + invalid);
+            Equal(hash, Fingerprints.HashFile(path), "Rejected proof preserves the prior committed WAV bytes: " + invalid);
+        }
+        var reused = await queue.RunAsync(settings, [record], Path.Combine(directory, "missing-worker.exe"), new InlineProgress(), CancellationToken.None);
+        Equal(1, reused.Reused, "Existing valid caches remain reusable before the new state-proof requirement.");
+
+        var nativeProof = new RenderResult { Success = true, AdapterVersion = Fingerprints.QuickPreviewPolicy + "/" + PresetLoadVerification.NativeSylenthAdapterVersion,
+            PresetLoadProof = new PresetLoadProof { Scheme = PresetLoadVerification.Scheme, SourceSha256 = record.ContentHash, Pitches = settings.Template.Pitches.ToList() } };
+        True(PresetLoadVerification.IsValid(nativeProof, record, settings.Template), "The explicitly known quick-preview wrapper preserves native proof provenance.");
+        nativeProof.AdapterVersion = "untrusted/" + nativeProof.AdapterVersion;
+        True(!PresetLoadVerification.IsValid(nativeProof, record, settings.Template), "An arbitrary adapter cannot claim the native exact-state proof scheme.");
+        await TestQuickPresetProofPropagationAsync(directory, source, record.ContentHash);
+
+        var previousBackend = plugin.Backend;
+        plugin.Backend = RenderBackend.DawDreamer;
+        var unsupported = await InitBaselineService.GenerateAsync(settings, plugin, TestExecutable);
+        True(!unsupported.CanCompare && !unsupported.CanRenderWithVerifiedPresetLoad,
+            "An unstable unsupported host stays fail-closed even when its result claims the native adapter version.");
+        plugin.Backend = previousBackend;
+        plugin.InitBaselinePath = "";
+        var unavailable = await InitBaselineService.GenerateAsync(settings, plugin, Path.Combine(directory, "missing-worker.exe"));
+        True(!unavailable.CanCompare && !unavailable.CanRenderWithVerifiedPresetLoad && plugin.InitBaselinePath.Length == 0,
+            "Missing renderer output cannot be treated as ordinary startup variation or publish an alternate mode.");
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        bool wasCanceled = false;
+        try { await InitBaselineService.GenerateAsync(settings, plugin, TestExecutable, canceled.Token); }
+        catch (OperationCanceledException) { wasCanceled = true; }
+        True(wasCanceled && plugin.InitBaselinePath.Length == 0, "Cancellation preserves the no-published-baseline boundary for alternate protection too.");
+    }
+
+    private static async Task TestQuickPresetProofPropagationAsync(string directory, string source, string sourceHash)
+    {
+        // Rename only an isolated copy of our synthetic process fixture, never a real host.
+        // Its entry assembly and dependencies stay beside it so the native host contract
+        // is exercised through the actual Worker without loading a commercial plugin.
+        string hostDirectory = Path.Combine(directory, "TEST-ONLY-quick-host");
+        Directory.CreateDirectory(hostDirectory);
+        string executable = Path.Combine(hostDirectory, "SoundPreviewer.Vst2Host.exe");
+        File.Copy(TestExecutable, executable);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(executable, File.GetUnixFileMode(TestExecutable));
+        foreach (string name in new[] { "SoundPreviewer.Tests.dll", "SoundPreviewer.Tests.deps.json", "SoundPreviewer.Tests.runtimeconfig.json",
+            "SoundPreviewer.Core.dll", "SoundPreviewer.Worker.dll" })
+            File.Copy(Path.Combine(AppContext.BaseDirectory, name), Path.Combine(hostDirectory, name));
+        var request = new RenderRequest
+        {
+            Preset = new PresetRecord { Name = "TEST-ONLY-state-proof-quick-valid", Synth = SynthKind.Sylenth1, SourcePath = source, ContentHash = sourceHash },
+            Plugin = new PluginConfiguration { Synth = SynthKind.Sylenth1, Backend = RenderBackend.ExternalWorker, ExecutablePath = executable,
+                Version = "TEST-ONLY-quick-proof", TimeoutSeconds = 5 },
+            Template = new PreviewTemplate { QuickPreview = true },
+            OutputPath = Path.Combine(directory, "TEST-ONLY-quick-proven.wav")
+        };
+        string worker = Path.ChangeExtension(typeof(SoundPreviewer.Worker.RenderDispatcher).Assembly.Location, OperatingSystem.IsWindows() ? ".exe" : null);
+        // Production clears generic DOTNET_ROOT for its self-contained x86 host. Our renamed
+        // framework-dependent fixture must still find the exact runtime already running tests,
+        // including CI SDKs installed outside the system default location.
+        string architectureRoot = "DOTNET_ROOT_" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToUpperInvariant();
+        string? previousRoot = Environment.GetEnvironmentVariable(architectureRoot);
+        string activeRuntimeRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "..", "..", ".."));
+        Environment.SetEnvironmentVariable(architectureRoot, activeRuntimeRoot);
+        try
+        {
+            var valid = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
+            True(valid.Success && PresetLoadVerification.IsValid(valid, request.Preset, request.Template),
+                "Actual quick Worker propagation retains a proof when every synthetic capture round verified the requested source and all pitches.");
+            True(valid.Notes.Any(note => note.ActualHoldSeconds == 4), "The synthetic quiet pitch genuinely requires multiple contributing capture rounds.");
+            request.Preset.Name = "TEST-ONLY-state-proof-quick-mixed";
+            request.OutputPath = Path.Combine(directory, "TEST-ONLY-quick-mixed.wav");
+            var mixed = await new WorkerProcessClient().RenderAsync(request, worker, CancellationToken.None);
+            True(mixed.Success && mixed.PresetLoadProof is null && !PresetLoadVerification.IsValid(mixed, request.Preset, request.Template),
+                "A missing proof in the first contributing round cannot be blessed by valid later rounds.");
+        }
+        finally { Environment.SetEnvironmentVariable(architectureRoot, previousRoot); }
+    }
+
+    private static async Task<int> StateProofFakeWorkerAsync(RenderRequest request, string resultPath)
+    {
+        double duration = request.Template.HoldSeconds + request.Template.TailSeconds;
+        int frames = (int)Math.Round(request.Template.SampleRate * duration);
+        var audio = Tone(request.Template.SampleRate, 1, frames * 3 / (double)request.Template.SampleRate);
+        if (request.IsInitializationBaseline)
+        {
+            string counterPath = request.Plugin.PluginPath + ".TEST-ONLY-baseline-count";
+            int count = File.Exists(counterPath) ? int.Parse(await File.ReadAllTextAsync(counterPath)) : 0;
+            await File.WriteAllTextAsync(counterPath, (count + 1).ToString());
+            if (count % 3 == 1)
+                for (int index = 0; index < audio.Samples.Length; index++) audio.Samples[index] *= 0.5f;
+        }
+        if (request.Preset.Name.Contains("-quick-", StringComparison.Ordinal)) Array.Clear(audio.Samples, frames * 2, frames);
+        WaveFile.WritePcm16(request.OutputPath, audio);
+        string mode = request.Preset.Name;
+        var result = new RenderResult { Success = true, OutputPath = request.OutputPath,
+            AdapterVersion = mode.EndsWith("wrong-adapter", StringComparison.Ordinal) ? "TEST-ONLY-foreign-adapter" : PresetLoadVerification.NativeSylenthAdapterVersion,
+            Message = "TEST ONLY unstable startup/state proof fixture; no synthesizer was loaded.",
+            Notes = request.Template.Pitches.Select((pitch, index) => new NotePreview { MidiNote = pitch,
+                StartSeconds = index * frames / (double)request.Template.SampleRate, DurationSeconds = frames / (double)request.Template.SampleRate,
+                ActualHoldSeconds = request.Template.HoldSeconds, ActualTailSeconds = frames / (double)request.Template.SampleRate - request.Template.HoldSeconds,
+                ActualVelocity = request.Template.Velocity }).ToList() };
+        if (!request.IsInitializationBaseline && !mode.EndsWith("missing", StringComparison.Ordinal) &&
+            !(mode.EndsWith("quick-mixed", StringComparison.Ordinal) && request.Template.HoldSeconds == 0.5))
+            result.PresetLoadProof = new PresetLoadProof { Scheme = mode.EndsWith("wrong-scheme", StringComparison.Ordinal) ? "TEST-ONLY-untrusted-scheme" : PresetLoadVerification.Scheme,
+                SourceSha256 = mode.EndsWith("wrong-source", StringComparison.Ordinal) ? new string('0', 64) : request.Preset.ContentHash,
+                Pitches = mode.EndsWith("wrong-pitch", StringComparison.Ordinal) ? [36, 60, 85] : request.Template.Pitches.ToList() };
+        await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result, LibraryJson.Options));
+        return 0;
     }
 }

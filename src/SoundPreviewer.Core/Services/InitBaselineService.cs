@@ -8,6 +8,7 @@ public sealed record InitBaselineState(SynthKind Synth, string Status, string De
     bool CanConfirm, string WavPath)
 {
     public IReadOnlyList<NotePreview> Notes { get; init; } = [];
+    public bool CanRenderWithVerifiedPresetLoad { get; init; }
 }
 
 internal sealed record PreparedInitBaseline(InitBaselineState State, InitAudioSignature? Signature);
@@ -16,6 +17,8 @@ public static class InitBaselineService
 {
     public const string BaselineKind = "FreshInstanceNoPresetLoaded";
     public const string RejectionPrefix = "初始化匹配：";
+    private const string AudioComparisonMode = "AudioComparison";
+    private const string VerifiedPresetLoadMode = "VerifiedPresetLoad";
 
     public static bool Supports(PluginConfiguration plugin) =>
         plugin.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1 && plugin.Backend == RenderBackend.DawDreamer ||
@@ -64,7 +67,17 @@ public static class InitBaselineService
                 signatures.Add(InitAudioComparer.CreateSignature(audio, result.Notes, cancellationToken));
                 references.Add(new BaselineReference { WavPath = wav, WavSha256 = Fingerprints.HashFile(wav, cancellationToken), Result = result });
             }
-            _ = InitAudioComparer.CreateCalibratedSignature(signatures, cancellationToken);
+            string mode = AudioComparisonMode, stabilityDetail = "";
+            try { _ = InitAudioComparer.CreateCalibratedSignature(signatures, cancellationToken); }
+            catch (InvalidDataException error) when (PresetLoadVerification.IsSupported(plugin) &&
+                references.All(reference => PresetLoadVerification.IsKnownAdapter(reference.Result!.AdapterVersion)) && InitAudioComparer.IsStabilityFailure(error))
+            {
+                // Random startup oscillators cannot provide a reliable audio reference.
+                // This mode never claims audio comparison; every target must instead prove
+                // exact VST2 state readback before the queue can commit its preview.
+                mode = VerifiedPresetLoadMode;
+                stabilityDetail = error.Message;
+            }
             if (references.Select(reference => reference.Result!.AdapterVersion).Distinct(StringComparer.Ordinal).Count() != 1)
                 throw new InvalidDataException("三次默认启动校准的适配器版本不一致。");
             // A binary may have changed while the isolated renderer was running.
@@ -73,6 +86,7 @@ public static class InitBaselineService
             var metadata = new BaselineMetadata
             {
                 Kind = BaselineKind, PolicyVersion = InitAudioComparer.PolicyVersion, Synth = plugin.Synth,
+                Mode = mode, StabilityDetail = stabilityDetail,
                 Identity = identity.Key, WavPath = references[0].WavPath, WavSha256 = references[0].WavSha256,
                 TemplateJson = JsonSerializer.Serialize(Fingerprints.TemplateIdentity(settings.Template), LibraryJson.Options),
                 CreatedUtc = DateTime.UtcNow, Result = references[0].Result, References = references
@@ -84,7 +98,7 @@ public static class InitBaselineService
             // Publishing the locator is the last non-cancellable step; retain any previous baseline on failure.
             plugin.InitBaselinePath = metadataPath;
             published = true;
-            return Ready(plugin.Synth, metadata);
+            return mode == VerifiedPresetLoadMode ? VerifiedPresetLoadReady(plugin.Synth, metadata) : Ready(plugin.Synth, metadata);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception error) when (IsDiagnostic(error))
@@ -104,9 +118,9 @@ public static class InitBaselineService
         string workerPath, CancellationToken cancellationToken, Action<int>? processStarted = null)
     {
         var prepared = await Task.Run(() => Read(settings, plugin, cancellationToken), cancellationToken).ConfigureAwait(false);
-        if (prepared.State.CanCompare || !Supports(plugin)) return prepared;
+        if (prepared.State.CanCompare || prepared.State.CanRenderWithVerifiedPresetLoad || !Supports(plugin)) return prepared;
         var generated = await GenerateAsync(settings, plugin, workerPath, cancellationToken, processStarted).ConfigureAwait(false);
-        return generated.CanCompare
+        return generated.CanCompare || generated.CanRenderWithVerifiedPresetLoad
             ? await Task.Run(() => Read(settings, plugin, cancellationToken), cancellationToken).ConfigureAwait(false)
             : new(generated, null);
     }
@@ -137,6 +151,19 @@ public static class InitBaselineService
             var signatures = metadata.References.Select(reference => ReadReference(reference, settings.Template, token)).ToArray();
             if (metadata.References.Select(reference => reference.Result!.AdapterVersion).Distinct(StringComparer.Ordinal).Count() != 1)
                 throw new InvalidDataException("默认启动校准的适配器版本不一致。");
+            if (metadata.Mode == VerifiedPresetLoadMode)
+            {
+                if (!PresetLoadVerification.IsSupported(plugin) ||
+                    metadata.References.Any(reference => !PresetLoadVerification.IsKnownAdapter(reference.Result!.AdapterVersion)))
+                    throw new InvalidDataException("当前宿主不支持逐音区核验目标预制状态，不能使用替代防错检查。");
+                bool unstable = false;
+                try { _ = InitAudioComparer.CreateCalibratedSignature(signatures, token); }
+                catch (InvalidDataException error) when (InitAudioComparer.IsStabilityFailure(error)) { unstable = true; }
+                if (!unstable) throw new InvalidDataException("替代防错记录没有可核对的启动声音变化依据，请重新检查。");
+                metadata.Result = metadata.References[0].Result;
+                return new(VerifiedPresetLoadReady(plugin.Synth, metadata), null);
+            }
+            if (metadata.Mode != AudioComparisonMode) throw new InvalidDataException("未知的默认启动检查方式，请重新检查。");
             var signature = InitAudioComparer.CreateCalibratedSignature(signatures, token);
             metadata.Result = metadata.References[0].Result;
             return new(Ready(plugin.Synth, metadata), signature);
@@ -149,9 +176,14 @@ public static class InitBaselineService
         new(synth, "可比对", "已完成三次独立默认启动校准，绑定当前音源与模板；至少匹配两份完整三音区参考才拒绝，保护受固定变化边界限制。", true, false, metadata.WavPath)
         { Notes = metadata.Result!.Notes };
 
-    private static InitBaselineState Unsupported(PluginConfiguration plugin) => new(plugin.Synth, "尚未适配",
+    private static InitBaselineState VerifiedPresetLoadReady(SynthKind synth, BaselineMetadata metadata) =>
+        new(synth, "逐音色核验", "默认启动声音存在随机变化，无法可靠进行声音比对。生成时必须在三个音区逐一回读并核对目标预制状态；缺少核验结果将拒绝保存，音色仍须试听确认。 " +
+            metadata.StabilityDetail, false, false, metadata.WavPath)
+        { Notes = metadata.Result!.Notes, CanRenderWithVerifiedPresetLoad = true };
+
+    private static InitBaselineState Unsupported(PluginConfiguration plugin) => new(plugin.Synth, "不支持此检查",
         plugin.Backend == RenderBackend.Unconfigured ? "渲染器未配置，尚不能生成默认启动基准。" :
-        "当前后端尚未适配新实例不加载预制的默认启动基准；生成结果须人工试听，未启用默认音色保护。", false, false, "");
+        "当前后端不支持此声音检查，但不阻止生成；生成结果须人工试听，未启用默认音色保护。", false, false, "");
 
     private static (string Key, string ExecutableHash, string PluginHash) Identity(AppSettings settings,
         PluginConfiguration plugin, CancellationToken token)
@@ -238,6 +270,8 @@ public static class InitBaselineService
         public BaselineMetadata() { }
         public string Kind { get; set; } = "";
         public string PolicyVersion { get; set; } = "";
+        public string Mode { get; set; } = AudioComparisonMode;
+        public string StabilityDetail { get; set; } = "";
         public SynthKind Synth { get; set; }
         public string Identity { get; set; } = "";
         public string WavPath { get; set; } = "";

@@ -203,6 +203,14 @@ public sealed class RenderResult
     public AudioMetrics? Metrics { get; set; }
     public List<NotePreview> Notes { get; set; } = [];
     public string AdapterVersion { get; set; } = "";
+    public PresetLoadProof? PresetLoadProof { get; set; }
+}
+
+public sealed class PresetLoadProof
+{
+    public string Scheme { get; set; } = "";
+    public string SourceSha256 { get; set; } = "";
+    public List<int> Pitches { get; set; } = [];
 }
 
 public static class LibraryJson

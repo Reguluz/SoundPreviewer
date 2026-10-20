@@ -85,6 +85,7 @@ internal static partial class Program
             ("Legacy JSON enum values and explicit sources remain compatible", TestLegacySettingsAsync),
             ("Plugin discovery validates PE exports, architecture and VST3 bundle paths", TestPluginDiscoveryAsync),
             ("Renderer readiness separates configuration, architecture and actual verification", TestRenderReadinessAsync),
+            ("Partial renderer settings persist without enabling invalid hosts", TestRendererSettingsAsync),
             ("SQLite UTF8 round trip, transactions, settings and interrupted recovery", TestStorageAsync),
             ("Child process exit, bounded pipes, timeout and cancellation", TestProcessRunnerAsync),
             ("Worker protocol commits valid output and rejects bad results", TestWorkerAsync),
@@ -1931,6 +1932,8 @@ internal static partial class Program
         string resultPath = Argument(args, "--result");
         var request = JsonSerializer.Deserialize<RenderRequest>(await File.ReadAllTextAsync(requestPath), LibraryJson.Options)!;
         string mode = request.Preset.Name;
+        if (request.Plugin.Version == "TEST-ONLY-unstable-state-proof" || mode.StartsWith("TEST-ONLY-state-proof-", StringComparison.Ordinal))
+            return await StateProofFakeWorkerAsync(request, resultPath);
         if (mode.StartsWith("parallel-", StringComparison.Ordinal) ||
             request.IsInitializationBaseline && File.Exists(request.Plugin.PluginPath + ".parallel.json"))
             return await ParallelFakeWorkerAsync(request, resultPath);

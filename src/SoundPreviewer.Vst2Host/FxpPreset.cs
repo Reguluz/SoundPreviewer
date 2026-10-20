@@ -6,6 +6,17 @@ namespace SoundPreviewer.Vst2Host;
 
 internal sealed record FxpPreset(int PluginId, byte[]? Chunk, float[]? Parameters, string ProgramName)
 {
+    internal int ProgramIndex(int programCount)
+    {
+        // This single-program Sylenth1 layout stores the selected slot in its state.
+        // Do not interpret offsets in opaque chunks from other formats or versions.
+        if (Chunk is not { Length: 1028 } || !Chunk.AsSpan(0, 4).SequenceEqual("1lys"u8)) return 0;
+        int index = BinaryPrimitives.ReadInt32LittleEndian(Chunk.AsSpan(16, 4));
+        if (index < 0 || index >= programCount)
+            throw new InvalidDataException("Sylenth1 音色中的程序位置超出实际插件范围，拒绝加载。");
+        return index;
+    }
+
     public static FxpPreset Read(RenderRequest request)
     {
         if (request.Preset.Synth != SynthKind.Sylenth1) throw new NotSupportedException("32 位内置宿主目前仅适配 Sylenth1 独立 FXP。");

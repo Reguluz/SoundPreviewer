@@ -24,6 +24,7 @@ public partial class MainWindow
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
+        CheckSourceFilterCounts();
         if (App.TestInstalledStorage && (!ApplicationPaths.SamePath(App.DataDirectory, ApplicationPaths.DefaultPreviewDirectory) ||
             !ApplicationPaths.SamePath(_settings.PreviewDirectory, App.DataDirectory) || !PreviewDirectoryBox.IsReadOnly))
             throw new InvalidOperationException("安装版与 Portable 的音色库及生成目录没有固定在程序旁 Preview。");
@@ -137,6 +138,7 @@ public partial class MainWindow
             generationFeedbackChecked = true;
         }
         var editingChecked = await CheckEditingPersistenceAsync();
+        var rendererSettingsChecked = await CheckRendererSettingsIsolationAsync();
         PluginConfiguration? editedBackendModel = null;
         var originalBackend = RenderBackend.Unconfigured;
         var actualViewports = new List<object>();
@@ -250,7 +252,8 @@ public partial class MainWindow
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
             TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
-            PresetFileTransferChecked = true, SourceRevealCommandChecked = true,
+            RendererSettingsChecked = rendererSettingsChecked,
+            PresetFileTransferChecked = true, SourceRevealCommandChecked = true, SourceCountsChecked = true,
             InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
             ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
             StoredPreviewRecords = Presets.Count(row => row.Record.PreviewPath.Length > 0),
@@ -260,6 +263,55 @@ public partial class MainWindow
             ForceDefaultOff = ForceGeneration.IsChecked != true, Width = Bounds.Width, Height = Bounds.Height
         }));
         App.Shutdown();
+    }
+
+    private void CheckSourceFilterCounts()
+    {
+        string originalSource = (SourceFilter.SelectedItem as Choice<string>)?.Value ?? "";
+        string sourceId = "TEST-ONLY-source-counts-" + Guid.NewGuid().ToString("N");
+        string path = Path.Combine(App.DataDirectory, "TEST ONLY count source", "preset.vital");
+        var canonical = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
+        var duplicate = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path, DuplicateOfId = canonical.Record.Id });
+        var added = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
+        try
+        {
+            Presets.Add(canonical);
+            Presets.Add(duplicate);
+            RefreshFilterChoices();
+            var choice = SourceFilters.Single(item => item.Value == sourceId);
+            if (choice.Label != Path.GetDirectoryName(path) + "（2 个音色，含 1 个重复副本）")
+                throw new InvalidOperationException("来源下拉未显示对应路径的音色总量和重复副本数量。");
+            SourceFilter.SelectedItem = choice;
+            if (PresetsView.Count != 1) throw new InvalidOperationException("来源计数改变了默认重复项筛选。");
+            ShowDuplicates.IsChecked = true;
+            if (PresetsView.Count != 2 || ((Choice<string>)SourceFilter.SelectedItem!).Label != choice.Label)
+                throw new InvalidOperationException("显示重复项应恢复副本，来源扫描总量不应变化。");
+            ShowDuplicates.IsChecked = false;
+            SearchBox.Text = "TEST ONLY no source count match";
+            PresetsView.Refresh();
+            if (PresetsView.Count != 0 || ((Choice<string>)SourceFilter.SelectedItem!).Label != choice.Label)
+                throw new InvalidOperationException("搜索筛选不应改变来源路径的扫描总量。");
+            SearchBox.Clear();
+            Presets.Add(added);
+            RefreshFilterChoices();
+            if (SourceFilter.SelectedItem is not Choice<string> selected || selected.Value != sourceId ||
+                selected.Label != Path.GetDirectoryName(path) + "（3 个音色，含 1 个重复副本）")
+                throw new InvalidOperationException("来源计数刷新后未保留所选来源 ID 或新增音色数量。");
+            int duplicates = Presets.Count(row => row.Record.DuplicateOfId.Length > 0);
+            string all = duplicates > 0 ? $"全部来源（{Presets.Count} 个音色，含 {duplicates} 个重复副本）" : $"全部来源（{Presets.Count} 个音色）";
+            if (SourceFilters[0].Label != all) throw new InvalidOperationException("全部来源的音色总量不正确。");
+        }
+        finally
+        {
+            SearchBox.Clear();
+            ShowDuplicates.IsChecked = false;
+            Presets.Remove(canonical);
+            Presets.Remove(duplicate);
+            Presets.Remove(added);
+            RefreshFilterChoices();
+            SourceFilter.SelectedItem = SourceFilters.FirstOrDefault(item => item.Value == originalSource) ?? SourceFilters[0];
+            PresetsView.Refresh();
+        }
     }
 
     private async Task CheckClosingCallbacksAsync()

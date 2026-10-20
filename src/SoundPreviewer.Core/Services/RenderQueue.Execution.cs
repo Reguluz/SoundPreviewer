@@ -237,7 +237,7 @@ public sealed partial class RenderQueue
             try
             {
                 var baseline = await BaselineAsync(job).ConfigureAwait(false);
-                if (InitBaselineService.Supports(job.Plugin) && !baseline.State.CanCompare)
+                if (InitBaselineService.Supports(job.Plugin) && !baseline.State.CanCompare && !baseline.State.CanRenderWithVerifiedPresetLoad)
                 {
                     lock (gate)
                         foreach (var item in pending)
@@ -281,7 +281,15 @@ public sealed partial class RenderQueue
                             OutputPath = completedAudio, CacheKey = job.Key, MaxOutputBytes = reservation.OutputBytes
                         }, workerPath, token, (candidate, audio, comparisonToken) =>
                         {
-                            if (baseline.Signature is not null)
+                            if (baseline.State.CanRenderWithVerifiedPresetLoad)
+                            {
+                                if (!PresetLoadVerification.IsSupported(plugin) ||
+                                    !PresetLoadVerification.IsValid(candidate, pending[0].Record, settings.Template))
+                                    throw new InvalidDataException("目标预制加载核验失败：当前音源启动声音不稳定，必须核对同一源文件和三个音区的精确状态回读后才能保存。");
+                                candidate.NeedsReview = true;
+                                candidate.Message += " 已逐音区核对目标预制状态；启动声音存在随机变化，未使用声音基准比对，须试听确认。";
+                            }
+                            else if (baseline.Signature is not null)
                             {
                                 var comparison = InitAudioComparer.Compare(baseline.Signature, audio, candidate.Notes, comparisonToken);
                                 if (comparison.IsMatch) throw new InvalidDataException(InitBaselineService.RejectionPrefix + comparison.Detail);

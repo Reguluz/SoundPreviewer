@@ -256,7 +256,7 @@
          <Grid.ColumnDefinitions><ColumnDefinition Width="5*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="4*" MinWidth="330"/></Grid.ColumnDefinitions>
          <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
-          <TextBlock Text="生成预览时，需要让本机音源演奏所选音色并保存为音频。先扫描并关联音源，再为它选择生成方式；已有的预览可直接试听。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
+          <TextBlock Text="先扫描并关联音源，再选择生成方式。DawDreamer 的“渲染程序”应填写 Python，不能填写音源 DLL；未准备宿主时，请运行程序旁的 Prepare-DawDreamer 脚本，选择它显示的 EnvironmentPythonPath。32 位 Sylenth1 使用内置外部宿主；Serum 1 的 DawDreamer 方式需要 64 位 VST2。未配置完整的行也可保存，生成前会分别检查。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
           <StackPanel Grid.Row="1" Margin="0,0,0,10">
            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
             <TextBlock Text="并行数量" VerticalAlignment="Center"/>
@@ -270,7 +270,7 @@
             <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="92" IsReadOnly="True"/>
             <DataGridTemplateColumn Header="方式" Width="145"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox ItemsSource="{StaticResource RenderBackendValues}" DisplayMemberBinding="{Binding Converter={StaticResource BackendLabel}}" SelectedIndex="{Binding Backend, Mode=TwoWay, Converter={StaticResource BackendIndex}}" Margin="0,2"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             <DataGridCheckBoxColumn Header="允许同时生成" Binding="{Binding AllowParallelRendering, Mode=TwoWay}" Width="125"/>
-            <DataGridTemplateColumn Header="渲染程序" Width="300"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Classes="icon" Content="▣" Tag="{Binding}" Click="BrowsePlugin_Click" ToolTip.Tip="选择预览宿主或外部渲染程序" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="渲染程序 / Python" Width="300"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel><Button DockPanel.Dock="Right" Classes="icon" Content="▣" Tag="{Binding}" Click="BrowsePlugin_Click" ToolTip.Tip="DawDreamer 选择 Python；外部方式选择兼容宿主；此处不选音源 DLL" Width="32" Height="30" Margin="4,0,0,0"/><TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Padding="5,4" ToolTip.Tip="DawDreamer 填准备脚本显示的 Python 程序路径；音源 DLL 或插件包显示在已关联插件列"/></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             <DataGridTextColumn Header="已关联插件" Binding="{Binding PluginPath}" Width="260" IsReadOnly="True"/>
             <DataGridTextColumn Header="实际版本" Binding="{Binding Version, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
             <DataGridTextColumn Header="超时 (秒)" Binding="{Binding TimeoutSeconds, UpdateSourceTrigger=PropertyChanged}" Width="95"/>
@@ -282,7 +282,7 @@
          <TabControl Grid.Column="2" Margin="0,8,0,0" Background="White" BorderThickness="0">
           <TabItem Header="加载防错检查">
            <Grid RowDefinitions="Auto,*">
-           <TextBlock Text="有些音源加载音色失败后仍会播放默认声音。这里记录音源刚启动时的声音作参照，避免把它误当成目标音色保存。支持的音源会在生成时自动建立参照，通常无需手动操作。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,10"/>
+           <TextBlock Text="记录音源刚启动时的声音，避免把加载失败后的默认声音误存为目标音色。支持的音源会自动建立参照。内置 Sylenth1 宿主若因随机相位无法稳定比对声音，将逐音色核验加载后的状态与目标一致；未通过核验仍不能保存。不支持此检查的生成方式会单独说明。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,10"/>
            <DataGrid x:Name="InitializationGrid" Grid.Row="1" ItemsSource="{Binding InitBaselines}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源加载防错声音参照" ScrollViewer.HorizontalScrollBarVisibility="Auto">
             <DataGrid.Columns>
              <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="85"/>

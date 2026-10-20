@@ -140,10 +140,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         bool migratedPreviewDirectory = !string.Equals(previousPreviewDirectory, _settings.PreviewDirectory, StringComparison.Ordinal);
         bool upgradedNoteOrder = _settings.Template.NoteOrder != PreviewNoteOrder.MiddleHighLow;
         _settings.Template.NoteOrder = PreviewNoteOrder.MiddleHighLow;
-        int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath);
+        int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
+        int localPython = PluginSelectionService.RefreshLocalDawDreamer(_settings.Plugins, App.DataDirectory);
         bool seededPluginDirectories = _settings.PluginDirectories.Count == 0;
         if (seededPluginDirectories) _settings.PluginDirectories = ResolvePluginScanDirectories([], _settings.Plugins);
-        if (App.ImportedSettings is not null || refreshedHost > 0 || upgradedNoteOrder || migratedPreviewDirectory || seededPluginDirectories) _store.SaveSettings(_settings);
+        if (App.ImportedSettings is not null || refreshedHost > 0 || localPython > 0 || upgradedNoteOrder || migratedPreviewDirectory || seededPluginDirectories) _store.SaveSettings(_settings);
         PresetsView = new DataGridCollectionView(Presets);
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
@@ -158,6 +159,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
         if (migratedPreviewDirectory) Log("预览保存目录：" + _settings.PreviewDirectory);
         if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
+        if (localPython > 0) Log("已填入本库准备好的 Python 宿主，实际音源加载仍需检查。");
         LoadCategoryRulesEditor();
         _player.Volume = _settings.PlaybackVolume;
         _playbackTimer.Tick += (_, _) => UpdatePlayback();
@@ -250,10 +252,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 foreach (var value in values) target.Add(value);
                 control.SelectedItem = target.FirstOrDefault(item => item.Value == selected) ?? target[0];
             }
-            Fill(SourceFilters, SourceFilter, "全部来源", records.Select(p => p.SourceId).Distinct(StringComparer.Ordinal)
-                .Select(id => new Choice<string>(id.Length == 0 ? "未关联来源" : Sources.FirstOrDefault(source => source.Id == id)?.Path ??
-                    Path.GetDirectoryName(records.First(p => p.SourceId == id).SourcePath) ?? id,
-                    id.Length == 0 ? MissingFilter : id)).OrderBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase));
+            Fill(SourceFilters, SourceFilter, SourceCountLabel("全部来源", records.Count, records.Count(record => record.DuplicateOfId.Length > 0)),
+                records.GroupBy(record => record.SourceId, StringComparer.Ordinal).Select(group =>
+                {
+                    string path = group.Key.Length == 0 ? "未关联来源" : Sources.FirstOrDefault(source => source.Id == group.Key)?.Path ??
+                        Path.GetDirectoryName(group.First().SourcePath) ?? group.Key;
+                    return new Choice<string>(SourceCountLabel(path, group.Count(), group.Count(record => record.DuplicateOfId.Length > 0)),
+                        group.Key.Length == 0 ? MissingFilter : group.Key);
+                }).OrderBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase));
             Fill(PackageFilters, PackageFilter, "全部音色包", records.Select(p => p.Package).Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value.Length == 0 ? "无音色包" : value, value.Length == 0 ? MissingFilter : value)));
             Fill(CategoryFilters, CategoryFilter, "全部分类", new[] { new Choice<string>("未分类", MissingFilter) }.Concat(records.SelectMany(p => p.CategoryTags)
@@ -263,6 +269,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         finally { _updatingFilterChoices = false; }
     }
+
+    private static string SourceCountLabel(string path, int count, int duplicates) => duplicates > 0
+        ? $"{path}（{count} 个音色，含 {duplicates} 个重复副本）"
+        : $"{path}（{count} 个音色）";
 
     private void SetPresets(IEnumerable<PresetRecord> records)
     {
@@ -344,6 +354,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await Task.Run(() => RefreshBinaryHashes(settings, token, preparation), token);
         _settings.Plugins = settings.Plugins;
         await Task.Run(() => _store.SaveSettings(_settings), token);
+        var executionSettings = CreateExecutionSettings(settings, state =>
+            Log($"{Labels.Synth(state.Synth)} 暂不能生成：{state.Detail}"));
         var rows = Presets.ToDictionary(p => p.Record.Id);
         var changedRows = new ConcurrentDictionary<string, byte>();
         QueueProgress? pendingProgress = null;
@@ -390,7 +402,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         QueueResult result;
         try
         {
-            result = await Task.Run(() => new RenderQueue(_store).RunAsync(settings, records, workerPath, progress, token, forceRegenerate), token);
+            result = await Task.Run(() => new RenderQueue(_store).RunAsync(executionSettings, records, workerPath, progress, token, forceRegenerate), token);
         }
         finally
         {
@@ -402,6 +414,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 var previousRendered = _selected?.Record.RenderedUtc;
                 SetPresets(await Task.Run(_store.LoadPresets));
+                var storedSettings = await Task.Run(_store.LoadSettings);
+                foreach (var plugin in _settings.Plugins)
+                    plugin.InitBaselinePath = storedSettings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth)?.InitBaselinePath ?? "";
                 if (_loadedPreviewPath.Length > 0 && _selected?.Record.RenderedUtc != previousRendered)
                 {
                     StopPlayback();
@@ -894,9 +909,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var plugin in settings.Plugins)
         {
             var state = await InitBaselineService.InspectAsync(settings, plugin);
+            var readiness = RenderReadinessService.Evaluate(plugin, settings.DiscoveredPlugins);
+            bool supported = InitBaselineService.Supports(plugin);
+            if (supported && !readiness.CanAttemptRender)
+                state = state with { Status = readiness.Status, Detail = readiness.Detail };
             rows.Add(new(plugin.Synth, Labels.Synth(plugin.Synth), state.Status, state.Detail, state.WavPath,
-                InitBaselineService.Supports(plugin) && File.Exists(plugin.ExecutablePath),
-                state.CanCompare && File.Exists(state.WavPath)));
+                supported && readiness.CanAttemptRender,
+                (state.CanCompare || state.CanRenderWithVerifiedPresetLoad) && File.Exists(state.WavPath)));
         }
         if (_isClosing || generation != _baselineRefreshGeneration) return;
         InitBaselines.Clear();
@@ -926,8 +945,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Log(state.Detail);
             _statusMessage = state.Detail;
             await RefreshInitBaselinesAsync();
-            if (!state.CanCompare) throw new InvalidOperationException(state.Detail);
-            _taskTitle = "默认启动基准已生成";
+            if (!state.CanCompare && !state.CanRenderWithVerifiedPresetLoad) throw new InvalidOperationException(state.Detail);
+            _taskTitle = state.CanRenderWithVerifiedPresetLoad ? "已启用逐音色状态核验" : "默认启动基准已生成";
         });
     }
 
@@ -939,7 +958,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             StopPlayback();
             var plugin = _settings.Plugins.First(p => p.Synth == row.Kind);
             var state = await InitBaselineService.InspectAsync(_settings, plugin, token);
-            if (!state.CanCompare) throw new InvalidOperationException(state.Detail);
+            if (!state.CanCompare && !state.CanRenderWithVerifiedPresetLoad) throw new InvalidOperationException(state.Detail);
             using var player = new WavePlayer();
             var audio = await Task.Run(() => WaveFile.Read(state.WavPath, token), token);
             player.Volume = _settings.PlaybackVolume;
@@ -1025,11 +1044,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (sender is not Button { Tag: PluginConfiguration plugin }) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "选择渲染程序", AllowMultiple = false,
+            Title = plugin.Backend == RenderBackend.DawDreamer ? "选择 Python 程序（不是音源 DLL）" : "选择渲染程序", AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("渲染程序 / 应用程序") { Patterns = ["*"], AppleUniformTypeIdentifiers = ["public.executable", "com.apple.application-bundle"] }, FilePickerFileTypes.All]
         });
         var executable = files.FirstOrDefault()?.TryGetLocalPath();
         if (executable is null) return;
+        if (plugin.Backend == RenderBackend.DawDreamer && new[] { ".dll", ".vst", ".vst3", ".component" }.Contains(Path.GetExtension(executable), StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException("DawDreamer 请选 Python 可执行文件；音源 DLL 或插件包请在“已发现音源”中关联。");
         plugin.ExecutablePath = Directory.Exists(executable) ? PluginScanService.ResolveBundleExecutable(executable) ?? throw new ArgumentException("应用程序包中没有可执行文件。") : executable;
         if (plugin.Backend == RenderBackend.Unconfigured) plugin.Backend = plugin.Synth == SynthKind.Vital ? RenderBackend.VitalCli : RenderBackend.ExternalWorker;
         if (plugin.Backend == RenderBackend.VitalCli)
@@ -1111,6 +1132,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var result = await new PluginScanService().ScanAsync(PluginDirectories.ToList(), token);
             var merged = MergePluginScanResults(result, _settings.DiscoveredPlugins);
             var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
+            PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
             _settings.PluginDirectories = PluginDirectories.ToList();
             _settings.DiscoveredPlugins = merged;
             _settings.Plugins = ClonePlugins();
@@ -1134,6 +1156,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var configuration = Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth)
                 ?? throw new ArgumentException("此插件尚不属于支持的音源类型。");
             PluginSelectionService.Assign(configuration, row.Record, X86HostPath);
+            PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
             _settings.Plugins = ClonePlugins();
             _store.SaveSettings(_settings);
             await InvalidateChangedPreviewsAsync();
@@ -1141,6 +1164,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             RefreshGrid(PluginGrid);
             await RefreshInitBaselinesAsync();
             Log($"已关联 {Labels.Synth(row.Record.Synth)}：{row.Record.FilePath}（{row.ArchitectureLabel} / {row.FormatLabel}）。");
+            var readiness = RenderReadinessService.Evaluate(configuration, _settings.DiscoveredPlugins);
+            if (!readiness.CanAttemptRender) Log(Labels.Synth(configuration.Synth) + "：" + readiness.Detail);
         });
     }
     private void RefreshDiscoveredPlugins()
@@ -1180,13 +1205,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var budget = ParseDouble(BudgetBox.Text, "存储预算");
             var attempts = ParseInt(AttemptsBox.Text, "最大尝试次数");
             if (budget <= 0 || !double.IsFinite(budget) || attempts is < 1 or > 5) throw new ArgumentException("存储预算须大于 0，最大尝试次数须为 1 到 5。");
-            foreach (var p in Plugins.Where(p => p.Backend != RenderBackend.Unconfigured))
-            {
-                if (!File.Exists(p.ExecutablePath)) throw new FileNotFoundException($"{Labels.Synth(p.Synth)} 的渲染程序不存在。", p.ExecutablePath);
-                if (p.TimeoutSeconds is < 5 or > 3600) throw new ArgumentException("超时须为 5 到 3600 秒。");
-                if (string.IsNullOrWhiteSpace(p.Version)) throw new ArgumentException("请填写渲染器对应的音源实际版本。");
-                if (p.Backend == RenderBackend.VitalCli && p.Synth != SynthKind.Vital) throw new ArgumentException("Vital 原生方式只能用于 Vital。");
-            }
+            PluginSelectionService.RefreshBundledHost(Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
+            PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
+            RenderReadinessService.ValidateSettings(Plugins);
             var candidate = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
             candidate.Template = template;
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
@@ -1214,6 +1235,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             RefreshCompatibility();
             await RefreshInitBaselinesAsync();
             Log("设置已保存。");
+            foreach (var plugin in candidate.Plugins.Where(plugin => plugin.Backend != RenderBackend.Unconfigured))
+            {
+                var readiness = RenderReadinessService.Evaluate(plugin, candidate.DiscoveredPlugins);
+                if (!readiness.CanAttemptRender) Log(Labels.Synth(plugin.Synth) + " 尚需配置：" + readiness.Detail);
+            }
         }
     private async Task InvalidateChangedPreviewsAsync()
     {
@@ -1261,9 +1287,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 渲染程序…");
-            plugin.ExecutableHash = File.Exists(plugin.ExecutablePath) ? Fingerprints.HashFile(plugin.ExecutablePath, cancellationToken) : "";
+            // An offline drive must not erase the last known binary identity during an
+            // unrelated settings save. Readiness still prevents executing a missing file.
+            if (File.Exists(plugin.ExecutablePath)) plugin.ExecutableHash = Fingerprints.HashFile(plugin.ExecutablePath, cancellationToken);
             progress?.Report($"正在校验 {Labels.Synth(plugin.Synth)} 插件文件…");
-            plugin.PluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, cancellationToken);
+            string pluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, cancellationToken);
+            if (pluginHash.Length > 0) plugin.PluginHash = pluginHash;
         }
         cancellationToken.ThrowIfCancellationRequested();
     }

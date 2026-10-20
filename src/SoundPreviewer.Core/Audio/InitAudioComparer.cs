@@ -28,6 +28,17 @@ public static class InitAudioComparer
 {
     public const string PolicyVersion = Fingerprints.InitializationComparisonPolicy;
     private static readonly InitNoteTolerance HardLimits = new(0.90, 0.99, 0.985, 0.998, 0.05, Math.Log(1.06), 0.01);
+    private const string StabilityFailureKey = "SoundPreviewer.InitializationBaselineUnstable";
+
+    internal static bool IsStabilityFailure(Exception error) =>
+        error is InvalidDataException && error.Data[StabilityFailureKey] is true;
+
+    private static InvalidDataException StabilityFailure(string message)
+    {
+        var error = new InvalidDataException(message);
+        error.Data[StabilityFailureKey] = true;
+        return error;
+    }
 
     private readonly record struct Features(double Gain, double Envelope, double EnvelopeError, double Spectrum,
         double StereoDelta, double Wave = 0, double Early = 0);
@@ -46,7 +57,7 @@ public static class InitAudioComparer
                 if (!allowDrift)
                 {
                     if (!CompareSingle(references[first], references[second], null, cancellationToken).IsMatch)
-                        throw new InvalidDataException("默认启动基准不稳定：不足四分之一秒的参考仅支持原严格比对。");
+                        throw StabilityFailure("默认启动基准不稳定：不足四分之一秒的参考仅支持原严格比对。");
                     continue;
                 }
                 var measured = new Features[3];
@@ -57,8 +68,9 @@ public static class InitAudioComparer
                     if (!SameStructure(expected, actual)) throw new InvalidDataException("默认启动基准音区结构不一致。");
                     measured[note] = MeasureWaves(expected, actual, MeasureCheap(expected, actual), cancellationToken);
                     if (!Within(measured[note], HardLimits))
-                        throw new InvalidDataException($"默认启动基准不稳定：MIDI {expected.Pitch} 的三次参考超出固定校准边界 " +
-                            $"(波形 {measured[note].Wave:F5}，起音 {measured[note].Early:F5}，频谱 {measured[note].Spectrum:F5}，包络 {measured[note].Envelope:F5})。");
+                        throw StabilityFailure($"默认启动基准不稳定：MIDI {expected.Pitch} 的三次参考超出固定校准边界 " +
+                            $"(波形 {measured[note].Wave:F5}，起音 {measured[note].Early:F5}，频谱 {measured[note].Spectrum:F5}，包络 {measured[note].Envelope:F5}，" +
+                            $"包络误差 {measured[note].EnvelopeError:F5}，增益比 {measured[note].Gain:F5}，立体声差 {measured[note].StereoDelta:F5})。");
                 }
                 pairs.Add(measured);
             }

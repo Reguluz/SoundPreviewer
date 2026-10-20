@@ -51,7 +51,20 @@ internal static class HostSelfTest
             Reject(() => VstRenderer.ValidateChunkLoaded(0, [], [], [1]));
             VstRenderer.ValidateChunkLoaded(100, [1, 2], [3, 4], [3, 4]);
             VstRenderer.ValidateChunkLoaded(0, [1, 2], [3, 4], [3, 4]);
-            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"PluginsLoaded\":0}");
+            var knownChunk = new byte[1028];
+            "1lys"u8.CopyTo(knownChunk);
+            BinaryPrimitives.WriteInt32LittleEndian(knownChunk.AsSpan(16, 4), 3);
+            var knownProgram = new FxpPreset(0x73796c31, knownChunk, null, "TEST ONLY");
+            Require(knownProgram.ProgramIndex(128) == 3, "The recognized Sylenth program slot was not retained.");
+            Reject(() => knownProgram.ProgramIndex(3));
+            Reject(() => knownProgram.ProgramIndex(0));
+            BinaryPrimitives.WriteInt32LittleEndian(knownChunk.AsSpan(16, 4), -1);
+            Reject(() => knownProgram.ProgramIndex(128));
+            knownChunk[0] = 0;
+            Require(knownProgram.ProgramIndex(128) == 0, "An unknown chunk header was interpreted as a program slot.");
+            Require(new FxpPreset(0x73796c31, [1, 2, 3, 4], null, "TEST ONLY").ProgramIndex(128) == 0,
+                "An unknown chunk length was interpreted as a program slot.");
+            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"ProgramSlotBounds\":true,\"PluginsLoaded\":0}");
         }
         finally { File.Delete(path); }
     }

@@ -43,6 +43,7 @@ public static class RenderDispatcher
         var notes = new NotePreview?[3];
         var complete = new bool[3];
         bool needsReview = false;
+        bool allCapturesVerified = !request.IsInitializationBaseline && PresetLoadVerification.IsSupported(request.Plugin);
         string adapterVersion = "", nativeMessage = "";
         string output = Path.GetFullPath(request.OutputPath);
         string scratch = Path.Combine(Path.GetDirectoryName(output)!, "quick-" + Guid.NewGuid().ToString("N"));
@@ -79,6 +80,9 @@ public static class RenderDispatcher
                     return capture;
                 }
                 WorkerProcessClient.ValidateNotes(capture, captureTemplate);
+                // A later round can contribute only some pitches; require every round to be
+                // verified rather than allowing one trusted round to bless other captures.
+                allCapturesVerified &= PresetLoadVerification.IsValid(capture, request.Preset, captureTemplate);
                 var audio = WaveFile.Read(capturePath, cancellationToken);
                 if (adapterVersion.Length > 0 && adapterVersion != capture.AdapterVersion)
                     throw new InvalidDataException("自动延长时宿主适配器版本发生变化，未提交混合来源预览。");
@@ -135,6 +139,11 @@ public static class RenderDispatcher
             {
                 Success = true, OutputPath = output, Metrics = WaveFile.Analyze(combined, cancellationToken), Notes = finalNotes,
                 AdapterVersion = Fingerprints.QuickPreviewPolicy + "/" + adapterVersion,
+                PresetLoadProof = allCapturesVerified ? new PresetLoadProof
+                {
+                    Scheme = PresetLoadVerification.Scheme, SourceSha256 = request.Preset.ContentHash,
+                    Pitches = request.Template.Pitches.ToList()
+                } : null,
                 NeedsReview = needsReview || complete.Any(value => !value),
                 Message = $"已生成三个紧凑的真实试听片段，完成 {captures} 轮采集。" +
                     (complete.Any(value => !value) ? $" 部分音区延长到 {maximumHold:0.##} 秒后仍较弱或有效声音不足 {targetSeconds:0.##} 秒，已保留真实片段待确认。" : "") +

@@ -47,7 +47,7 @@ foreach ($phase in @('migrate', 'reopen')) {
     finally { $process.Dispose() }
     $result = Get-Content -LiteralPath (Join-Path $preview 'ui-smoke.json') -Raw | ConvertFrom-Json
     if (-not $result.InstalledStorageChecked -or -not $result.ExistingPreviewsLocal -or -not $result.GeneratedViewChecked -or $result.StoredPreviewRecords -ne 2 -or -not $result.TemplatePersistenceChecked -or
-        -not $result.MetadataPersistenceChecked -or $result.Presets -ne 3 -or
+        -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or $result.Presets -ne 3 -or
         [IO.Path]::GetFullPath($result.LibraryDirectory) -ne [IO.Path]::GetFullPath($preview) -or
         [IO.Path]::GetFullPath($result.PreviewDirectory) -ne [IO.Path]::GetFullPath($preview)) {
         throw "Installed storage $phase did not verify the fixed Preview root: $diagnostics"

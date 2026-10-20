@@ -8,6 +8,20 @@ public static class RenderReadinessService
 {
     private const string Disclaimer = "此为配置检查，未完成实际加载验证。";
 
+    public static void ValidateSettings(IEnumerable<PluginConfiguration> configurations)
+    {
+        foreach (var configuration in configurations)
+        {
+            if (!Enum.IsDefined(configuration.Backend)) throw new ArgumentException("未知的渲染方式，请重新选择。");
+            if (configuration.Backend == RenderBackend.Unconfigured) continue;
+            if (configuration.TimeoutSeconds is < 5 or > 3600) throw new ArgumentException("超时须为 5 到 3600 秒。");
+            if (configuration.Backend == RenderBackend.VitalCli && configuration.Synth != SynthKind.Vital)
+                throw new ArgumentException("Vital 原生方式只能用于 Vital。");
+            // Incomplete or temporarily offline renderers are valid saved settings. Readiness
+            // checks each synth before execution, without blocking another synth's settings.
+        }
+    }
+
     public static IReadOnlyList<RenderReadiness> Evaluate(AppSettings settings, PluginPlatform? platform = null, PluginArchitecture? architecture = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -41,6 +55,13 @@ public static class RenderReadinessService
         var candidates = discovered.Where(plugin => plugin.Synth == configuration.Synth && plugin.Platform == target).ToList();
         if (selected is not null && selected.Platform != target)
             return Result("平台不兼容", "已关联其他操作系统的音源文件，请扫描并关联当前平台版本。");
+        if (PluginSelectionService.IsBundledX86Host(configuration.ExecutablePath) && configuration.Backend != RenderBackend.Unconfigured)
+        {
+            if (configuration.Backend != RenderBackend.ExternalWorker || configuration.Synth != SynthKind.Sylenth1)
+                return Result("宿主不匹配", "所选程序是内置 32 位 Sylenth1 宿主。DawDreamer 的渲染程序须选择 Python，不能选择插件 DLL 或此宿主；32 位 Sylenth1 请重新关联对应版本。");
+            if (selected is null || selected.Synth != SynthKind.Sylenth1 || selected.Architecture != PluginArchitecture.X86 || selected.Format != PluginBinaryFormat.Vst2)
+                return Result("宿主不匹配", "内置宿主只适用于已扫描确认的 Windows 32 位 Sylenth1 VST2，请关联对应版本。");
+        }
         if (configuration.Backend == RenderBackend.Unconfigured)
         {
             bool selectedX86 = selected?.Synth == configuration.Synth && selected.Architecture == PluginArchitecture.X86;
@@ -57,6 +78,8 @@ public static class RenderReadinessService
             return Result("格式未适配", "Vital 原生渲染后端只能处理 Vital，不能用来加载其他音源。");
         if (configuration.Backend == RenderBackend.DawDreamer)
         {
+            if (new[] { ".dll", ".vst", ".vst3", ".component" }.Contains(Path.GetExtension(configuration.ExecutablePath), StringComparer.OrdinalIgnoreCase))
+                return Result("程序类型错误", "DawDreamer 的渲染程序须选择 Python 可执行文件；音源 DLL 或插件包应放在“已关联插件”，两者不能混用。");
             bool serum2 = configuration.Synth == SynthKind.Serum2;
             if (configuration.Synth is not (SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1))
                 return Result("格式未适配", "当前 DawDreamer 桥接适配 Serum 1 / Sylenth1 VST2 FXP 和 Serum 2 VST3 .SerumPreset。Spire 原生格式尚待适配，可另行配置已验证的外部工作进程。");
@@ -77,7 +100,7 @@ public static class RenderReadinessService
         }
         if (string.IsNullOrWhiteSpace(configuration.ExecutablePath) || !File.Exists(configuration.ExecutablePath))
             return Result("程序缺失", configuration.Backend == RenderBackend.DawDreamer
-                ? "未找到配置的 Python 程序。可选宿主需要与插件匹配架构的 64 位 Python 3.11 / 3.12、DawDreamer 0.8.3 和 NumPy 1.26.4；应用不会自动安装。"
+                ? "尚未选择可用的 Python 程序。请先运行程序旁的 Prepare-DawDreamer 脚本，再选择它显示的 EnvironmentPythonPath；已准备的本库默认环境会自动填入。它需要匹配架构的 64 位 Python 3.11 / 3.12、DawDreamer 0.8.3 和 NumPy 1.26.4，应用不会自动下载安装。"
                 : "未找到配置的渲染程序，请检查程序位置。");
         if (mac && Path.GetExtension(configuration.ExecutablePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
             return Result("平台不兼容", "macOS 不能直接运行 Windows .exe，请配置本平台渲染程序或 Vital.app 内的 Contents/MacOS 可执行文件。");
