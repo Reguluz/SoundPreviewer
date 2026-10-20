@@ -1731,7 +1731,7 @@ internal static partial class Program
         store.Initialize();
         var settings = new AppSettings
         {
-            PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
+            PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1, MaxParallelRenders = 1,
             Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
             Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker, ExecutablePath = TestExecutable, Version = "test-only", TimeoutSeconds = 30 }]
         };
