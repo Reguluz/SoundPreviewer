@@ -8,6 +8,8 @@ Sylenth1 x86 宿主 v3 精确支持已实测的 1028 字节 `1lys` 状态头 220
 
 macOS DMG 按暂存文件的逻辑大小预留 25% 加 64 MiB 并显式指定 HFS+ 容量，避免单文件程序在自动估容的镜像内复制失败；打包日志记录镜像容量及宿主剩余空间。三平台 CI 连续发布两次，再验证外置渲染资源、独立 Worker 协议与界面，覆盖增量发布路径。
 
+0.7.4 程序提交 `e31baa4df8a4783ba4ff5c000f2f4ececf0892c3` 已通过 [GitHub 三平台 CI](https://github.com/Reguluz/SoundPreviewer/actions/runs/39460512145)，Windows x64、Apple Silicon 与 Intel Mac 的正式结论均为 success。各平台 C# 56/56、Python 63 项通过；本地完整回归含静音原生播放为 57/57。连续两次发布后的 Worker 协议、外置资源、队列选择计数、两种尺寸的进度区域稳定性均验证通过；旧库迁入、Config 手改后无参数重开保留原文件哈希，Windows 安装、覆盖升级和卸载保留数据，两 Mac DMG 与封装 app 检查通过。本地 Windows Portable 共 492 个文件、根目录 12 个，不含个人配置、数据库或缓存；App 与 Worker 版本均指向该程序提交，包内可执行文件与发布输出一致，安装包及 ZIP 的 SHA-256 已核对。真实 Sylenth1 样本范围见上文，自动检查不扩大其他音源或 DAW 的验证范围。
+
 0.7.3 修正跨来源副本的局部筛选及主项生成映射，来源显示总量、去重量和跨来源相同条数。生成进度实时区分成功、新生成、复用、失败与未配置，运行分母使用综合音源多实例许可、内存和剩余任务的有效上限，另列设定及内存上限。目录配置从原设置首次导出到程序旁 `directories.json`，后续启动 JSON 优先并回存数据库供旧版兼容；支持手工修改、保留来源 ID 和未知字段，损坏或外部冲突拒绝覆盖。打包不带个人配置，安装、升级和卸载保留该文件及 Preview。
 
 0.7.3 程序提交 `b273e465c069181ca76d0562edb2d421b6f303bd` 已通过 [GitHub 三平台 CI](https://github.com/Reguluz/SoundPreviewer/actions/runs/39448926111)，Windows x64、Apple Silicon 与 Intel Mac 的正式结论均为 success。本地完整回归 56/56（含静音原生播放）；发布包 UI 检查、旧库迁入及 JSON 手改后无参数重开均通过，原始数据库与音频哈希保留。Windows 安装、覆盖升级、卸载检查把安装根 `directories.json` 纳入哈希保护。Portable 共 706 项，不含用户 Preview、目录配置、数据库、日志或音频；包版本指向该程序提交，SHA-256 已核对。以上不扩大真实插件或 DAW 的已验证范围。
