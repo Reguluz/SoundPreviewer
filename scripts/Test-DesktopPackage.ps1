@@ -9,6 +9,11 @@ if (-not $ApplicationPath) {
     $executable = if ($Runtime -eq 'win-x64') { 'SoundPreviewer.exe' } else { 'SoundPreviewer' }
     $ApplicationPath = Join-Path $projectDirectory "artifacts/publish-$Runtime/$executable"
 }
+$resources = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))
+foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
+    'Renderers/requirements-serum2.txt', 'Config/preset-categories.default.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $resources $file) -PathType Leaf)) { throw "Published application resource is missing: $file" }
+}
 $dataDirectory = Join-Path $projectDirectory "artifacts/ui-smoke-$Runtime-$([Guid]::NewGuid().ToString('N'))"
 $start = [Diagnostics.ProcessStartInfo]::new([IO.Path]::GetFullPath($ApplicationPath))
 $start.UseShellExecute = $false

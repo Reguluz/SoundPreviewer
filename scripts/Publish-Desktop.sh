@@ -20,7 +20,8 @@ rm -rf -- "$output_dir"
 "$dotnet_command" restore src/SoundPreviewer.App/SoundPreviewer.App.csproj --configfile NuGet.Config -r "$runtime" -p:SelfContained=true -p:PublishSingleFile=true -p:NuGetAudit=false
 "$dotnet_command" publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -r "$runtime" \
     --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o "$output_dir"
-for file in SoundPreviewer SoundPreviewer.Worker Renderers/dawdreamer_worker.py Renderers/serum2_state.py; do
+for file in SoundPreviewer SoundPreviewer.Worker Renderers/dawdreamer_worker.py Renderers/serum2_state.py \
+    Renderers/requirements.txt Renderers/requirements-serum2.txt Config/preset-categories.default.json; do
     [[ -f "$output_dir/$file" ]] || { echo "Missing published file: $file" >&2; exit 1; }
 done
 cp "$project_dir/docs/releases.md" "$output_dir/RELEASES.md"
