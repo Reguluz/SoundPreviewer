@@ -26,6 +26,7 @@ for file in SoundPreviewer SoundPreviewer.Worker Renderers/dawdreamer_worker.py 
 done
 cp "$project_dir/docs/releases.md" "$output_dir/RELEASES.md"
 cp "$project_dir/scripts/Prepare-DawDreamer.sh" "$output_dir/Prepare-DawDreamer.sh"
+pwsh -NoProfile -File "$project_dir/scripts/Fetch-Uv.ps1" -Runtime "$runtime" -OutputDirectory "$output_dir/Renderers/uv"
 cat > "$output_dir/Start-SoundPreviewer.command" <<'LAUNCH'
 #!/bin/bash
 set -euo pipefail

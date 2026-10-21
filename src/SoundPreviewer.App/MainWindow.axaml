@@ -260,7 +260,11 @@
          <Grid.ColumnDefinitions><ColumnDefinition Width="5*" MinWidth="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="4*" MinWidth="330"/></Grid.ColumnDefinitions>
          <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
-          <TextBlock Text="先扫描并关联音源，再选择生成方式。DawDreamer 的“渲染程序”填写准备脚本显示的 Python 路径；32 位 Sylenth1 使用内置外部宿主。Sushi 是 Windows x64 Serum 1 VST2 的实验方式，须自备带预制加载补丁的 sushi.exe 与 sndfile.dll，详见 README；当前安装包未捆绑。未配置完整的行也可保存，生成前会分别检查。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
+          <StackPanel Margin="0,0,0,10">
+           <WrapPanel><Button x:Name="PrepareRendererButton" Content="一键准备生成环境" Click="PrepareDawDreamer_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,10,6"/><TextBlock Text="首次联网准备，无需安装 Python；完成后可离线生成。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,0,6"/></WrapPanel>
+           <TextBlock Text="{Binding RendererSetupLocation}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,0,6"/>
+           <TextBlock Text="先扫描并关联音源，再准备生成环境。Serum 1 / Serum 2 和兼容的 Sylenth1 可使用私有 DawDreamer；Windows 32 位 Sylenth1 使用内置外部宿主。现有自选生成方式和 Python 路径会保留。Sushi 仅供本地研究，普通包未捆绑。未配置完整的行也可保存，生成前会分别检查。" TextWrapping="Wrap" Foreground="{StaticResource Muted}"/>
+          </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,0,0,10">
            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
             <TextBlock Text="并行数量" VerticalAlignment="Center"/>

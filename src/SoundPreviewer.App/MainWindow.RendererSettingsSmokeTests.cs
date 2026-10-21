@@ -20,6 +20,17 @@ public partial class MainWindow
             Pages.SelectedItem = SettingsTab;
             SettingsPages.SelectedItem = RenderSettingsTab;
             await SettleLayoutAsync();
+            if (!PrepareRendererButton.IsEffectivelyVisible || !PrepareRendererButton.IsEnabled ||
+                !RendererSetupLocation.Contains(Path.Combine(App.DataDirectory, "renderers"), StringComparison.Ordinal))
+                throw new InvalidOperationException("一键准备入口未显示或未指向当前 Preview。");
+            var setupResult = Path.Combine(App.DataDirectory, "diagnostics", "TEST ONLY 中文 setup.json");
+            var setupCommand = CreateRendererSetupCommand(AppContext.BaseDirectory, App.DataDirectory, setupResult,
+                PluginSelectionService.CurrentPlatform, PluginSelectionService.CurrentArchitecture);
+            if (!File.Exists(setupCommand.Script) || setupCommand.Arguments.Contains("-PythonPath") ||
+                setupCommand.Arguments.Contains("--python") || !setupCommand.Arguments.Contains(setupResult) ||
+                !setupCommand.Arguments.Contains(App.DataDirectory) ||
+                !setupCommand.Arguments.Any(value => value is "-IncludeSerum2" or "--include-serum2"))
+                throw new InvalidOperationException("一键准备未使用随包脚本、私有结果路径或仍要求系统 Python。");
             var combo = PluginGrid.GetVisualDescendants().OfType<ComboBox>().First(control =>
                 control.IsEffectivelyVisible && control.DataContext is PluginConfiguration { Synth: SynthKind.Serum1 });
             combo.SelectedIndex = (int)RenderBackend.DawDreamer;

@@ -195,7 +195,8 @@ public static class InitBaselineService
         if (!File.Exists(plugin.ExecutablePath)) throw new FileNotFoundException("基准渲染程序不存在。", plugin.ExecutablePath);
         if (!File.Exists(plugin.PluginPath) && !Directory.Exists(plugin.PluginPath)) throw new FileNotFoundException("基准音源 VST2 文件不存在。", plugin.PluginPath);
         if (string.IsNullOrWhiteSpace(plugin.Version)) throw new InvalidDataException("基准音源版本未配置。");
-        string executableHash = Fingerprints.HashFile(plugin.ExecutablePath, token);
+        string executableHash = plugin.Backend == RenderBackend.DawDreamer && DawDreamerRuntimeService.IsManagedExecutablePath(plugin.ExecutablePath)
+            ? Fingerprints.RendererExecutableHash(plugin, token) : Fingerprints.HashFile(plugin.ExecutablePath, token);
         string pluginHash = Fingerprints.PluginBinaryHash(plugin, settings.DiscoveredPlugins, token);
         if (pluginHash.Length == 0) throw new InvalidDataException("无法核对基准音源的实际二进制指纹。");
         string script = Path.Combine(AppContext.BaseDirectory, "Renderers", "dawdreamer_worker.py");

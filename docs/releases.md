@@ -1,6 +1,10 @@
 # 安装、升级与 GitHub 发布
 
-Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.8.0 预发行版**（2026-10-21）。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.9.0 预发行版**（2026-10-21）。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+
+0.9.0 增加「一键准备生成环境」。程序随包携带 uv 0.13.4，首次下载固定 CPython 3.12.15 / DawDreamer 0.8.3 / NumPy 1.26.4 及 Serum 2 转换依赖，全部写入程序旁 `Preview/renderers`，不注册系统 Python、不修改 PATH 或用户 uv 配置。Windows 使用私有、已签名的 Microsoft x64 C++ 运行库。准备后使用直接可移动的独立 Python，避免 venv 对原基础解释器的绝对路径依赖；相对 `runtime.json` 记录运行时及组件指纹，移动整个目录后自动修复失效的受管路径。旧环境、自选后端、已有 Preview / Config、schema 2 和完整旧预览继续保留。
+
+CI 新增 Windows x64、Apple Silicon 与 Intel Mac 的真实空宿主准备、整体移动和离线复用检查；测试用私有 Python 目录不上传为程序包。只有空宿主检查成功后才更新受管运行时与设置。商业插件兼容性仍以真实样本为准，见[验证记录](rendering.md)。Sushi 继续保留本地研究，不加入公开包。
 
 0.8.0 增加手动选择的 Sushi 实验后端：Windows x64 Serum 1 VST2 独立 FPCh FXP，可用原生宿主生成三音区及可配置快速预览，无需 Python。每音区使用新实例，避免 Delay 等效果残留串入下一音区；仍沿用同音源优先队列、独立 Worker 并行及 4 GiB RSS 目标。宿主状态回读会规范化，未将其当作精确目标状态证明，结果保持待试听确认。声音参照会做三次独立校准，不稳定或匹配默认音色时拒绝提交。Windows 中文路径及深层临时路径包含专项处理。现有后端、schema 2、Config / Preview、有效旧预览的优先复用保持兼容，Sushi 的新指纹额外覆盖 sndfile.dll。
 
@@ -48,7 +52,7 @@ macOS DMG 按暂存文件的逻辑大小预留 25% 加 64 MiB 并显式指定 HF
 - Apple Silicon Mac：下载 `osx-arm64.dmg`；Intel Mac：下载 `osx-x64.dmg`。将 `SoundPreviewer.app` 复制到可写的独立目录，例如 `~/Applications/SoundPreviewer`，再从本机打开；ZIP 中提供相同 app。升级时退出旧版本并替换 app，保留旁边的 `Preview`。旧定位文件请保留供兼容迁移查找原库。不要直接在只读 DMG 中启动。
 - 安装包尚未配置 Windows 代码签名和 Apple Developer 签名、公证。系统可能要求确认来源；发布页的 SHA-256 校验文件可用于检查下载完整性。
 
-发行包包含 UI、索引和缓存功能、独立 Worker、固定版本的 Python 桥接源文件及 requirements。Windows 另包含 Sylenth1 x86 VST2 宿主及其许可声明；该可选原生宿主仍需要本机 Microsoft VC++ x86 运行库。商业音源、用户预制、授权文件、Python 和 DawDreamer 二进制均由使用者另行准备，不混入安装包。真实音源的已验证范围见仓库 `docs/rendering.md`；CI 空宿主或 UI 自检不扩大兼容性声明。
+发行包包含 UI、索引和缓存功能、独立 Worker、Python 桥接源文件、固定 requirements、uv 及许可文件。Windows 另包含 DawDreamer 所需的私有 x64 C++ 运行库、Sylenth1 x86 VST2 宿主及许可声明；后者仍需要本机 Microsoft VC++ x86 运行库。商业音源、用户预制、授权文件不包含在包内；Python 和 DawDreamer 通过「一键准备生成环境」下载到当前程序旁。真实音源的已验证范围见仓库 `docs/rendering.md`；CI 空宿主或 UI 自检不扩大兼容性声明。
 
 ## 数据与升级约定
 
@@ -64,7 +68,7 @@ Windows 升级与卸载均保留生成的 `Preview`；macOS 替换或删除 app 
 
 0.7.0 及更早版本可能只关联原库而继续向旧目录写音频；0.7.1 不再沿用该行为。兼容迁入不会删除原 `local-data`、旧用户库、原音频或源音色。若可选 Python 环境仍依赖原程序路径，请先保留原目录并核对或重新准备。发布脚本发现旧发布目录中含用户数据库、预览、日志或自定义规则时会拒绝清理，应先保留该目录并在新的工作副本构建。
 
-Portable 指免安装，升级时可在原目录替换程序文件。移动程序前先退出并备份，连同 `Preview` 一起保留；音色来源、插件和可选 Python 环境的绝对路径仍需核对。可选 Python 环境搬移后可能需要按新路径重新准备。
+Portable 指免安装，升级时可在原目录替换程序文件。移动程序前先退出并备份，连同 `Preview` 与 `Config` 一起保留；0.9.0 受管环境支持整体移动，音色来源、插件和手选外部 Python 环境的绝对路径仍需核对。
 
 旧程序不保证能读取新程序修改后的数据库。需要回退时使用升级前的完整数据备份，不要让两个版本同时打开同一份数据。
 
@@ -85,7 +89,7 @@ pwsh -File scripts/Test-DesktopPackage.ps1 -Runtime osx-arm64
 bash scripts/Package-Desktop.sh osx-arm64
 ```
 
-Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases`。发布脚本只打包构建输出；发现旧输出或打包暂存中含 `Preview`（包括空目录）、`local-data`、定位文件、私人规则或缓存时会拒绝清理及打包，须保留原目录并从新工作副本构建。发行版程序旁的 `Prepare-DawDreamer.ps1` / `.sh` 可按固定 requirements 准备独立 Python 环境，正常使用时写入当前程序旁的 `Preview/renderers`；macOS 将环境放在 app 旁，不放入 bundle。脚本的数据目录参数仅用于隔离验证等开发诊断。运行时明确指定匹配架构的 CPython 3.11 / 3.12，Serum 2 加上 `-IncludeSerum2` / `--include-serum2`。
+Intel Mac 将 `osx-arm64` 替换为 `osx-x64`。输出位于 `artifacts/releases`。发布脚本只打包构建输出；发现旧输出或打包暂存中含 `Preview`（包括空目录）、`local-data`、定位文件、私人规则或缓存时会拒绝清理及打包，须保留原目录并从新工作副本构建。发布时 `Fetch-Uv.ps1` 校验固定官方归档 SHA-256 并放入 `Renderers/uv`，Mac 开发打包需要 PowerShell 7，终端用户无需安装它。Windows 通过 `Prepare-RendererRuntime.ps1` 从本机已许可 Visual Studio 的 REDIST 目录复制并验证签名的 x64 C++ 运行库。发行版准备脚本默认无需外部 Python，在程序旁 `Preview/renderers` 下载独立环境；macOS 不写 bundle。脚本的数据目录参数仅用于隔离验证等开发诊断。`-IncludeSerum2` / `--include-serum2` 包含额外转换依赖，GUI 默认包含。
 
 ## GitHub Actions 与新版本
 

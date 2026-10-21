@@ -137,6 +137,7 @@ class IsolatedProbeTests(unittest.TestCase):
         phases = []
 
         def fake_child(command, **kwargs):
+            self.assertEqual(["-I", "-B"], command[1:3])
             self.assertEqual(worker.PROBE_TIMEOUT_SECONDS, kwargs["timeout"])
             self.assertEqual(subprocess.DEVNULL, kwargs["stdin"])
             self.assertIn("--probe-internal", command)

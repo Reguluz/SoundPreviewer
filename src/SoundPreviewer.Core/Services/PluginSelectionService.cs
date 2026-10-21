@@ -122,24 +122,68 @@ public static class PluginSelectionService
         return changed;
     }
 
-    public static int RefreshLocalDawDreamer(IList<PluginConfiguration> configurations, string dataDirectory, PluginPlatform? platform = null)
+    public static int RefreshLocalDawDreamer(IList<PluginConfiguration> configurations, string dataDirectory, PluginPlatform? platform = null,
+        PluginArchitecture? architecture = null)
     {
-        string python = (platform ?? CurrentPlatform) == PluginPlatform.Windows
+        var target = platform ?? CurrentPlatform;
+        DawDreamerRuntimeService.TryGetLocalRuntime(dataDirectory, out var runtime, target, architecture);
+        string legacyPython = target == PluginPlatform.Windows
             ? Path.Combine(dataDirectory, "renderers", "dawdreamer-cpython-x64", "Scripts", "python.exe")
             : Path.Combine(dataDirectory, "renderers", "dawdreamer-cpython", "bin", "python");
-        if (!File.Exists(python)) return 0;
         int changed = 0;
         foreach (var configuration in configurations.Where(configuration => configuration.Backend == RenderBackend.DawDreamer &&
-            (configuration.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1) && string.IsNullOrWhiteSpace(configuration.ExecutablePath)))
+            configuration.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1))
         {
-            // Only the setup script's known environment inside this library is eligible.
-            // Existing custom/offline paths and backend choices remain the user's selection.
+            bool blank = string.IsNullOrWhiteSpace(configuration.ExecutablePath);
+            if (!blank && (File.Exists(configuration.ExecutablePath) || !IsDefaultDawDreamerPath(configuration.ExecutablePath))) continue;
+            string? python = runtime is not null && (configuration.Synth != SynthKind.Serum2 || runtime.SupportsSerum2) ? runtime.PythonPath : null;
+            // A moved venv is not repaired by pointing at its relocated launcher. Only
+            // a newly prepared standalone runtime may replace a missing known default.
+            if (python is null && blank && File.Exists(legacyPython)) python = legacyPython;
+            if (python is null) continue;
             configuration.ExecutablePath = Path.GetFullPath(python);
             configuration.ExecutableHash = "";
             configuration.InitBaselinePath = "";
             changed++;
         }
         return changed;
+    }
+
+    public static int ApplyPreparedDawDreamer(IList<PluginConfiguration> configurations, string dataDirectory,
+        IReadOnlyList<DiscoveredPlugin> discovered, PluginPlatform? platform = null, PluginArchitecture? architecture = null)
+    {
+        int changed = RefreshLocalDawDreamer(configurations, dataDirectory, platform, architecture);
+        if (!DawDreamerRuntimeService.TryGetLocalRuntime(dataDirectory, out var runtime, platform, architecture)) return changed;
+        foreach (var configuration in configurations.Where(configuration => configuration.Backend == RenderBackend.Unconfigured &&
+            string.IsNullOrWhiteSpace(configuration.ExecutablePath) && configuration.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1))
+        {
+            if (configuration.Synth == SynthKind.Serum2 && !runtime!.SupportsSerum2) continue;
+            var format = configuration.Synth == SynthKind.Serum2 ? PluginBinaryFormat.Vst3 : PluginBinaryFormat.Vst2;
+            if (!discovered.Any(plugin => Matches(configuration, plugin) && plugin.Format == format &&
+                IsCompatible(plugin, platform, architecture) && File.Exists(plugin.BinaryPath))) continue;
+            configuration.Backend = RenderBackend.DawDreamer;
+            configuration.ExecutablePath = runtime!.PythonPath;
+            configuration.ExecutableHash = "";
+            configuration.InitBaselinePath = "";
+            changed++;
+        }
+        return changed;
+    }
+
+    private static bool IsDefaultDawDreamerPath(string path)
+    {
+        if (DawDreamerRuntimeService.IsManagedExecutablePath(path)) return true;
+        try
+        {
+            string? launchers = Path.GetDirectoryName(Path.GetFullPath(path));
+            string? environment = Path.GetDirectoryName(launchers);
+            return string.Equals(Path.GetFileName(Path.GetDirectoryName(environment)), "renderers", StringComparison.OrdinalIgnoreCase) &&
+                (string.Equals(Path.GetFileName(environment), "dawdreamer-cpython-x64", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(Path.GetFileName(launchers), "Scripts", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(Path.GetFileName(path), "python.exe", StringComparison.OrdinalIgnoreCase) ||
+                 Path.GetFileName(environment) == "dawdreamer-cpython" && Path.GetFileName(launchers) == "bin" && Path.GetFileName(path) == "python");
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException) { return false; }
     }
 
     public static int ApplyAutomatic(IReadOnlyList<DiscoveredPlugin> discovered, IList<PluginConfiguration> configurations, string? x86HostPath = null,

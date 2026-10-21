@@ -54,6 +54,8 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $outputDirectory 'Start-SoundPreviewer.cmd'), "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"%~dp0SoundPreviewer.exe`" %*`r`n")
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Prepare-DawDreamer.ps1') -Destination $outputDirectory
+    & (Join-Path $PSScriptRoot 'Fetch-Uv.ps1') -Runtime $Runtime -OutputDirectory (Join-Path $outputDirectory 'Renderers/uv')
+    & (Join-Path $PSScriptRoot 'Prepare-RendererRuntime.ps1') -OutputDirectory (Join-Path $outputDirectory 'Renderers/runtime-win-x64')
     Copy-Item -LiteralPath (Join-Path $projectDirectory 'docs/releases.md') -Destination (Join-Path $outputDirectory 'RELEASES.md')
     Write-Host "Published: $outputDirectory"
 }

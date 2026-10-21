@@ -244,6 +244,8 @@ public static class Fingerprints
     public static string RendererExecutableHash(PluginConfiguration plugin, CancellationToken cancellationToken = default)
     {
         string executable = HashFile(plugin.ExecutablePath, cancellationToken);
+        if (plugin.Backend == RenderBackend.DawDreamer && Services.DawDreamerRuntimeService.TryGetRuntime(plugin.ExecutablePath, out var runtime))
+            return Services.DawDreamerRuntimeService.Fingerprint(runtime!, cancellationToken);
         if (plugin.Backend != RenderBackend.Sushi) return executable;
         string sidecar = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(plugin.ExecutablePath))!, "sndfile.dll");
         return HashText(JsonSerializer.Serialize(new { Executable = executable, SndFile = HashFile(sidecar, cancellationToken) }));

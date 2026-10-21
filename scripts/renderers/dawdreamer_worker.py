@@ -155,7 +155,7 @@ def isolated_probe(result_path, report_phase):
     report_phase("准备宿主自检，不加载商业插件")
     with tempfile.TemporaryDirectory(prefix="host-probe-", dir=result_path.parent) as temporary:
         child_result = Path(temporary) / "probe.json"
-        command = [sys.executable, str(Path(__file__).resolve()), "--probe-internal", "--result", str(child_result)]
+        command = [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--probe-internal", "--result", str(child_result)]
         try:
             process = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      timeout=PROBE_TIMEOUT_SECONDS,
@@ -477,4 +477,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Isolated Python excludes the script directory. Only reintroduce our
+    # bundled adapters, never the working directory or user Python paths.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.exit(main())

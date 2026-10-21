@@ -1,6 +1,8 @@
 # 渲染后端与实测边界
 
-当前说明更新于 2026-10-21，对应 0.8.0 开发版；下方真实插件的历史版本、日期、样本与指标保持原样。桌面界面、调度器与工作进程使用 C# / .NET 8，插件渲染发生在独立进程。应用不会产生模拟合成器音频，也不会安装、下载或绕过插件授权。
+当前说明更新于 2026-10-21，对应 0.9.0 开发版；下方真实插件的历史版本、日期、样本与指标保持原样。桌面界面、调度器与工作进程使用 C# / .NET 8，插件渲染发生在独立进程。应用不会产生模拟合成器音频，也不会安装、下载或绕过插件授权。
+
+0.9.0 私有环境本地验收：Windows 系统 PowerShell 5.1 从零准备 uv 0.13.4 / CPython 3.12.15，包含全部 Serum 2 依赖和私有 x64 C++ 运行库。整目录移动后离线准备成功，关键文件清单与已有个人记录哈希不变；Core 实际识别并修复失效旧受管路径，自选环境及其他后端保留。此环境通过完整 .NET 队列生成 Serum 1.334 的 `BA Analog Pluck [SN].fxp` 与 `BA Ampology [CFA].fxp`：44100 Hz，三音区各 0.5 秒，Generated=2 / Failed=0；随后禁用后端并移除可用 Worker 参数，仍 Reused=2，音频哈希不变。三份启动参照可比对，独立测试默认状态命中 3/3 并拒绝保存；原 DLL / FXP 哈希不变。报告位于本地隔离 `artifacts/uv-research/dawdreamer-queue-44100-*/report.json`，不附带商业音源或音色。Mac 私有环境由三平台 CI 验证空宿主及迁移，不据此扩大真实插件支持范围。
 
 界面入口为「预览生成 → 生成方式（高级）」；「加载防错检查」记录音源刚启动、未加载预制时的声音作参照，避免把加载失败后的默认声音误存成目标音色。内部协议和以下历史记录仍使用“默认启动音色基准”这一技术名称。参照通常自动建立，不能替代人工确认目标音色与外部资源。
 
@@ -172,26 +174,24 @@ Serum 1 / Sylenth1 路径接收独立 `.fxp`，检查文件头、扫描哈希与
 
 不支持 x86 DLL、SerumFX、VST3 直接加载旧 `.fxp`、`.fxb`、银行槽位或 Spire 原生预制。Serum 2 旧 FXP 须由用户先在实际 Serum 2 中导入并另存，不能自动改扩展名。Sylenth1 本机 x86 插件会在加载宿主前返回可理解的架构错误。
 
-建议使用标准 CPython，而不是携带旧私有运行库的 Conda。准备脚本默认在应用旁 `Preview/renderers` 建立独立环境，固定官方依赖并运行有 8 秒时限的空宿主自检；不加载商业插件，不修改全局 Python。示例中的 Python 路径应替换为本机标准 x64 CPython 3.11 / 3.12 的实际安装路径：
+0.9.0 默认使用私有 uv 0.13.4 下载 CPython 3.12.15，不要求系统 Python。GUI「一键准备生成环境」默认包含 Serum 2 组件；扫描到兼容插件时自动填入未配置项，已有外部环境和后端保留。等效命令：
 
 ```powershell
-pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe'
-# Serum 2 需同时安装额外的固定状态转换依赖：
-pwsh -File scripts/Prepare-DawDreamer.ps1 -PythonPath 'C:\Python312\python.exe' -IncludeSerum2
-# 使用准备脚本返回的 EnvironmentPythonPath 配置渲染程序。
-# -ApplicationPath 可指定发布目录；-DataDirectory 可指定隔离数据目录。
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Prepare-DawDreamer.ps1 -IncludeSerum2
+# -ApplicationPath 指定发布目录；-DataDirectory 仅供隔离诊断。
 ```
-
-macOS 使用相同架构的标准 CPython 3.11 / 3.12：
 
 ```bash
-bash scripts/Prepare-DawDreamer.sh --python /absolute/path/to/python3.12 \
-  --app-path ./artifacts/publish-osx-arm64 --include-serum2
+bash scripts/Prepare-DawDreamer.sh --app-path ./artifacts/publish-osx-arm64 --include-serum2
 ```
 
-`--app-path` 指向源码根目录、发布目录或 `.app`；Intel 发布版相应改为 `publish-osx-x64`。源码 / 普通发布目录默认使用其下的 `Preview`；Mac `.app` 根或 `Contents/MacOS` 均使用 bundle 旁的 `Preview`。环境和下载缓存位于 `Preview/renderers`，诊断位于 `Preview/diagnostics`，不写入 bundle。使用 `--data-directory` / `-DataDirectory` 可明确指定已迁移的库或隔离目录；原环境未迁移时须保留其目录并在设置中核对 Python 路径。在发布目录内也可直接运行准备脚本。去掉 `--include-serum2` 仅准备基础 VST2 宿主；返回的 `EnvironmentPythonPath` 填入「预览生成」中的「渲染程序」，Serum 2 另关联本机 `Serum2.vst3`。
+`--app-path` 接受源码、发布目录、`.app` 或其 `Contents/MacOS`。Windows / 普通发布目录使用程序旁 Preview，Mac bundle 使用 app 旁 Preview。Python 位于 `Preview/renderers/dawdreamer-portable-平台`；uv 缓存和临时文件也在 renderers，诊断在 `Preview/diagnostics`。不写 PATH、Python 注册信息、用户 uv 配置或全局包目录。使用 uv 的固定 catalog、官方归档校验、`--no-config`、显式缓存与安装目录，并清理继承的 UV / PYTHON / PIP 定制项；Windows 从应用资源复制私有 C++ 运行库，不覆盖系统 DLL。相关原理见 [uv 管理的 Python](https://docs.astral.sh/uv/concepts/python-versions/)。
 
-Windows 脚本分开下载官方 wheel 和离线安装，缓存保存到上述数据目录；已满足固定依赖的环境跳过安装。设置脚本只做空宿主自检，不加载商业插件或输出 WAV。应用运行时只导入本地依赖，不访问网络。Windows 桥接同时检查实际加载的 C++ 运行库，过旧时直接提示；自检通过仅表示空宿主可运行。DawDreamer 的 GPLv3 与所带 JUCE 等依赖许可证在发行宿主二进制时须保留并核对。应用不随发行包包含商业插件、授权文件或私人预制。
+相对 `runtime.json` 在空宿主自检通过后写入，含 Python / 依赖版本与关键二进制、转换器文件 SHA-256。使用独立解释器而非 venv，整体目录移动后可离线运行；`-Offline` / `--offline` 可验证无需下载复用。Core 只自动修复明确属于本程序受管环境且已失效的旧路径，保持自选配置。新运行时指纹覆盖实际关键文件；旧环境指纹及旧预览优先复用规则保持兼容，不触发全库重渲染。调用 Python 使用 `-I -B`，只显式加入随包桥接目录，不使用当前目录或 PYTHONPATH 查找模块。
+
+高级兼容入口仍接受 `-PythonPath` / `--python` 指定标准 CPython 3.11 / 3.12，沿用旧独立 venv；这种旧环境仍依赖其基础 Python 位置，不能承诺整体移动。`-UvPath` / `--uv-path` 是开发验证入口；普通发布包已自带匹配 uv，无需用户安装。
+
+设置脚本只做空宿主自检，不加载商业插件或输出 WAV。应用日常生成只使用本地依赖。Windows 桥接检查实际加载的 C++ 运行库，过旧直接提示；自检成功不扩大商业插件兼容范围。下载的 DawDreamer / Python 保留各自官方许可证与元数据，不作为公共安装包或 CI 附件上传；随包 uv 与 Microsoft 运行库声明见 `third-party/uv`、`third-party/vc-runtime`。
 
 ## 单音色验收工具
 

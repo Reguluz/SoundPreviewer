@@ -2,7 +2,7 @@
 
 把合成器音色生成短试听片段，在一个音色库里搜索、筛选和播放，减少逐个打开音源试音的时间。已有预览可以直接试听，无需打开 DAW。
 
-**当前版本：0.8.0 开发版**，供朋友测试；本文按 2026-10-21 的功能编写。使用中遇到问题，请保留音源版本、错误提示和复现步骤。
+**当前版本：0.9.0 开发版**，供朋友测试；本文按 2026-10-21 的功能编写。使用中遇到问题，请保留音源版本、错误提示和复现步骤。
 
 ## 下载与安装
 
@@ -27,7 +27,7 @@
 | 音源 | 可生成预览的音色文件 | 生成前需要准备 | 已有真实样本验证 |
 | --- | --- | --- | --- |
 | **Vital** | 独立 `.vital` | Windows / Mac 的 Vital 独立程序，使用「Vital 原生」 | Windows 历史样本；Apple Silicon 上的 Vital 1.6.4 测试音色 |
-| **Serum 1** | 独立 `.fxp` | VST2 插件及可选 DawDreamer 环境；Windows x64 可手动配置 Sushi 实验宿主 | Windows Serum 1.334 x64；DawDreamer 五音色并行实测及 Sushi 两音色测试，见[并行说明](docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)与[宿主研究](docs/headless-host-research.md)；Mac 尚待真实插件验证 |
+| **Serum 1** | 独立 `.fxp` | VST2 插件及一键准备的 DawDreamer 环境 | Windows Serum 1.334 x64；历史五音色并行实测见[并行说明](docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)；Mac 尚待真实插件验证 |
 | **Serum 2** | 原生 `.SerumPreset` | VST3 插件及带 Serum 2 依赖的 DawDreamer 环境 | Apple Silicon / Serum 2 2.0.23 的两个工厂音色；Windows、Intel Mac 尚待真实插件验证 |
 | **Sylenth1** | 独立 `.fxp` | Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer | Windows Sylenth1 2.2.1.2 x86；五个音色完成 1 / 2 / 4 条实测，其他组合尚待验证 |
 | **Spire** | 暂不生成 | 可扫描 `.spf`、`.spf2`、`.sbf`、`.swzip`，保留为待适配记录 | 尚无真实插件生成验证 |
@@ -50,13 +50,13 @@
 
 - **Vital**：选择 Vital 独立程序，方式为「Vital 原生」。只有 VST 插件文件时，不能直接使用这条原生路径。
 - **Windows 的 Sylenth1 x86**：匹配后可使用随包的独立宿主。如果提示缺少运行库，请从 [Microsoft 官方页面](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/) 安装 VC++ **x86** 运行库。
-- **Serum 1 / Serum 2 / 使用 DawDreamer 的 Sylenth1**：先完成下方的「可选生成环境」，将其返回的 Python 路径填入「渲染程序」，方式选「DawDreamer」，并关联正确的插件文件。
+- **Serum 1 / Serum 2 / 使用 DawDreamer 的 Sylenth1**：点击本页「一键准备生成环境」，首次联网下载，成功后自动填入私有环境路径；再核对关联的插件文件。
 
-检查音源的实际版本，点击「保存设置」。Python、DawDreamer 和插件需要匹配架构；Windows 的 DawDreamer 路径使用 x64，不能加载 x86 插件。
+检查音源的实际版本，点击「保存设置」。私有环境与当前程序架构一致；Windows 的 DawDreamer 路径使用 x64，不能加载 x86 插件。
 
 「渲染程序」与「已关联插件」是两个位置：Serum 1 的 DawDreamer 方式应选择 Python 程序，插件则选择 64 位 `Serum_x64.dll`，不能把 DLL 当作 Python。未配好的音源也能先保存，不会挡住其他设置；「配置状态」会分别说明缺少什么。若已在本程序的 `Preview/renderers` 准备默认环境，空白的 DawDreamer 程序路径会自动填入；自选和暂时离线的路径会保留。
 
-**Sushi（实验）**：0.8.0 新增无需 Python 的 Windows x64 Serum 1 VST2 路径，实验宿主要求 Windows 10 1903 或以上。当前安装包未捆绑 Sushi，也不会自动替换你的生成方式；须自备带本项目预制加载补丁的 `sushi.exe` 及同目录 `sndfile.dll`。已完成两份真实音色、44.1 / 48 kHz、快速预览及启动防错的本地验证，仍须试听确认。公开分发涉及额外许可条件，使用边界与本地构建入口见[研究记录](docs/headless-host-research.md)；暂不适用于 Serum 2、Sylenth1、Mac 或银行音色。
+**Sushi（本地研究）**：保留手动配置入口，安装包不包含该宿主，也不自动切换。已有实验的适用范围及构建入口见[研究记录](docs/headless-host-research.md)。日常公开测试采用上面的私有 DawDreamer 环境。
 
 「加载防错检查」通常自动进行。内置 Windows x86 Sylenth1 宿主遇到启动声音随机波动时，可改用逐音色的精确状态回读；状态与目标不一致或无法核验时仍拒绝保存。这不表示声音比对已稳定，生成结果仍需试听确认。Vital 原生方式不支持这项声音参照检查，也不会因此被禁止生成。
 
@@ -120,24 +120,13 @@
 
 仅使用 Vital 原生或 Windows 随包的 Sylenth1 x86 宿主时，可以跳过本节。
 
-先准备标准 **CPython 3.11 或 3.12**。Windows 使用 x64；Mac 使用与插件相同的 Apple Silicon 或 Intel 架构。建议使用标准 CPython，避免 Conda 环境携带的旧运行库影响宿主。
+打开「音源与设置 → 预览生成」，点击 **「一键准备生成环境」**。无需了解 Python，也无需单独安装 Python 或 uv。首次需要联网，完成后可离线生成；Serum 2 所需组件也会一并准备。下载或检查失败时保留已有环境和缓存，可稍后重试。
 
-Windows：在程序文件夹打开 PowerShell，运行随包脚本，替换为本机 Python 的实际路径：
+程序只随包携带下载工具 uv；Python、DawDreamer 和下载缓存保存在程序旁的 **`Preview/renderers`**。不修改系统 PATH、Python 注册信息或用户的 uv / Python 配置。Windows 所需的 x64 C++ 运行库使用私有副本，无需为这条生成路径另装运行库。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Prepare-DawDreamer.ps1 -PythonPath "C:\Python312\python.exe" -IncludeSerum2
-```
+成功后会自动补齐未配置且已发现匹配插件的音源，并修复本程序私有环境的失效旧路径；已有自选生成方式和可用的旧 Python 环境保留。未扫描到插件时，请先扫描音源，再选择版本。准备过程只检查空宿主，不安装商业插件，也不代表所有音色已通过验证。
 
-Mac：在终端中运行 app 内的准备脚本，替换 app 和 Python 的实际路径：
-
-```bash
-bash "$HOME/Applications/SoundPreviewer/SoundPreviewer.app/Contents/MacOS/Prepare-DawDreamer.sh" \
-  --python /实际路径/python3.12 --include-serum2
-```
-
-不使用 Serum 2 时，可以去掉 `-IncludeSerum2` / `--include-serum2`。脚本会联网下载固定依赖，在 `Preview/renderers` 建立独立环境，并显示 `EnvironmentPythonPath`；把这个路径填入对应音源的「渲染程序」。它只检查空宿主是否可运行，不替你安装商业插件或完成音色验证。准备好后，日常扫描与生成使用本地文件。
-
-请从当前程序所在位置运行准备脚本，让环境保存在该程序旁的 `Preview/renderers`。旧 Python 环境依赖原路径时，迁移后可能需要重新准备。完整参数及隔离诊断方法见 [生成环境说明](docs/rendering.md#可选-dawdreamer-宿主)。
+关闭程序后，可把整个程序目录连同 **Preview 与 Config** 一起移动；新私有环境使用相对清单，重开时自动定位。原音色文件、插件以及以前手动配置的外部环境仍需核对实际路径。命令行与高级参数见 [生成环境说明](docs/rendering.md#可选-dawdreamer-宿主)。
 
 ## 数据保存、清理与升级
 
@@ -172,7 +161,7 @@ bash "$HOME/Applications/SoundPreviewer/SoundPreviewer.app/Contents/MacOS/Prepar
 
 升级时先退出程序。推荐在原程序目录直接升级：Windows 安装版运行新安装包；Portable 替换程序文件；Mac 替换 `.app`。**保留 Preview 和 Config** 可继续读取个人记录、目录配置和有效缓存；这是保留个人数据的建议，不是程序启动的前置条件。安装包不携带个人目录配置，升级或卸载会保留现有文件。导入另一套旧库时，已有 `Config/directories.json` 继续作为本程序的目录配置。旧版根目录的 JSON 也请保留，供兼容迁移和回退使用。降回旧程序时应使用升级前备份。
 
-Portable 表示免安装。移动程序前先退出并备份，连同 `Preview` 和 `Config` 一起保留；原音色、插件和可选 Python 环境的绝对路径仍需核对。程序不提供应用内自动更新，后续版本从 GitHub 下载。
+Portable 表示免安装。移动程序前先退出并备份，连同 `Preview` 和 `Config` 一起保留；0.9.0 一键准备的私有环境随目录移动，原音色、插件和手选外部 Python 环境的绝对路径仍需核对。程序不提供应用内自动更新，后续版本从 GitHub 下载。
 
 0.7.4 分发包将托管依赖合入程序，减少根目录文件。覆盖旧 Portable 目录会保留旧依赖文件；希望使用整洁的新布局时，可退出旧程序，将新包解压到新目录。需要沿用原记录时，再完整复制旧 `Preview`、`Config` 及尚未迁移的根目录 JSON；不复制也能以新库启动。保留旧目录作为回退，恢复后核对原记录、试听和插件路径。
 

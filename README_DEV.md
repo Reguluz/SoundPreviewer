@@ -6,7 +6,7 @@
 
 Windows / macOS 本地合成器预制音色库，使用 C#、.NET 8 和 Avalonia 开发。两端共用完整界面与业务核心，使用各自的原生音频输出。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。界面使用 Avalonia NuGet 包，音色库与渲染在本地运行，不调用云端服务。
 
-当前版本为 **v0.8.0 开发版**，更新于 2026-10-21，供朋友测试；本版增加手选自备 Sushi 宿主的 Windows x64 Serum 1 VST2 实验后端，保留原有生成方式及旧缓存。Sushi 公开捆绑许可尚待确认，安装包未包含该宿主，复现与范围见 [宿主研究](docs/headless-host-research.md)。此前 0.7.7 增加空格键从头播放当前选中音色预览，播放区显示快捷键提示，文本输入与筛选控件保留原有空格操作。沿用 0.7.6 的 Preview / Config 缺失初始化、缓存格式与数据库 schema 2，以及 4 GiB 内存目标。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。0.7.4 统一 Config、默认允许并行、修正内存预留和 Sylenth1 状态版本标记核验，并区分库数量与处理队列、固定进度区域。0.7.2 修复来源数量显示和部分音源配置阻断保存，内置 Sylenth1 x86 宿主增加逐音色精确状态回读；程序旁 Preview、同音源优先调度与独立音色文件拖出、自动并行和内存保护继续保留。真实音源的支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
+当前版本为 **v0.9.0 开发版**，更新于 2026-10-21，供朋友测试。本版增加私有 uv / CPython / DawDreamer 一键准备：无需系统 Python，固定依赖、缓存与运行库均保存在应用旁；相对运行时清单支持整体移动和离线复用，保留已有后端、自选环境、有效旧预览及 schema 2。Sushi 保留本地研究入口，不捆绑公开分发，范围见 [宿主研究](docs/headless-host-research.md)。沿用空格键重播、Preview / Config 缺失初始化、同音源优先、自动并行及 4 GiB 内存目标。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。真实音源支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
 
 日常直接在 `main` 开发，不自动创建分支或 PR；小修递增 patch，较大功能递增 minor，任何 major 递增须用户明确确认。`version-policy.json` 当前批准 major 0，CI 校验该约束；所有 `0.x` 标签发布均为 prerelease。只有用户要求并推送版本 tag 后，发布流程才会公开 Release。
 
@@ -121,6 +121,6 @@ bash scripts/Publish-Desktop.sh osx-x64   # Intel
 
 所有预制文件均只读。索引在 Windows 使用自带的 `winsqlite3.dll`，macOS 使用系统 `libsqlite3.dylib`，旧数据库自动迁移并在下次可访问的扫描中回填 MD5；Vital 预览使用原生 PCM16，DawDreamer 桥接保留 float32 原始输出，先校验临时文件，再原子提交。试听在 Windows 通过 WinMM、macOS 通过 AudioQueue 输出同一份内存 PCM16 音频，独立音量不修改预览文件，也不依赖 Windows Media Player。生成缓存包含音色内容、插件/程序指纹、实际版本、试听模板及适配器版本；默认复用依据已保存模板校验完整预览，不因当前配置变化自动重渲染。源文件内容或音源归属变化会使旧映射失效。单文件外部资源的变更跟踪仍需专用适配器补充。
 
-不会自动下载模型或商业音源，不包含用户预制。可选 DawDreamer 及其他组件的发行许可需在正式打包前逐项核对。当前仅调用用户安装的音源；本仓库未替用户选定项目发行许可证。
+不会自动下载模型或商业音源，不包含用户预制。随包的 uv 保留双重许可文件，Windows 私有 C++ 运行库保留再分发声明；Python / DawDreamer 由用户一键下载到本地 Preview，不混入程序包或 CI 产物。当前仅调用用户安装的音源；本仓库未替用户选定项目发行许可证。
 
 规划依据：[项目计划](docs/项目计划.md)。实现与后续阶段：[架构](docs/architecture.md)、[开发状态](docs/roadmap.md)。

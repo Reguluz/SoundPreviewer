@@ -100,6 +100,18 @@ public static class RenderReadinessService
         }
         if (configuration.Backend == RenderBackend.DawDreamer)
         {
+            if (DawDreamerRuntimeService.IsManagedExecutablePath(configuration.ExecutablePath))
+            {
+                if (!DawDreamerRuntimeService.TryGetRuntime(configuration.ExecutablePath, out var runtime))
+                    return Result("环境未就绪", "本机生成环境缺少准备完成记录或必要文件，请在预览生成页点击“一键准备生成环境”。");
+                var cpu = architecture ?? PluginSelectionService.CurrentArchitecture;
+                string runtimePlatform = mac ? cpu == PluginArchitecture.Arm64 ? "osx-arm64" : "osx-x64" : "win-x64";
+                if (runtime!.Platform != runtimePlatform || !mac && cpu != PluginArchitecture.X64 ||
+                    mac && cpu is not (PluginArchitecture.X64 or PluginArchitecture.Arm64))
+                    return Result("位数不兼容", "已选择其他平台或架构的本机生成环境，请在本机重新准备。");
+                if (configuration.Synth == SynthKind.Serum2 && !runtime.SupportsSerum2)
+                    return Result("依赖未齐", "本机生成环境尚未包含 Serum 2 所需组件，请重新运行一键准备生成环境。");
+            }
             if (new[] { ".dll", ".vst", ".vst3", ".component" }.Contains(Path.GetExtension(configuration.ExecutablePath), StringComparer.OrdinalIgnoreCase))
                 return Result("程序类型错误", "DawDreamer 的渲染程序须选择 Python 可执行文件；音源 DLL 或插件包应放在“已关联插件”，两者不能混用。");
             bool serum2 = configuration.Synth == SynthKind.Serum2;
@@ -122,7 +134,7 @@ public static class RenderReadinessService
         }
         if (string.IsNullOrWhiteSpace(configuration.ExecutablePath) || !File.Exists(configuration.ExecutablePath))
             return Result("程序缺失", configuration.Backend == RenderBackend.DawDreamer
-                ? "尚未选择可用的 Python 程序。请先运行程序旁的 Prepare-DawDreamer 脚本，再选择它显示的 EnvironmentPythonPath；已准备的本库默认环境会自动填入。它需要匹配架构的 64 位 Python 3.11 / 3.12、DawDreamer 0.8.3 和 NumPy 1.26.4，应用不会自动下载安装。"
+                ? "尚未准备可用的生成环境。请在预览生成页点击“一键准备生成环境”；首次需要联网，完成后会自动填入本机私有环境，无需单独安装 Python。也可继续使用自行选择的兼容 Python。"
                 : "未找到配置的渲染程序，请检查程序位置。");
         if (mac && Path.GetExtension(configuration.ExecutablePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
             return Result("平台不兼容", "macOS 不能直接运行 Windows .exe，请配置本平台渲染程序或 Vital.app 内的 Contents/MacOS 可执行文件。");

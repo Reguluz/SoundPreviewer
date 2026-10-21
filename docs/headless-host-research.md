@@ -2,6 +2,8 @@
 
 记录日期：2026-10-21。本轮先完成并交付 0.7.7 空格重播功能，再研究替代 DawDreamer 的原生宿主。0.8.0 已本地接通手选自备 Sushi 的 Windows x64 / Serum 1 VST2 实验路径，包含应用配置、独立 Worker、InitBaseline 与 RenderQueue。公开分发许可尚未确认；普通安装包和公开 CI 不捆绑 Sushi 原生二进制。
 
+后续决定：按用户选择，0.9.0 公开测试采用私有 uv + DawDreamer，Sushi 留作本地研究。新增一键下载、私有运行库、整目录移动和离线复用，具体操作见 [README](../README.md#可选生成环境serum-与-dawdreamer)，固定环境与实测边界见 [生成说明](rendering.md#可选-dawdreamer-宿主)。以下原生宿主研究结果保持原样。
+
 ## VST 2.4 SDK 的取得与边界
 
 找到第三方公开镜像 [R-Tur/VST_SDK_2.4](https://github.com/R-Tur/VST_SDK_2.4)，研究副本固定为 `4610873fa433d263a5c4a68b5b8b59ffcf6ca6db`。其中的 `pluginterfaces/vst2.x/aeffect.h`、`aeffectx.h` 满足 Sushi 的编译输入。

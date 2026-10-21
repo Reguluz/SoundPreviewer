@@ -91,6 +91,8 @@ internal static partial class Program
             ("Sushi readiness requires native Windows x64 Serum 1 VST2 without widening preset proof", TestSushiReadinessAsync),
             ("Sushi portable relocation preserves other renderers and plugin cache identity", TestSushiPortableSelectionAsync),
             ("Partial renderer settings persist without enabling invalid hosts", TestRendererSettingsAsync),
+            ("Private portable DawDreamer selection and relocation preserve explicit renderers", TestManagedDawDreamerSelectionAsync),
+            ("Private DawDreamer dependency identity expires baselines while old previews remain reusable", TestManagedDawDreamerIdentityAsync),
             ("SQLite UTF8 round trip, transactions, settings and interrupted recovery", TestStorageAsync),
             ("Child process exit, bounded pipes, timeout and cancellation", TestProcessRunnerAsync),
             ("Worker protocol commits valid output and rejects bad results", TestWorkerAsync),

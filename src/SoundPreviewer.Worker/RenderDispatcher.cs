@@ -275,13 +275,21 @@ public static partial class RenderDispatcher
             {
                 string script = Path.Combine(AppContext.BaseDirectory, "Renderers", "dawdreamer_worker.py");
                 if (!File.Exists(script)) throw new FileNotFoundException("缺少随应用发布的 DawDreamer 桥接脚本。", script);
-                arguments.Add(script);
+                arguments.AddRange(["-I", "-B", script]);
             }
             arguments.AddRange(["--request", requestFile, "--result", resultFile]);
             IReadOnlyDictionary<string, string?>? environmentOverrides = !dawdreamer &&
                 Path.GetFileName(executable).Equals("SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase)
                 ? new Dictionary<string, string?> { ["DOTNET_ROOT"] = null } : null;
-            var outcome = await ProcessRunner.RunAsync(executable, arguments, scratch,
+            // All DawDreamer protocol paths are absolute. CreateProcess still
+            // rejects a long CWD even when Python accepts the long JSON paths.
+            string workingDirectory = scratch;
+            if (dawdreamer && OperatingSystem.IsWindows() && scratch.Length >= 240)
+            {
+                workingDirectory = AppContext.BaseDirectory;
+                if (workingDirectory.Length >= 240) workingDirectory = Path.GetPathRoot(executable)!;
+            }
+            var outcome = await ProcessRunner.RunAsync(executable, arguments, workingDirectory,
                 TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken, environmentOverrides);
             if (!File.Exists(resultFile))
             {

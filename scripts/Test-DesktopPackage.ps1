@@ -10,9 +10,19 @@ if (-not $ApplicationPath) {
     $ApplicationPath = Join-Path $projectDirectory "artifacts/publish-$Runtime/$executable"
 }
 $resources = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))
+$uvName = if ($Runtime -eq 'win-x64') { 'uv.exe' } else { 'uv' }
+$setupScript = if ($Runtime -eq 'win-x64') { 'Prepare-DawDreamer.ps1' } else { 'Prepare-DawDreamer.sh' }
 foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
-    'Renderers/requirements-serum2.txt', 'Config/preset-categories.default.json')) {
+    'Renderers/requirements-serum2.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
+    'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $file) -PathType Leaf)) { throw "Published application resource is missing: $file" }
+}
+if ($Runtime -eq 'win-x64') {
+    foreach ($file in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'NOTICE.md', 'manifest.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $resources "Renderers/runtime-win-x64/$file") -PathType Leaf)) {
+            throw "Published private renderer C++ runtime resource is missing: $file"
+        }
+    }
 }
 $dataDirectory = Join-Path $projectDirectory "artifacts/ui-smoke-$Runtime-$([Guid]::NewGuid().ToString('N'))"
 $start = [Diagnostics.ProcessStartInfo]::new([IO.Path]::GetFullPath($ApplicationPath))
