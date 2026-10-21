@@ -1,6 +1,6 @@
 # Windows / macOS 共用版本
 
-更新：2026-10-21，当前为 v0.9.0 开发版。此页记录共用功能与数据约定，历史实测范围按原版本保留。直接在 `main` 开发，不自动创建分支或 PR；major 变更须用户明确确认，所有 `0.x` 标签发布均为 prerelease。
+更新：2026-10-21，当前为 v0.8.0 开发版。此页记录共用功能与数据约定，历史实测范围按原版本保留。直接在 `main` 开发，不自动创建分支或 PR；major 变更须用户明确确认，所有 `0.x` 标签发布均为 prerelease。
 
 ## 共用范围
 
@@ -95,7 +95,7 @@ bash scripts/Publish-Desktop.sh osx-x64
 
 Windows 发布：`pwsh -File scripts/Publish-Desktop.ps1 -Runtime win-x64`。脚本会先发布自包含 x86 宿主，再发布应用和 Worker，普通用户不需要单独安装 x86 .NET Runtime。
 
-macOS 从源码运行 `./Start-SoundPreviewer.command`；发布后双击发布目录的 `Start-SoundPreviewer.command`。Windows 双击 `SoundPreviewer.exe`。0.9.0 在「预览生成」点击「一键准备生成环境」，默认使用私有 uv 0.13.4 / CPython 3.12.15，无需系统 Python。可选命令为 `scripts/Prepare-DawDreamer.sh --include-serum2`（macOS）或 `scripts/Prepare-DawDreamer.ps1 -IncludeSerum2`（Windows）。下载、运行时和缓存集中到 app 旁 `Preview/renderers`，支持整体移动与离线复用。基础依赖固定在 `requirements.txt`，Serum 2 额外依赖在 `requirements-serum2.txt`；旧 `--python` / `-PythonPath` 模式仍保留。完整命令和边界见[宿主配置](rendering.md#可选-dawdreamer-宿主)；不安装商业插件或许可证。
+macOS 从源码运行 `./Start-SoundPreviewer.command`；发布后双击发布目录的 `Start-SoundPreviewer.command`。Windows 双击 `SoundPreviewer.exe`。0.8.0 在「预览生成」点击「一键准备生成环境」，默认使用私有 uv 0.13.4 / CPython 3.12.15，无需系统 Python。可选命令为 `scripts/Prepare-DawDreamer.sh --include-serum2`（macOS）或 `scripts/Prepare-DawDreamer.ps1 -IncludeSerum2`（Windows）。下载、运行时和缓存集中到 app 旁 `Preview/renderers`，支持整体移动与离线复用。基础依赖固定在 `requirements.txt`，Serum 2 额外依赖在 `requirements-serum2.txt`；旧 `--python` / `-PythonPath` 模式仍保留。完整命令和边界见[宿主配置](rendering.md#可选-dawdreamer-宿主)；不安装商业插件或许可证。
 
 `.github/workflows/desktop.yml` 在分支推送（包括 `main`）时校验批准 major 并执行 Windows x64、macOS arm64 / x64 构建、测试与安装包流程；Release 入口另核对 tag 与版本。手动运行只生成测试包，推送匹配版本 tag 才公开 Release，`0.x` 强制 prerelease。CI 无音频设备检查不替代实机播放和插件验收。
 

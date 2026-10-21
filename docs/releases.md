@@ -1,8 +1,8 @@
 # 安装、升级与 GitHub 发布
 
-Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.9.0 预发行版**（2026-10-21）。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
+Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目录 `Version.props` 定义，目前为 **0.8.0 预发行版**（2026-10-21）。应用本体、Worker 与 Windows x86 宿主均自带对应的 .NET 8 运行库，测试朋友无需安装 .NET SDK。
 
-0.9.0 增加「一键准备生成环境」。程序随包携带 uv 0.13.4，首次下载固定 CPython 3.12.15 / DawDreamer 0.8.3 / NumPy 1.26.4 及 Serum 2 转换依赖，全部写入程序旁 `Preview/renderers`，不注册系统 Python、不修改 PATH 或用户 uv 配置。Windows 使用私有、已签名的 Microsoft x64 C++ 运行库。准备后使用直接可移动的独立 Python，避免 venv 对原基础解释器的绝对路径依赖；相对 `runtime.json` 记录运行时及组件指纹，移动整个目录后自动修复失效的受管路径。旧环境、自选后端、已有 Preview / Config、schema 2 和完整旧预览继续保留。
+0.8.0 增加「一键准备生成环境」。程序随包携带 uv 0.13.4，首次下载固定 CPython 3.12.15 / DawDreamer 0.8.3 / NumPy 1.26.4 及 Serum 2 转换依赖，全部写入程序旁 `Preview/renderers`，不注册系统 Python、不修改 PATH 或用户 uv 配置。Windows 使用私有、已签名的 Microsoft x64 C++ 运行库。准备后使用直接可移动的独立 Python，避免 venv 对原基础解释器的绝对路径依赖；相对 `runtime.json` 记录运行时及组件指纹，移动整个目录后自动修复失效的受管路径。旧环境、自选后端、已有 Preview / Config、schema 2 和完整旧预览继续保留。
 
 CI 新增 Windows x64、Apple Silicon 与 Intel Mac 的真实空宿主准备、整体移动和离线复用检查；测试用私有 Python 目录不上传为程序包。只有空宿主检查成功后才更新受管运行时与设置。商业插件兼容性仍以真实样本为准，见[验证记录](rendering.md)。Sushi 继续保留本地研究，不加入公开包。
 
@@ -70,7 +70,7 @@ Windows 升级与卸载均保留生成的 `Preview`；macOS 替换或删除 app 
 
 0.7.0 及更早版本可能只关联原库而继续向旧目录写音频；0.7.1 不再沿用该行为。兼容迁入不会删除原 `local-data`、旧用户库、原音频或源音色。若可选 Python 环境仍依赖原程序路径，请先保留原目录并核对或重新准备。发布脚本发现旧发布目录中含用户数据库、预览、日志或自定义规则时会拒绝清理，应先保留该目录并在新的工作副本构建。
 
-Portable 指免安装，升级时可在原目录替换程序文件。移动程序前先退出并备份，连同 `Preview` 与 `Config` 一起保留；0.9.0 受管环境支持整体移动，音色来源、插件和手选外部 Python 环境的绝对路径仍需核对。
+Portable 指免安装，升级时可在原目录替换程序文件。移动程序前先退出并备份，连同 `Preview` 与 `Config` 一起保留；0.8.0 受管环境支持整体移动，音色来源、插件和手选外部 Python 环境的绝对路径仍需核对。
 
 旧程序不保证能读取新程序修改后的数据库。需要回退时使用升级前的完整数据备份，不要让两个版本同时打开同一份数据。
 

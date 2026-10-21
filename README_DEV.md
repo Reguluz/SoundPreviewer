@@ -6,7 +6,7 @@
 
 Windows / macOS 本地合成器预制音色库，使用 C#、.NET 8 和 Avalonia 开发。两端共用完整界面与业务核心，使用各自的原生音频输出。SQLite 保存来源、预览映射、任务状态与个人反馈，浏览试听不需要启动 DAW。界面使用 Avalonia NuGet 包，音色库与渲染在本地运行，不调用云端服务。
 
-当前版本为 **v0.9.0 开发版**，更新于 2026-10-21，供朋友测试。本版增加私有 uv / CPython / DawDreamer 一键准备：无需系统 Python，固定依赖、缓存与运行库均保存在应用旁；相对运行时清单支持整体移动和离线复用，保留已有后端、自选环境、有效旧预览及 schema 2。Sushi 保留本地研究入口，不捆绑公开分发，范围见 [宿主研究](docs/headless-host-research.md)。沿用空格键重播、Preview / Config 缺失初始化、同音源优先、自动并行及 4 GiB 内存目标。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。真实音源支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
+当前版本为 **v0.8.0 开发版**，更新于 2026-10-21，供朋友测试。本版增加私有 uv / CPython / DawDreamer 一键准备：无需系统 Python，固定依赖、缓存与运行库均保存在应用旁；相对运行时清单支持整体移动和离线复用，保留已有后端、自选环境、有效旧预览及 schema 2。Sushi 保留本地研究入口，不捆绑公开分发，范围见 [宿主研究](docs/headless-host-research.md)。沿用空格键重播、Preview / Config 缺失初始化、同音源优先、自动并行及 4 GiB 内存目标。Windows 与 macOS 共用扫描、检索、收藏、反馈、播放、任务恢复和渲染功能，包含 Serum 2 VST3 原生预制加载与 Spire 索引。真实音源支持范围见 [渲染验证记录](docs/rendering.md)；DAW 接收方式见 [音色传递](docs/daw-transfer.md)。AI 向量搜索、个人推荐与 FXB 银行槽位遍历尚未实现。
 
 日常直接在 `main` 开发，不自动创建分支或 PR；小修递增 patch，较大功能递增 minor，任何 major 递增须用户明确确认。`version-policy.json` 当前批准 major 0，CI 校验该约束；所有 `0.x` 标签发布均为 prerelease。只有用户要求并推送版本 tag 后，发布流程才会公开 Release。
 
