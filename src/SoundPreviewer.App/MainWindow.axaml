@@ -5,99 +5,70 @@
  Title="SoundPreviewer · 合成器音色库" Width="1380" Height="900" MinWidth="1040" MinHeight="700"
  Opened="Window_Loaded" Closing="Window_Closing">
  <Grid Background="#F5F7F6">
-  <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="30"/></Grid.RowDefinitions>
-  <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,0">
+  <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="118"/><RowDefinition Height="22"/></Grid.RowDefinitions>
+  <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,0">
    <Grid>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-     <TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="27" Foreground="{StaticResource Accent}" Margin="0,0,12,0" VerticalAlignment="Center"/>
-     <StackPanel><TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="合成器音色库" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/></StackPanel>
+     <TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="24" Foreground="{StaticResource Accent}" Margin="0,0,10,0" VerticalAlignment="Center"/>
+     <TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
     </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-     <Button x:Name="ScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描系统、用户和自定义安装目录，识别已安装音源" AutomationProperties.Name="扫描已安装音源"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
-     <Button x:Name="ScanPresetsButton" Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描已配置的预制目录，更新音色库" AutomationProperties.Name="扫描音色目录"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音色"/></StackPanel></Button>
-     <CheckBox x:Name="ForceGeneration" Content="全量重渲染（覆盖）" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" ToolTip.Tip="重新生成全库可用音色，包括已有预览；新结果验证成功后覆盖，停止或失败时保留旧预览" AutomationProperties.Name="强制全量重新渲染并覆盖"/>
-     <Button Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip.Tip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
-     <Button x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip.Tip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="■" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
+     <Button Classes="compact" x:Name="ScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描系统、用户和自定义安装目录，识别已安装音源" AutomationProperties.Name="扫描已安装音源"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
+     <Button Classes="compact" x:Name="ScanPresetsButton" Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描已配置的预制目录，更新音色库" AutomationProperties.Name="扫描音色目录"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音色"/></StackPanel></Button>
+     <CheckBox FontSize="12" x:Name="ForceGeneration" Content="全量重渲染（覆盖）" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" ToolTip.Tip="重新生成全库可用音色，包括已有预览；新结果验证成功后覆盖，停止或失败时保留旧预览" AutomationProperties.Name="强制全量重新渲染并覆盖"/>
+     <Button Classes="compact" Click="Render_Click" IsEnabled="{Binding IsIdle}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip.Tip="生成或继续未完成预览"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
+     <Button Classes="compact" x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip.Tip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="■" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
     </StackPanel>
    </Grid>
   </Border>
-  <Border x:Name="TaskStatusBand" IsVisible="{Binding TaskBandVisible}" Grid.Row="1" Height="188" Background="#EAF0EC" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="24,10" AutomationProperties.Name="任务进度与结果">
-   
-   <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="28"/><RowDefinition Height="32"/><RowDefinition Height="36"/><RowDefinition Height="32"/><RowDefinition Height="8"/></Grid.RowDefinitions>
-    <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,16,0"/>
-    <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-     <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,12,0"/>
-     <Button Content="打开新音色库" Click="OpenRelocatedLibrary_Click" IsVisible="{Binding RelocatedLibraryVisibility}" Margin="0,0,6,0" Padding="8,4" Height="30"/>
-     <Button x:Name="ViewGeneratedButton" Click="ViewGenerated_Click" IsVisible="{Binding GeneratedResultsVisibility}" ToolTip.Tip="查看已生成的预览，包含待试听确认项" Margin="0,0,6,0" Padding="8,4" Height="30"><StackPanel Orientation="Horizontal"><TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="查看已生成"/></StackPanel></Button>
-     <Button Classes="icon" Content="↗" Click="ViewTasks_Click" ToolTip.Tip="查看任务与运行记录" Width="30" Height="30" Margin="0,0,6,0"/>
-     <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与渲染器设置" IsVisible="{Binding TaskSettingsVisibility}" Width="30" Height="30" Margin="0"/>
-    </StackPanel>
-    <TextBlock x:Name="TaskCountersText" Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding TaskProgressText}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="14" FontSize="12" ToolTip.Tip="{Binding TaskProgressText}"/>
-    <TextBlock x:Name="TaskSelectionDetails" Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding TaskSelectionText}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskSelectionText}"/>
-    <TextBlock x:Name="TaskProgressDetails" Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding StatusMessage}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" LineHeight="16" FontSize="12" ToolTip.Tip="{Binding StatusMessage}"/>
-    <TextBlock x:Name="TaskResourceDetails" Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" TextWrapping="Wrap" MaxHeight="32" LineHeight="16" FontSize="12" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskMemoryText}"/>
-    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="5" Grid.ColumnSpan="2" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="8" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
-   </Grid>
-  </Border>
-  <TabControl x:Name="Pages" Grid.Row="2" Margin="24,18,24,0" BorderThickness="0" Background="White">
+  <TabControl x:Name="Pages" Grid.Row="1" Margin="16,6,16,0" BorderThickness="0" Background="White">
    <TabItem x:Name="LibraryTab" Header="音色库">
-    <Grid Background="White">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="290"/></Grid.ColumnDefinitions>
+    <Grid x:Name="LibraryWorkspace" Background="White">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="3.5*"/><ColumnDefinition Width="*" MinWidth="228" MaxWidth="270"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-     <Grid Grid.ColumnSpan="2" Margin="0,12,0,0">
-      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <Grid Margin="0,0,0,8">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="270"/><ColumnDefinition Width="180"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <Grid Margin="0,0,8,0" VerticalAlignment="Center">
-        <TextBox x:Name="SearchBox" Watermark="搜索音色、标签、包或目录" TextChanged="Filter_Changed" ToolTip.Tip="搜索音色名称、标签、MD5、包或文件路径" AutomationProperties.Name="搜索音色"/>
-        
-       </Grid>
-       <ComboBox x:Name="SynthFilter" Grid.Column="1" ItemsSource="{Binding SynthFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="音源筛选"/>
-       <ComboBox x:Name="StatusFilter" Grid.Column="2" ItemsSource="{Binding StatusFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="状态筛选"/>
-       <CheckBox x:Name="FavoritesOnly" Grid.Column="3" Content="收藏" IsVisible="False" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed"/>
-      </Grid>
-      <Grid Grid.Row="1" Margin="0,0,0,8">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.35*"/><ColumnDefinition Width="1.35*"/><ColumnDefinition Width="1.15*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
-       <ComboBox x:Name="SourceFilter" ItemsSource="{Binding SourceFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,8,0" ToolTip.Tip="来源目录" AutomationProperties.Name="来源目录筛选"/>
-       <ComboBox x:Name="PackageFilter" Grid.Column="1" ItemsSource="{Binding PackageFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,8,0" ToolTip.Tip="音色包" AutomationProperties.Name="音色包筛选"/>
-       <ComboBox x:Name="CategoryFilter" Grid.Column="2" ItemsSource="{Binding CategoryFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,8,0" ToolTip.Tip="音色类别" AutomationProperties.Name="音色类别筛选"/>
-       <ComboBox x:Name="TagFilter" Grid.Column="3" ItemsSource="{Binding TagFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,8,0" ToolTip.Tip="标签" AutomationProperties.Name="标签筛选"/>
-       <ComboBox x:Name="FavoriteFilter" Grid.Column="4" ItemsSource="{Binding FavoriteFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,8,0" ToolTip.Tip="收藏状态" AutomationProperties.Name="收藏状态筛选"/>
-       <Button Grid.Column="5" Classes="icon" Content="↺" Click="ClearFilters_Click" Width="34" Height="34" Margin="0" ToolTip.Tip="清除全部筛选" AutomationProperties.Name="清除全部筛选"/>
-      </Grid>
-      <Grid Grid.Row="2" Margin="0,0,0,10">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <TextBlock x:Name="PresetFormatHint" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap" LineHeight="18" Margin="0,0,12,0" VerticalAlignment="Center"
-        Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb；Spire .spf / .spf2 / .sbf / .swzip（预览待适配）。音色包与银行暂仅索引。"/>
-       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-        <TextBlock Text="{Binding VisiblePresetCount, StringFormat='筛选 {0} 项'}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <Button x:Name="RenderFilteredButton" Click="RenderFiltered_Click" IsEnabled="{Binding CanRenderFiltered}" Padding="10,6" ToolTip.Tip="生成当前筛选结果，跳过已有有效预览"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="生成筛选结果"/></StackPanel></Button>
-        <Button x:Name="ColumnsButton" Click="ShowColumns_Click" Padding="10,6" Margin="0" ToolTip.Tip="选择音色列表显示列"><Button.ContextMenu><ContextMenu x:Name="ColumnsMenu" Opened="ColumnMenu_Opened"/></Button.ContextMenu><StackPanel Orientation="Horizontal"><TextBlock Text="☷" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="列"/></StackPanel></Button>
-       </StackPanel>
-      </Grid>
+     <Grid x:Name="FilterStrip" Classes="filter-strip" Grid.ColumnSpan="2" Height="38" Margin="0,4,0,4">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="105"/><ColumnDefinition Width="108"/><ColumnDefinition Width="160"/><ColumnDefinition Width="94"/><ColumnDefinition Width="32"/><ColumnDefinition Width="112"/><ColumnDefinition Width="34"/><ColumnDefinition Width="26"/></Grid.ColumnDefinitions>
+      <TextBox x:Name="SearchBox" Watermark="搜索音色、标签或路径" TextChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="搜索名称、标签、MD5、音色包或文件路径" AutomationProperties.Name="搜索音色"/>
+      <ComboBox x:Name="SynthFilter" Grid.Column="1" ItemsSource="{Binding SynthFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #SynthFilter.SelectedItem.Label}" AutomationProperties.Name="音源筛选"/>
+      <ComboBox x:Name="StatusFilter" Grid.Column="2" ItemsSource="{Binding StatusFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #StatusFilter.SelectedItem.Label}" AutomationProperties.Name="状态筛选"/>
+      <ComboBox x:Name="SourceFilter" Grid.Column="3" ItemsSource="{Binding SourceFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #SourceFilter.SelectedItem.Label}" AutomationProperties.Name="来源目录筛选"/>
+      <ToggleButton x:Name="MoreFiltersToggle" Grid.Column="4" Classes="filter-toggle" Content="{Binding AdditionalFiltersLabel}" IsChecked="False" VerticalAlignment="Center" ToolTip.Tip="音色包、分类、标签和收藏筛选" AutomationProperties.Name="更多筛选"/>
+      <Button x:Name="ClearFiltersButton" Grid.Column="5" Classes="icon compact" Content="↺" Click="ClearFilters_Click" Width="26" Margin="0,0,6,0" ToolTip.Tip="清除全部筛选" AutomationProperties.Name="清除全部筛选"/>
+      <Button x:Name="RenderFilteredButton" Grid.Column="6" Classes="compact" Content="生成筛选结果" Click="RenderFiltered_Click" IsEnabled="{Binding CanRenderFiltered}" ToolTip.Tip="生成当前筛选结果，跳过已有有效预览"/>
+      <Button x:Name="ColumnsButton" Grid.Column="7" Classes="icon compact" Content="☷" Click="ShowColumns_Click" Width="28" Margin="0,0,6,0" ToolTip.Tip="选择音色列表显示列" AutomationProperties.Name="列表显示列"><Button.ContextMenu><ContextMenu x:Name="ColumnsMenu" Opened="ColumnMenu_Opened"/></Button.ContextMenu></Button>
+      <Button Grid.Column="8" Classes="icon compact" Content="?" Width="26" Margin="0" ToolTip.Tip="{Binding #PresetFormatHint.Text}" AutomationProperties.Name="查看支持的音色文件格式"/>
+      <CheckBox x:Name="FavoritesOnly" Content="收藏" IsVisible="False" IsCheckedChanged="Filter_Changed"/>
+      <TextBlock x:Name="PresetFormatHint" IsVisible="False" Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb；Spire .spf / .spf2 / .sbf / .swzip（预览待适配）。音色包与银行暂仅索引。"/>
      </Grid>
-     <Grid Grid.Row="1" Margin="0,0,18,0">
-      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
+     <Border x:Name="AdvancedFiltersPanel" Grid.Row="1" Grid.ColumnSpan="2" ZIndex="5" IsVisible="{Binding #MoreFiltersToggle.IsChecked}" Width="300" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,0,0" Padding="12" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" BoxShadow="0 4 16 0 #22000000">
+      <StackPanel>
+       <Grid ColumnDefinitions="*,Auto"><TextBlock Text="更多筛选" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="AdvancedFiltersCloseButton" Grid.Column="1" Classes="icon compact" Content="×" Width="26" Height="26" Margin="0" Click="CloseMoreFilters_Click" ToolTip.Tip="收起更多筛选"/></Grid>
+       <TextBlock Text="音色包" Classes="field-label"/><ComboBox x:Name="PackageFilter" ItemsSource="{Binding PackageFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="音色包筛选"/>
+       <TextBlock Text="分类" Classes="field-label"/><ComboBox x:Name="CategoryFilter" ItemsSource="{Binding CategoryFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="音色类别筛选"/>
+       <TextBlock Text="标签" Classes="field-label"/><ComboBox x:Name="TagFilter" ItemsSource="{Binding TagFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="标签筛选"/>
+       <TextBlock Text="收藏" Classes="field-label"/><ComboBox x:Name="FavoriteFilter" ItemsSource="{Binding FavoriteFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="收藏状态筛选"/>
+      </StackPanel>
+     </Border>
+     <Grid x:Name="LibraryListPane" Grid.Row="1" Margin="0,0,12,0">
+      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
       <Grid>
-       <DataGrid x:Name="PresetGrid" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+       <DataGrid RowHeight="32" ColumnHeaderHeight="30" FontSize="13" x:Name="PresetGrid" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
         
         <DataGrid.ContextMenu><ContextMenu Opened="ColumnMenu_Opened"/></DataGrid.ContextMenu>
         <DataGrid.Columns>
-         <DataGridTextColumn Header="音色名称" Binding="{Binding Name}" Width="220" MinWidth="160"/>
-         <DataGridTextColumn Header="音源" Binding="{Binding SynthLabel}" Width="95"/>
+         <DataGridTextColumn Header="音色名称" Binding="{Binding Name}" Width="*" MinWidth="180"/>
+         <DataGridTextColumn Header="音源" Binding="{Binding SynthLabel}" Width="85"/>
          <DataGridTextColumn Header="音色包 / 目录" Binding="{Binding Package}" Width="190" IsVisible="False"/>
-         <DataGridTextColumn Header="类别" Binding="{Binding CategoryTagsLabel}" Width="160"/>
-         <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="120"/>
+         <DataGridTextColumn Header="类别" Binding="{Binding CategoryTagsLabel}" Width="110"/>
+         <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="105"/>
          <DataGridTextColumn Header="反馈" Binding="{Binding FeedbackLabel}" Width="72" IsVisible="False"/>
-         <DataGridTextColumn Header="收藏" Binding="{Binding FavoriteLabel}" Width="50"/>
+         <DataGridTextColumn Header="收藏" Binding="{Binding FavoriteLabel}" Width="66"/>
          <DataGridTextColumn Header="时长" Binding="{Binding DurationLabel}" Width="85" IsVisible="False"/>
-         <DataGridTextColumn Header="尝试" Binding="{Binding AttemptsLabel}" Width="60"/>
-         <DataGridTextColumn Header="最近任务" Binding="{Binding LastRenderOutcomeLabel}" Width="110"/>
-         <DataGridTextColumn Header="生成时间" Binding="{Binding RenderedLabel}" Width="150"/>
+         <DataGridTextColumn Header="尝试" Binding="{Binding AttemptsLabel}" Width="66"/>
+         <DataGridTextColumn Header="最近任务" Binding="{Binding LastRenderOutcomeLabel}" Width="100"/>
+         <DataGridTextColumn Header="生成时间" Binding="{Binding RenderedLabel}" Width="150" IsVisible="False"/>
          <DataGridTextColumn Header="音源版本" Binding="{Binding PluginVersionLabel}" Width="120" IsVisible="False"/>
-         <DataGridTextColumn Header="详情" Binding="{Binding Message}" Width="360"/>
+         <DataGridTextColumn Header="详情" Binding="{Binding Message}" Width="360" IsVisible="False"/>
          <DataGridTextColumn Header="最近任务原因" Binding="{Binding LastRenderMessageLabel}" Width="360" IsVisible="False"/>
          <DataGridTextColumn Header="标签" Binding="{Binding TagsLabel}" Width="230" IsVisible="False"/>
          <DataGridTextColumn Header="来源目录" Binding="{Binding SourceLabel}" Width="320" IsVisible="False"/>
@@ -117,24 +88,21 @@
       </Grid>
       <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
-     <Border Grid.Row="1" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="20,8,0,0">
+     <Border x:Name="LibraryDetailsPane" Classes="preset-details" Grid.Row="1" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="12,4,0,0">
       <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
        <StackPanel x:Name="PresetDetailsContent">
-        <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
-        <TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}" Margin="0,8,0,18"/>
+        <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}" Margin="0,4,0,8"/>
         <StackPanel Orientation="Horizontal">
          <Button x:Name="FavoriteButton" Classes="icon" Content="☆" Click="Favorite_Click" ToolTip.Tip="切换收藏" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="＋" Click="Like_Click" ToolTip.Tip="喜欢 / 取消喜欢" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="−" Click="Dislike_Click" ToolTip.Tip="不喜欢 / 取消反馈" IsEnabled="{Binding CanEditSelection}"/>
         </StackPanel>
-        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-        <Button x:Name="LocatePresetButton" Content="{Binding LocatePresetLabel}" Click="Locate_Click" IsEnabled="{Binding CanLocatePreset}" Margin="0,0,8,0" Padding="10,6" AutomationProperties.Name="定位原音色或音色库文件" ToolTip.Tip="{Binding LocatePresetToolTip}"/>
-        <Border x:Name="PresetDragHandle" IsEnabled="{Binding CanDragPreset}" Cursor="Hand" Background="#EDF4EF" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Padding="10,7"
-         PointerPressed="PresetDrag_PointerPressed" PointerMoved="PresetDrag_PointerMoved" PointerReleased="PresetDrag_PointerReleased" AutomationProperties.Name="拖出音色原文件" ToolTip.Tip="按住并拖动，将选中音色的原文件交给接收程序">
-         <TextBlock Text="↗ 拖出音色" FontWeight="SemiBold"/>
-        </Border>
-        </StackPanel>
-        <TextBlock Text="{Binding PresetDragHint}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/>
+        <WrapPanel Margin="0,8,0,0">
+         <Button x:Name="CopyPresetPathButton" Classes="compact" Content="复制文件地址" Click="CopyPresetPath_Click" IsEnabled="{Binding CanCopyPresetPath}" Margin="0,0,6,4" ToolTip.Tip="{Binding PresetCopyHint}" AutomationProperties.Name="复制原音色或音色库文件地址"/>
+         <Button x:Name="LocatePresetButton" Classes="compact" Content="{Binding LocatePresetLabel}" Click="Locate_Click" IsEnabled="{Binding CanLocatePreset}" Margin="0,0,0,4" AutomationProperties.Name="定位原音色或音色库文件" ToolTip.Tip="{Binding LocatePresetToolTip}"/>
+        </WrapPanel>
+        <TextBlock Text="{Binding PresetCopyHint}" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
         <Button Content="编辑标签与分类" Click="EditPresetMetadata_Click" IsEnabled="{Binding CanEditSelection}" Margin="0,8,0,0" Padding="10,6"/>
         <Expander x:Name="PresetMetadataExpander" Header="标签与分类" IsExpanded="False" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
          <StackPanel IsEnabled="{Binding CanEditSelection}">
@@ -364,37 +332,59 @@
     </Grid>
    </TabItem>
   </TabControl>
-  <Border Grid.Row="3" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="120" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="24,12">
+  <Border x:Name="PlaybackBar" Grid.Row="2" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="84" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="16,6">
    
    <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
     <StackPanel VerticalAlignment="Center">
-     <TextBlock Text="{Binding NowPlaying}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,10"/>
+     <TextBlock Text="{Binding NowPlaying}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
      <StackPanel Orientation="Horizontal">
-      <Button Classes="icon" Content="▶" Click="Play_Click" ToolTip.Tip="播放 / 暂停" IsEnabled="{Binding CanPlay}"/>
-      <Button Classes="icon" Content="■" Click="Stop_Click" ToolTip.Tip="停止播放" IsEnabled="{Binding CanPlay}"/>
-      <Button Content="中" Click="PlayNote_Click" Tag="Middle" Padding="10,6" Width="40" Height="36" ToolTip.Tip="试听中音区" IsEnabled="{Binding CanPlay}"/>
-      <Button Content="高" Click="PlayNote_Click" Tag="High" Padding="10,6" Width="40" Height="36" ToolTip.Tip="试听高音区" IsEnabled="{Binding CanPlay}"/>
-      <Button Content="低" Click="PlayNote_Click" Tag="Low" Padding="10,6" Width="40" Height="36" ToolTip.Tip="试听低音区" IsEnabled="{Binding CanPlay}"/>
+      <Button x:Name="PlayPreviewButton" Classes="icon" Content="▶" Width="32" Height="28" Margin="0,0,5,0" Click="Play_Click" ToolTip.Tip="播放 / 暂停" IsEnabled="{Binding CanPlay}"/>
+      <Button Classes="icon" Content="■" Width="32" Height="28" Margin="0,0,5,0" Click="Stop_Click" ToolTip.Tip="停止播放" IsEnabled="{Binding CanPlay}"/>
+      <Button Content="中" Click="PlayNote_Click" Tag="Middle" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听中音区" IsEnabled="{Binding CanPlay}"/>
+      <Button Content="高" Click="PlayNote_Click" Tag="High" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听高音区" IsEnabled="{Binding CanPlay}"/>
+      <Button Content="低" Click="PlayNote_Click" Tag="Low" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听低音区" IsEnabled="{Binding CanPlay}"/>
      </StackPanel>
-     <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="#EAF0EC" CornerRadius="4" Padding="8,3" Margin="0,7,0,0" HorizontalAlignment="Left" AutomationProperties.Name="空格键从头播放当前音色预览">
-      <TextBlock Text="空格键 · 从头播放当前预览" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
+     <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="#EAF0EC" CornerRadius="4" Padding="5,1" Margin="0,4,0,0" HorizontalAlignment="Left" AutomationProperties.Name="空格键从头播放当前音色预览">
+      <TextBlock Text="空格键 · 从头播放当前预览" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
      </Border>
     </StackPanel>
-    <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="20"/></Grid.RowDefinitions>
+    <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="18"/></Grid.RowDefinitions>
      <local:WaveformView x:Name="Waveform"/>
      <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1" IsEnabled="{Binding CanPlay}" AutomationProperties.Name="播放位置"/>
     </Grid>
     <StackPanel Grid.Column="2" VerticalAlignment="Center">
-     <TextBlock x:Name="TimeLabel" Text="00:00 / 00:00" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" Margin="0,0,0,14"/>
+     <TextBlock x:Name="TimeLabel" Text="00:00 / 00:00" FontSize="12" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" Margin="0,0,0,5"/>
      <DockPanel><TextBlock Text="♪" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" VerticalAlignment="Center" Margin="0,0,8,0"/><Slider x:Name="VolumeSlider" Minimum="0" Maximum="1" AutomationProperties.Name="试听音量"/></DockPanel>
     </StackPanel>
    </Grid>
   </Border>
-  <Border Grid.Row="4" Background="#EAF0EC" Padding="24,0">
+  <Border x:Name="TaskStatusBand" Grid.Row="3" Height="118" Background="#F0F4F2" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="16,6" AutomationProperties.Name="固定生成进度与最近运行记录">
+   <Grid ColumnDefinitions="2.3*,16,*" RowDefinitions="24,20,18,18,18,4">
+    <Grid ColumnDefinitions="*,Auto">
+     <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+     <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+      <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,0,8,0"/>
+      <Button Content="打开新音色库" FontSize="11" Click="OpenRelocatedLibrary_Click" IsVisible="{Binding RelocatedLibraryVisibility}" Margin="0,0,5,0" Padding="6,2" Height="22" MinHeight="22"/>
+      <Button x:Name="ViewGeneratedButton" Content="查看已生成" FontSize="11" Click="ViewGenerated_Click" IsVisible="{Binding GeneratedResultsVisibility}" ToolTip.Tip="查看已生成的预览，包含待试听确认项" Margin="0,0,5,0" Padding="6,2" Height="22" MinHeight="22"/>
+      <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与生成设置" IsVisible="{Binding TaskSettingsVisibility}" Width="24" Height="22" Margin="0"/>
+     </StackPanel>
+    </Grid>
+    <TextBlock x:Name="TaskCountersText" Grid.Row="1" Text="{Binding TaskProgressText}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding TaskProgressText}"/>
+    <TextBlock x:Name="TaskSelectionDetails" Grid.Row="2" Text="{Binding TaskSelectionText}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskSelectionText}"/>
+    <TextBlock x:Name="TaskProgressDetails" Grid.Row="3" Text="{Binding StatusMessage}" FontSize="11" MaxHeight="18" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>
+    <TextBlock x:Name="TaskResourceDetails" Grid.Row="4" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" FontSize="11" MaxHeight="18" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskMemoryText}"/>
+    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="5" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="4" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
+    <Grid Grid.Column="2" ColumnDefinitions="*,Auto"><TextBlock Text="最近运行记录" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/><Button Grid.Column="1" Content="全部记录 ↗" FontSize="11" Click="ViewTasks_Click" Height="22" MinHeight="22" Padding="5,1" Margin="0" ToolTip.Tip="打开完整运行记录"/></Grid>
+    <ListBox x:Name="RecentLogList" Classes="recent-log" Grid.Column="2" Grid.Row="1" Grid.RowSpan="5" ItemsSource="{Binding RecentLogs}" FontSize="11" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="最近运行记录">
+     <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}"/></DataTemplate></ListBox.ItemTemplate>
+    </ListBox>
+   </Grid>
+  </Border>
+  <Border Grid.Row="4" Background="#EAF0EC" Padding="16,0">
    <DockPanel>
-    <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}" Margin="16,0,0,0"/>
-    <TextBlock x:Name="StatusFooterText" Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>
+    <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Muted}" Margin="16,0,0,0"/>
+    <TextBlock x:Name="StatusFooterText" Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>
    </DockPanel>
   </Border>
  </Grid>

@@ -1,0 +1,122 @@
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using SoundPreviewer.Core.Models;
+
+namespace SoundPreviewer.App;
+
+public partial class MainWindow
+{
+    private async Task<bool> CheckPresetCopyAsync()
+    {
+        string directory = Path.Combine(App.DataDirectory, "clipboard-path-check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "TEST ONLY 音色 #1.vital");
+        string bank = Path.Combine(directory, "TEST ONLY 音色库 #2.vitalbank");
+        string preview = Path.Combine(directory, "TEST ONLY preview.wav");
+        await File.WriteAllTextAsync(source, "TEST ONLY source fixture; never loaded by a plugin.");
+        await File.WriteAllTextAsync(bank, "TEST ONLY bank fixture; never opened as an archive.");
+        await File.WriteAllTextAsync(preview, "TEST ONLY preview sentinel");
+        try
+        {
+            byte[] originalSource = await File.ReadAllBytesAsync(source);
+            byte[] originalBank = await File.ReadAllBytesAsync(bank);
+            byte[] originalPreview = await File.ReadAllBytesAsync(preview);
+            var preset = new PresetRecord { Synth = SynthKind.Vital, SourcePath = source, PreviewPath = preview };
+            if (GetPresetSourceFilePath(preset) != source || PresetSourceUnavailableReason(preset).Length > 0)
+                throw new InvalidOperationException("复制路径未返回原始音色的完整本地地址。");
+            foreach (bool windows in new[] { true, false })
+            {
+                var reveal = PrepareSourceReveal(source, windows);
+                if (reveal.UseShellExecute || reveal.ArgumentList.Count != 2 || reveal.ArgumentList[1] != source ||
+                    reveal.ArgumentList[0] != (windows ? "/select," : "-R"))
+                    throw new InvalidOperationException("定位来源的原始路径或平台参数错误。");
+            }
+
+            bool nativeChecked = false;
+            var clipboard = Clipboard;
+            // Preserve a user's rich clipboard without reading its contents. CI normally starts empty.
+            if (clipboard is not null && (await clipboard.GetDataFormatsAsync()).All(format => format == DataFormat.Text))
+            {
+                string? previousText = await clipboard.TryGetTextAsync();
+                string? writtenText = null;
+                try
+                {
+                    writtenText = source;
+                    await CopyPresetFilePathAsync(preset);
+                    if (await clipboard.TryGetTextAsync() != source || (await clipboard.TryGetFilesAsync())?.Any() == true)
+                        throw new InvalidOperationException("复制路径没有写入纯文本地址，或错误地写入了文件复制对象。");
+                    preset.SourcePath = bank;
+                    preset.InternalPath = "TEST ONLY/folder/entry.vital";
+                    preset.BankSlot = 0;
+                    writtenText = bank;
+                    await CopyPresetFilePathAsync(preset);
+                    if (await clipboard.TryGetTextAsync() != bank || (await clipboard.TryGetFilesAsync())?.Any() == true)
+                        throw new InvalidOperationException("音色包条目未复制所属音色库地址，或把内部路径拼入了文件地址。");
+                    nativeChecked = true;
+                }
+                finally
+                {
+                    // A later user copy takes priority over restoring the smoke-test snapshot.
+                    if (writtenText is not null && await clipboard.TryGetTextAsync() == writtenText)
+                    {
+                        if (previousText is null) await clipboard.ClearAsync();
+                        else await ClipboardExtensions.SetTextAsync(clipboard, previousText);
+                    }
+                }
+            }
+
+            preset.SourcePath = bank;
+            preset.InternalPath = "TEST ONLY/folder/entry.vital";
+            preset.BankSlot = 0;
+            if (GetPresetSourceFilePath(preset) != bank)
+                throw new InvalidOperationException("银行条目地址包含内部文件名或槽位。");
+            preset.InternalPath = "";
+            preset.BankSlot = null;
+            preset.SourcePath = source;
+            preset.Synth = SynthKind.Unknown;
+            CheckAvailable();
+            preset.Synth = (SynthKind)int.MaxValue;
+            CheckAvailable();
+            preset.Synth = SynthKind.Vital;
+            preset.Status = PresetStatus.Unidentified;
+            CheckAvailable();
+            preset.Status = PresetStatus.Missing;
+            CheckAvailable();
+            preset.Status = PresetStatus.Pending;
+            preset.SourcePath = preview;
+            CheckUnavailable();
+            preset.SourcePath = "TEST ONLY relative.vital";
+            CheckUnavailable();
+            preset.SourcePath = Path.Combine(directory, "TEST ONLY missing.vital");
+            CheckUnavailable();
+            if (PresetSourceUnavailableReason(null).Length == 0 ||
+                !(await File.ReadAllBytesAsync(source)).SequenceEqual(originalSource) ||
+                !(await File.ReadAllBytesAsync(bank)).SequenceEqual(originalBank) ||
+                !(await File.ReadAllBytesAsync(preview)).SequenceEqual(originalPreview))
+                throw new InvalidOperationException("复制路径修改了来源、音色库或现有预览。");
+            return nativeChecked;
+
+            void CheckAvailable()
+            {
+                if (PresetSourceUnavailableReason(preset).Length > 0 || GetPresetSourceFilePath(preset) != source)
+                    throw new InvalidOperationException("已存在的音色文件被音源识别状态或历史缺失状态阻止复制路径。");
+            }
+
+            void CheckUnavailable()
+            {
+                if (PresetSourceUnavailableReason(preset).Length == 0)
+                    throw new InvalidOperationException("实际缺失、虚拟路径或非音色文件仍可复制路径。");
+                try { GetPresetSourceFilePath(preset); }
+                catch (InvalidOperationException) { return; }
+                throw new InvalidOperationException("无效来源仍返回了可复制路径。");
+            }
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(bank);
+            File.Delete(preview);
+            Directory.Delete(directory);
+        }
+    }
+}

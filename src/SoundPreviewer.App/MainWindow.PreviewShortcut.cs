@@ -21,6 +21,12 @@ public partial class MainWindow
 
     private void PreviewShortcut_KeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && MoreFiltersToggle.IsChecked == true)
+        {
+            MoreFiltersToggle.IsChecked = false;
+            e.Handled = true;
+            return;
+        }
         if (e.Key != Key.Space) return;
         var repeated = _previewSpaceHeld;
         _previewSpaceHeld = true;

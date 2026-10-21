@@ -46,7 +46,7 @@ public partial class MainWindow
                     throw new InvalidOperationException("按住空格键时系统重复按键反复重启了预览。");
             }
             RaiseShortcutKey(PresetGrid, KeyUpEvent);
-            var playButton = PreviewShortcutHint.GetVisualParent()!.GetVisualDescendants().OfType<Button>().First();
+            var playButton = PlayPreviewButton;
             if (!RaiseShortcutKey(playButton, KeyDownEvent) || _openPosition != 0 || _segmentEnd is not null)
                 throw new InvalidOperationException("播放按钮获得焦点时空格键没有从头播放。");
             RaiseShortcutKey(playButton, KeyUpEvent);
@@ -97,7 +97,7 @@ public partial class MainWindow
     private void CheckPreviewShortcutHint()
     {
         var bounds = SmokeBounds(PreviewShortcutHint);
-        if (!PreviewShortcutHint.IsEffectivelyVisible || bounds.Height < 20 ||
+        if (!PreviewShortcutHint.IsEffectivelyVisible || bounds.Height < 14 ||
             !new Rect(((Control)Content!).Bounds.Size).Contains(bounds) ||
             PreviewShortcutHint.GetVisualParent() is not Control parent || !SmokeBounds(parent).Contains(bounds) ||
             PreviewShortcutHint.Child is not TextBlock text || text.Text?.Contains("空格键", StringComparison.Ordinal) != true ||

@@ -43,7 +43,7 @@ public partial class MainWindow
         if (App.TestInstalledStorage && (!ApplicationPaths.SamePath(App.DataDirectory, ApplicationPaths.DefaultPreviewDirectory) ||
             !ApplicationPaths.SamePath(_settings.PreviewDirectory, App.DataDirectory) || !PreviewDirectoryBox.IsReadOnly))
             throw new InvalidOperationException("安装版与 Portable 的音色库及生成目录没有固定在程序旁 Preview。");
-        await CheckPresetDragDataAsync();
+        bool nativeClipboardChecked = await CheckPresetCopyAsync();
         if (PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0))
             throw new InvalidOperationException("重复音色未默认隐藏。");
         ShowDuplicates.IsChecked = true;
@@ -173,38 +173,7 @@ public partial class MainWindow
             actualViewports.Add(new { Name = name, RequestedWidth = width, RequestedHeight = height, ActualWidth = ClientSize.Width, ActualHeight = ClientSize.Height });
             WriteSmokeLayoutState($"ui-layout-{name}.json");
             CaptureSmokeImage($"ui-format-{name}.png");
-            var feedback = _statusMessage;
-            var progressText = _taskProgressText;
-            var memoryText = _taskMemoryText;
-            var selectionText = _taskSelectionText;
-            var fixedTaskBounds = TaskStatusBand.Bounds;
-            var fixedPageBounds = Pages.Bounds;
-            _smokeLayoutPhase = name + "-long-feedback";
-            _taskProgressText = "已处理 9999 / 10000 (100%) · 成功 8999（新生成 8000 / 复用 999） · 失败 1000 · 运行 4/4";
-            _taskMemoryText = "实占 3584 / 4096 MiB · 内存预留 128 MiB · 当前并行上限 4 条（设定 16，内存允许 4）";
-            _taskSelectionText = "本次所选 14007 条 · 去重 12551 个 · 处理队列 6432 个 · 重复副本 1456 · 待识别 5130 · 暂不支持生成 989";
-            _statusMessage = string.Concat(Enumerable.Repeat("TEST ONLY: long renderer error detail.\n", 250));
-            NotifyTaskProgress();
-            await SettleLayoutAsync();
-            CheckSmokeLayout();
-            if (TaskProgressDetails.Bounds.Height > 32.1 || TaskResourceDetails.Bounds.Height > 32.1 ||
-                Math.Abs(TaskStatusBand.Bounds.Height - 188) > .1 || TaskStatusBand.Bounds != fixedTaskBounds || Pages.Bounds != fixedPageBounds)
-                throw SmokeLayoutFailure("长渲染错误挤占音色库内容区域。");
-            CaptureSmokeImage($"ui-long-feedback-{name}.png");
-            foreach (string detail in new[] { "TEST ONLY short", "TEST ONLY first line\nTEST ONLY second line", "" })
-            {
-                _statusMessage = detail;
-                _taskMemoryText = detail;
-                NotifyTaskProgress();
-                await SettleLayoutAsync();
-                if (TaskStatusBand.Bounds != fixedTaskBounds || Pages.Bounds != fixedPageBounds)
-                    throw SmokeLayoutFailure("进度说明从一行变成两行或内存说明显隐时改变了任务区域或音色库位置。");
-            }
-            _statusMessage = feedback;
-            _taskProgressText = progressText;
-            _taskMemoryText = memoryText;
-            _taskSelectionText = selectionText;
-            NotifyTaskProgress();
+            await CheckStableLibraryLayoutAsync(name);
             ResetFilterControls();
             for (var page = 0; page < 3; page++)
             {
@@ -215,16 +184,16 @@ public partial class MainWindow
                     throw SmokeLayoutFailure("其他页面显示了仅在音色库生效的空格快捷键提示。");
                 if (page == 0)
                 {
-                    PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && PresetDragUnavailableReason(row.Record).Length == 0);
+                    PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0 && PresetSourceUnavailableReason(row.Record).Length == 0);
                     PresetDetailsScroll.Offset = default;
                     await SettleLayoutAsync();
-                    if (Selected is not null && (!CanLocatePreset || !CanDragPreset || !LocatePresetButton.IsEffectivelyEnabled || !PresetDragHandle.IsEffectivelyEnabled))
-                        throw SmokeLayoutFailure("独立音色的定位或拖出入口未启用。");
-                    PresetDragHandle.BringIntoView();
+                    if (Selected is not null && (!CanLocatePreset || !CanCopyPresetPath || !LocatePresetButton.IsEffectivelyEnabled || !CopyPresetPathButton.IsEffectivelyEnabled))
+                        throw SmokeLayoutFailure("音色的定位或复制路径入口未启用。");
+                    CopyPresetPathButton.BringIntoView();
                     await SettleLayoutAsync();
-                    if (!SmokeBounds(PresetDetailsScroll).Contains(SmokeBounds(PresetDragHandle)) ||
+                    if (!SmokeBounds(PresetDetailsScroll).Contains(SmokeBounds(CopyPresetPathButton)) ||
                         !SmokeBounds(PresetDetailsScroll).Contains(SmokeBounds(LocatePresetButton)))
-                        throw SmokeLayoutFailure("音色定位或拖出入口不能滚动到详情可视区域。");
+                        throw SmokeLayoutFailure("音色定位或复制路径入口不能滚动到详情可视区域。");
                 }
                 CaptureSmokeImage($"ui-{name}-{page}.png");
             }
@@ -289,13 +258,16 @@ public partial class MainWindow
             PluginDirectoriesChecked = true, PluginScanDefaultsChecked = true, PluginScanControlsViewports = 2,
             ClosingCallbacksChecked = true,
             TemplatePersistenceChecked = editingChecked.Template, MetadataPersistenceChecked = editingChecked.Metadata,
+            DataLibraryViewports = editingChecked.Metadata ? 2 : 0,
             RendererSettingsChecked = rendererSettingsChecked,
-            PresetFileTransferChecked = true, SourceRevealCommandChecked = true, SourceCountsChecked = true,
+            PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
+            SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, DirectoryConfigurationChecked = true,
             CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
             StartupWarnings = App.StorageStartupMessages,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
             QueueSelectionCountsChecked = true, ProgressLayoutStableChecked = true,
+            LibrarySpaceChecked = true, SingleRowFiltersChecked = true, PlaybackProgressDockChecked = true,
             DirectoryConfigurationPath = DirectoryConfigurationLocation, DirectoryPluginDirectories = _settings.PluginDirectories,
             InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
             ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
@@ -472,24 +444,17 @@ public partial class MainWindow
             SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(ScanPresetsButton)) ||
             SmokeBounds(ScanPresetsButton).Intersects(SmokeBounds(ForceGeneration)))
             throw SmokeLayoutFailure("扫描音源、扫描音色与主工具栏重叠。");
-        var hint = SmokeBounds(PresetFormatHint);
-        if (!PresetFormatHint.IsEffectivelyVisible || hint.Width <= 0 || hint.Height <= 0 || !area.Contains(hint) || hint.Bottom > SmokeBounds(PresetGrid).Top + 1)
-            throw SmokeLayoutFailure("文件后缀说明不可见或超出表格区域。");
+        string? formats = PresetFormatHint.Text;
         foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb", ".spf", ".spf2", ".sbf", ".swzip" })
-            if (PresetFormatHint.Text?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
-        if (TaskStatusBand.IsEffectivelyVisible && (SmokeBounds(TaskProgressTitle).Intersects(SmokeBounds(TaskProgressMetadata)) ||
-            SmokeBounds(TaskProgressDetails).Bottom > SmokeBounds(GenerationProgressBar).Top || SmokeBounds(TaskStatusBand).Bottom > SmokeBounds(Pages).Top))
-            throw SmokeLayoutFailure("任务进度区域内容重叠。");
-        if (TaskResourceDetails.IsEffectivelyVisible && (SmokeBounds(TaskResourceDetails).Bottom > SmokeBounds(GenerationProgressBar).Top ||
-            SmokeBounds(TaskResourceDetails).Top < SmokeBounds(TaskProgressDetails).Bottom || !area.Contains(SmokeBounds(TaskResourceDetails))))
-            throw SmokeLayoutFailure("任务内存信息超出界面或与其他内容重叠。");
+            if (formats?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
+        CheckLibraryWorkspaceGeometry();
         if (EmptyPresetState.IsEffectivelyVisible && SmokeBounds(EmptyPresetState).Bottom > SmokeBounds(PresetGrid).Bottom + 1)
             throw SmokeLayoutFailure("空列表说明溢出音色表格。");
-        var drag = SmokeBounds(PresetDragHandle);
+        var copy = SmokeBounds(CopyPresetPathButton);
         var details = SmokeBounds(PresetDetailsScroll);
-        if (!PresetDragHandle.IsEffectivelyVisible || drag.Width <= 0 || drag.Height < 32 ||
-            drag.Left < details.Left - 1 || drag.Right > details.Right + 1)
-            throw SmokeLayoutFailure("音色拖动入口不可见或横向溢出详情区。");
+        if (!CopyPresetPathButton.IsEffectivelyVisible || copy.Width <= 0 || copy.Height < 24 ||
+            copy.Left < details.Left - 1 || copy.Right > details.Right + 1)
+            throw SmokeLayoutFailure("复制路径入口不可见或横向溢出详情区。");
     }
 
     private InvalidOperationException SmokeLayoutFailure(string message)
@@ -509,7 +474,10 @@ public partial class MainWindow
         var screen = Screens.ScreenFromWindow(this);
         Control[] controls = [AppBrandName, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
             StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
-            TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, PresetDragHandle, PresetDetailsScroll, LocatePresetButton];
+            TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, CopyPresetPathButton, PresetDetailsScroll, LocatePresetButton,
+            LibraryWorkspace, LibraryListPane, LibraryDetailsPane, FilterStrip, PlaybackBar, PlayPreviewButton,
+            SearchBox, SynthFilter, StatusFilter, SourceFilter, AdvancedFiltersPanel, RecentLogList,
+            PreviewShortcutHint, Waveform, SeekSlider];
         var state = new
         {
             Phase = _smokeLayoutPhase,

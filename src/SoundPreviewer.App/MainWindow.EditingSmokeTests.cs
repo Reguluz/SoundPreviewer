@@ -77,6 +77,7 @@ public partial class MainWindow
                 if (stored.ManualTags is not null || stored.ManualCategories is not null ||
                     !stored.Tags.SequenceEqual(savedRecords.Single(item => item.Id == stored.Id).Tags))
                     throw new InvalidOperationException("恢复自动标签与分类没有清除手工覆盖。");
+                await CaptureSyntheticLibraryViewportsAsync(row);
                 metadataChecked = true;
             }
             _storageRelocated = true;

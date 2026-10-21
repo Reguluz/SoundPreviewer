@@ -68,6 +68,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public ObservableCollection<PresetRow> Presets { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
+    public ObservableCollection<string> RecentLogs { get; } = [];
     public ObservableCollection<SourceFolder> Sources { get; } = [];
     public ObservableCollection<PluginConfiguration> Plugins { get; } = [];
     public ObservableCollection<string> PluginDirectories { get; } = [];
@@ -124,8 +125,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public bool TaskSettingsVisibility => _needsRendererSetup && IsIdle;
     public bool TaskBandVisible => _storageRelocated || (_hasTaskFeedback && (SettingsTab?.IsSelected != true || IsBusy));
     public bool RelocatedLibraryVisibility => _storageRelocated;
-    public string TaskTitle => _taskTitle;
-    public string TaskProgressText => _taskProgressText;
+    public string TaskTitle => _taskTitle.Length > 0 ? _taskTitle : "生成进度";
+    public string TaskProgressText => _taskProgressText.Length > 0 ? _taskProgressText : "尚未开始生成 · 已有预览可直接试听";
     public string TaskMemoryText => _taskMemoryText;
     public string TaskSelectionText => _taskSelectionText;
     public bool TaskMemoryVisible => _taskMemoryText.Length > 0;
@@ -158,6 +159,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
         InitializePreviewShortcut();
+        AddHandler(PointerPressedEvent, DismissMoreFilters_PointerPressed, RoutingStrategies.Tunnel);
         Title += " (" + AppVersion + ")";
         DataContext = this;
         Pages.SelectionChanged += (_, _) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TaskBandVisible)));
@@ -250,6 +252,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisiblePresetCount)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRenderFiltered)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AdditionalFiltersLabel)));
     }
 
     private void RefreshFilterChoices()
@@ -586,6 +589,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         CategoryFilter.SelectedIndex = 0;
         FavoriteFilter.SelectedIndex = 0;
         FavoritesOnly.IsChecked = false;
+        MoreFiltersToggle.IsChecked = false;
     }
 
     private void RefreshCompatibility()
@@ -1372,7 +1376,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private void Log(string message)
     {
-        Logs.Add($"{DateTime.Now:HH:mm:ss}  {message}");
+        string entry = $"{DateTime.Now:HH:mm:ss}  {message}";
+        Logs.Add(entry);
+        RecentLogs.Insert(0, entry.ReplaceLineEndings(" "));
+        while (RecentLogs.Count > 12) RecentLogs.RemoveAt(RecentLogs.Count - 1);
         while (Logs.Count > 250) Logs.RemoveAt(0);
         if (!App.SmokeTest)
             try { File.AppendAllText(Path.Combine(App.DataDirectory, "application.log"), $"{DateTimeOffset.Now:O}  {message}{Environment.NewLine}"); }

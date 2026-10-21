@@ -39,6 +39,54 @@
    <Setter Property="Height" Value="36"/>
    <Setter Property="Padding" Value="0"/>
   </Style>
+  <Style Selector="Button.compact">
+   <Setter Property="FontSize" Value="12"/>
+   <Setter Property="Height" Value="30"/>
+   <Setter Property="MinHeight" Value="30"/>
+   <Setter Property="Padding" Value="9,4"/>
+   <Setter Property="Margin" Value="0,0,6,0"/>
+  </Style>
+  <Style Selector="ToggleButton.filter-toggle">
+   <Setter Property="FontSize" Value="12"/>
+   <Setter Property="Height" Value="30"/>
+   <Setter Property="MinHeight" Value="30"/>
+   <Setter Property="Padding" Value="9,4"/>
+   <Setter Property="Margin" Value="0,0,6,0"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+   <Setter Property="CornerRadius" Value="4"/>
+  </Style>
+  <Style Selector="Button.icon.compact">
+   <Setter Property="Padding" Value="0"/>
+   <Setter Property="FontSize" Value="16"/>
+  </Style>
+  <Style Selector="Grid.filter-strip TextBox, Grid.filter-strip ComboBox">
+   <Setter Property="FontSize" Value="12"/>
+   <Setter Property="MinHeight" Value="30"/>
+   <Setter Property="Height" Value="30"/>
+   <Setter Property="Padding" Value="7,4"/>
+  </Style>
+  <Style Selector="Border.preset-details TextBlock">
+   <Setter Property="FontSize" Value="12"/>
+  </Style>
+  <Style Selector="Border.preset-details TextBlock.field-label">
+   <Setter Property="Margin" Value="0,9,0,4"/>
+   <Setter Property="FontSize" Value="11"/>
+  </Style>
+  <Style Selector="Border.preset-details Button.icon">
+   <Setter Property="Width" Value="32"/>
+   <Setter Property="Height" Value="28"/>
+   <Setter Property="FontSize" Value="15"/>
+   <Setter Property="Margin" Value="0,0,5,0"/>
+  </Style>
+  <Style Selector="DataGrid#PresetGrid DataGridColumnHeader">
+   <Setter Property="Padding" Value="6,0"/>
+   <Setter Property="FontSize" Value="12"/>
+  </Style>
+  <Style Selector="ListBox.recent-log ListBoxItem">
+   <Setter Property="MinHeight" Value="20"/>
+   <Setter Property="Padding" Value="3,1"/>
+  </Style>
   <Style Selector="TextBox">
    <Setter Property="Padding" Value="8,6"/>
    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
@@ -82,8 +130,8 @@
    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
   </Style>
   <Style Selector="TabItem">
-   <Setter Property="Padding" Value="20,11"/>
-   <Setter Property="FontSize" Value="14"/>
+   <Setter Property="Padding" Value="14,7"/>
+   <Setter Property="FontSize" Value="12"/>
   </Style>
   <Style Selector="TextBlock.field-label">
    <Setter Property="Foreground" Value="{StaticResource Muted}"/>
