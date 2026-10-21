@@ -6,6 +6,8 @@ Windows 与 macOS 使用同一套 App、Core 和 Worker。版本统一由根目�
 
 CI 新增 Windows x64、Apple Silicon 与 Intel Mac 的真实空宿主准备、整体移动和离线复用检查；测试用私有 Python 目录不上传为程序包。只有空宿主检查成功后才更新受管运行时与设置。商业插件兼容性仍以真实样本为准，见[验证记录](rendering.md)。Sushi 继续保留本地研究，不加入公开包。
 
+Mac 磁盘镜像创建遇到明确的 `Resource busy` 时，最多三次尝试，间隔 2 / 5 秒并保留日志；其他错误或重试耗尽仍使构建失败。不终止系统服务，也不卸载未知磁盘。
+
 0.8.0 增加手动选择的 Sushi 实验后端：Windows x64 Serum 1 VST2 独立 FPCh FXP，可用原生宿主生成三音区及可配置快速预览，无需 Python。每音区使用新实例，避免 Delay 等效果残留串入下一音区；仍沿用同音源优先队列、独立 Worker 并行及 4 GiB RSS 目标。宿主状态回读会规范化，未将其当作精确目标状态证明，结果保持待试听确认。声音参照会做三次独立校准，不稳定或匹配默认音色时拒绝提交。Windows 中文路径及深层临时路径包含专项处理。现有后端、schema 2、Config / Preview、有效旧预览的优先复用保持兼容，Sushi 的新指纹额外覆盖 sndfile.dll。
 
 公开安装包和 CI 不捆绑 Sushi、VST 2 SDK 或商业音源，也不自动更换已保存的后端。实验宿主须自备本项目补丁版本，要求 Windows 10 1903+；主应用原系统下限不变。已找到 SDK 镜像并跑通本地真实流程，但 Sushi 对所加载插件的许可条件尚待确认，不能将技术成功描述为已经具备公开捆绑条件。详情见[宿主研究](headless-host-research.md)及[本地构建说明](sushi-build.md)。

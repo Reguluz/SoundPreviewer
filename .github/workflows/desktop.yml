@@ -155,5 +155,6 @@ jobs:
             artifacts/fresh-startup-smoke-*/application/Preview/ui-*
             artifacts/private-renderer-smoke-*/private-renderer-smoke.json
             artifacts/private-renderer-win-x64-*/report.json
+            artifacts/dmg-*-attempt-*.txt
           if-no-files-found: ignore
           retention-days: 7

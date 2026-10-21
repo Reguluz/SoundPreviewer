@@ -68,7 +68,25 @@ image_megabytes="$(( (padded_bytes + 1024 * 1024 - 1) / (1024 * 1024) ))"
 echo "DMG payload: $payload_bytes logical bytes; image capacity: $image_megabytes MiB (25% plus 64 MiB padding)."
 du -sk "$stage_dir"
 df -k "$stage_dir" "$release_dir" "${TMPDIR:-/tmp}"
-hdiutil create -volname SoundPreviewer -srcfolder "$stage_dir" -size "${image_megabytes}m" -fs HFS+ -ov -format UDZO "$release_dir/SoundPreviewer-$version-$runtime.dmg"
+for attempt in 1 2 3; do
+    image_log="$project_dir/artifacts/dmg-$runtime-attempt-$attempt.txt"
+    if LC_ALL=C hdiutil create -volname SoundPreviewer -srcfolder "$stage_dir" -size "${image_megabytes}m" -fs HFS+ -ov -format UDZO "$release_dir/SoundPreviewer-$version-$runtime.dmg" > "$image_log" 2>&1; then
+        cat "$image_log"
+        break
+    else
+        image_status=$?
+        cat "$image_log" >&2
+        if [[ "$attempt" == 3 ]] || ! grep -Fxq 'hdiutil: create failed - Resource busy' "$image_log"; then
+            exit "$image_status"
+        fi
+        # Hosted macOS runners occasionally report EBUSY while creating an
+        # image. Retry this one operation; never detach disks or hide other errors.
+        delay=2
+        [[ "$attempt" == 2 ]] && delay=5
+        echo "DMG creation reported Resource busy; retrying in $delay seconds ($attempt/3)."
+        sleep "$delay"
+    fi
+done
 (
     cd "$release_dir"
     shasum -a 256 "SoundPreviewer-$version-$runtime.zip" "SoundPreviewer-$version-$runtime.dmg" > "SHA256SUMS-$runtime.txt"
