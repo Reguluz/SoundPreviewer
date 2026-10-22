@@ -10,7 +10,6 @@ namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
-    private HashSet<string> _filterRepresentativeIds = new(StringComparer.Ordinal);
     public ObservableCollection<FilterGroup> FilterGroups { get; } = CreateFilterGroups();
     public ObservableCollection<FilterOption> ActiveFilterOptions => FilterGroups.First(group => group.IsActive).Options;
     public string ActiveFilterLabel => FilterGroups.First(group => group.IsActive).Label;
@@ -73,7 +72,7 @@ public partial class MainWindow
     }
 
     private bool FilterPreset(object item) => item is PresetRow row && MatchesFilterPreset(row) &&
-        (ShowDuplicates?.IsChecked == true || _filterRepresentativeIds.Contains(row.Record.Id));
+        (ShowDuplicates?.IsChecked == true || row.Record.DuplicateOfId.Length == 0);
 
     private bool MatchesFilterPreset(PresetRow row)
     {
@@ -102,29 +101,7 @@ public partial class MainWindow
         return true;
     }
 
-    private void RefreshPresetView()
-    {
-        // Choose a representative within the matching source union, not globally.
-        var representatives = new Dictionary<string, PresetRecord>(StringComparer.Ordinal);
-        foreach (var row in Presets)
-        {
-            if (!MatchesFilterPreset(row)) continue;
-            var record = row.Record;
-            string canonicalId = _duplicateView.ResolveCanonical(record).Id;
-            if (!representatives.TryGetValue(canonicalId, out var current) || Prefer(record, current, canonicalId))
-                representatives[canonicalId] = record;
-        }
-        _filterRepresentativeIds = representatives.Values.Select(record => record.Id).ToHashSet(StringComparer.Ordinal);
-        PresetsView.Refresh();
-
-        static bool Prefer(PresetRecord candidate, PresetRecord current, string canonicalId)
-        {
-            if ((candidate.Id == canonicalId) != (current.Id == canonicalId)) return candidate.Id == canonicalId;
-            if ((candidate.Status == PresetStatus.Missing) != (current.Status == PresetStatus.Missing)) return candidate.Status != PresetStatus.Missing;
-            int path = StringComparer.OrdinalIgnoreCase.Compare(candidate.SourcePath, current.SourcePath);
-            return path < 0 || path == 0 && StringComparer.Ordinal.Compare(candidate.Id, current.Id) < 0;
-        }
-    }
+    private void RefreshPresetView() => PresetsView.Refresh();
 
     private void Filter_Changed(object sender, RoutedEventArgs e)
     {

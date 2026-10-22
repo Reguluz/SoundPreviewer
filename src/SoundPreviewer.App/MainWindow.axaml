@@ -87,7 +87,7 @@
        </StackPanel>
        </ScrollViewer>
       </Grid>
-      <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
+      <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" ToolTip.Tip="未勾选时仅显示每组音色的保留项；筛选不会带回重复副本。" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
      <Border x:Name="LibraryDetailsPane" Classes="preset-details" Grid.Row="2" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="12,4,0,0">
       <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

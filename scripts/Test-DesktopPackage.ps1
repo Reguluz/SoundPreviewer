@@ -66,7 +66,8 @@ try {
         -not $result.SingleRowFiltersChecked -or -not $result.PlaybackProgressDockChecked -or
         -not $result.MultiSelectFiltersChecked -or -not $result.FilterRefreshPreservedChecked -or
         -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked -or -not $result.CompressedPreviewChecked -or
-        -not $result.CurrentFilterGenerationChecked -or -not $result.RendererUnavailableReasonsChecked) {
+        -not $result.CurrentFilterGenerationChecked -or -not $result.RendererUnavailableReasonsChecked -or
+        -not $result.StrictDuplicateHidingChecked) {
         throw "Published application did not verify copy-path and compact library layout; see $dataDirectory"
     }
     if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {

@@ -50,8 +50,11 @@ public partial class MainWindow
                     preset.BankSlot = 0;
                     writtenText = bank;
                     await CopyPresetFilePathAsync(preset);
-                    if (await clipboard.TryGetTextAsync() != bank || (await clipboard.TryGetFilesAsync())?.Any() == true)
-                        throw new InvalidOperationException("音色包条目未复制所属音色库地址，或把内部路径拼入了文件地址。");
+                    await SettleLayoutAsync();
+                    string? copiedBankText = await clipboard.TryGetTextAsync();
+                    bool copiedBankFiles = (await clipboard.TryGetFilesAsync())?.Any() == true;
+                    if (copiedBankText != bank || copiedBankFiles)
+                        throw new InvalidOperationException($"音色包条目未复制所属音色库地址，或把内部路径拼入了文件地址。目标地址匹配：{copiedBankText == bank}；前次地址匹配：{copiedBankText == source}；文本为空：{string.IsNullOrEmpty(copiedBankText)}；包含文件对象：{copiedBankFiles}。");
                     nativeChecked = true;
                 }
                 finally

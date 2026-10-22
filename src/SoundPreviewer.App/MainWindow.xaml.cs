@@ -273,7 +273,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task GenerateCurrentFilterAsync()
     {
         if (!IsIdle || _isClosing) return;
-        // Filter before resolving cross-directory duplicates, so a matching copy includes its sound only.
+        // Only visible rows participate; duplicate copies must be explicitly shown first.
         var records = _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record).ToList());
         var force = ForceGeneration.IsChecked == true;
         ForceGeneration.IsChecked = false;

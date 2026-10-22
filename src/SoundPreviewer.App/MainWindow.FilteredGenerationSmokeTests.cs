@@ -76,6 +76,7 @@ public partial class MainWindow
             var corrupt = Record("ready-corrupt", PresetStatus.Ready);
             await Cache(corrupt, ".wav", corrupt: true);
             string unrelatedJson = JsonSerializer.Serialize(unrelated, LibraryJson.Options);
+            string canonicalJson = JsonSerializer.Serialize(canonical, LibraryJson.Options);
             var hashes = files.Where(File.Exists).ToDictionary(path => path, path => Fingerprints.HashFile(path));
 
             UnloadForStorageMaintenance();
@@ -99,24 +100,43 @@ public partial class MainWindow
             SetFilterSelection("status", "pending", "generated", "failed");
             SelectFilterGroup("package");
             string filterSnapshot = Filters();
-            if (PresetsView.Count != 7 || !PresetsView.Cast<PresetRow>().Any(row => row.Record.Id == copy.Id) ||
+            if (PresetsView.Count != 6 || PresetsView.Cast<PresetRow>().Any(row => row.Record.Id == copy.Id) ||
                 PresetsView.Cast<PresetRow>().Any(row => row.Record.Id == canonical.Id || row.Record.Id == unrelated.Id))
-                throw new InvalidOperationException("生成测试没有保留当前来源的跨目录副本代表。");
+                throw new InvalidOperationException("关闭重复项后，当前筛选仍包含跨目录副本或筛选外音色。");
 
             await ClickAndWait(RenderCurrentFilterButton, force: false);
-            CheckResult(reused: 4, unconfigured: 3);
+            CheckResult(reused: 3, unconfigured: 3);
             var afterDefault = _store.LoadPresets().ToDictionary(record => record.Id);
-            if (afterDefault[canonical.Id].Status != PresetStatus.NeedsReview || afterDefault[stale.Id].Status != PresetStatus.NeedsReview ||
+            if (JsonSerializer.Serialize(afterDefault[canonical.Id], LibraryJson.Options) != canonicalJson ||
+                afterDefault[stale.Id].Status != PresetStatus.NeedsReview ||
                 afterDefault[copy.Id].PreviewPath != canonical.PreviewPath || afterDefault[copy.Id].Status != copy.Status ||
-                Presets.Single(row => row.Record.Id == copy.Id).StatusLabel != "已生成")
-                throw new InvalidOperationException("筛选副本未复用主项，或有效旧预览因旧失败状态被当作未生成。");
+                PresetsView.Cast<PresetRow>().Any(row => row.Record.Id == copy.Id))
+                throw new InvalidOperationException("关闭重复项的生成越界处理了外部主项、显示了副本，或破坏了已有缓存共享。");
             await SettleLayoutAsync();
             CaptureSmokeImage("ui-filtered-generation.png");
             await ClickAndWait(RenderFilteredButton, force: true);
-            CheckResult(reused: 0, unconfigured: 7);
+            CheckResult(reused: 0, unconfigured: 6);
+            if (JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == canonical.Id), LibraryJson.Options) != canonicalJson)
+                throw new InvalidOperationException("关闭重复项的覆盖生成越界处理了隐藏副本的外部主项。");
             if (!Logs.Any(entry => entry.EndsWith("仅生成当前筛选中未生成的音色，已有有效预览跳过。", StringComparison.Ordinal)) ||
                 !Logs.Any(entry => entry.EndsWith("仅覆盖重渲染当前筛选结果，逐项保留旧预览直到新结果完成。", StringComparison.Ordinal)))
                 throw new InvalidOperationException("生成任务没有说明当前筛选范围及覆盖语义。");
+
+            ShowDuplicates.IsChecked = true;
+            filterSnapshot = Filters();
+            if (PresetsView.Count != 7 || !PresetsView.Cast<PresetRow>().Any(row => row.Record.Id == copy.Id))
+                throw new InvalidOperationException("显式开启重复项后，当前来源的跨路径副本仍不可见。");
+            await ClickAndWait(RenderCurrentFilterButton, force: false);
+            CheckResult(reused: 4, unconfigured: 3);
+            if (_store.LoadPresets().Single(record => record.Id == canonical.Id).Status != PresetStatus.NeedsReview ||
+                _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)).Count != 7)
+                throw new InvalidOperationException("开启重复项后，跨路径副本没有按全局主项处理一次。");
+            CaptureSmokeImage("ui-filtered-generation-duplicates.png");
+            await ClickAndWait(RenderFilteredButton, force: true);
+            CheckResult(reused: 0, unconfigured: 7);
+            ShowDuplicates.IsChecked = false;
+            filterSnapshot = Filters();
+            canonicalJson = JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == canonical.Id), LibraryJson.Options);
 
             // An offline configured host must keep its identity and give a concrete reason,
             // while valid previews remain reusable without launching that host.
@@ -139,7 +159,7 @@ public partial class MainWindow
             PopulateSettings();
             var previousLogs = Logs.ToHashSet(StringComparer.Ordinal);
             await ClickAndWait(RenderCurrentFilterButton, force: false);
-            CheckResult(reused: 4, unconfigured: 0, unavailable: 3);
+            CheckResult(reused: 3, unconfigured: 0, unavailable: 3);
             var diagnosed = _store.LoadPresets().ToDictionary(record => record.Id);
             foreach (var original in new[] { pending, missing, corrupt })
             {
@@ -151,6 +171,7 @@ public partial class MainWindow
                     throw new InvalidOperationException("不可用宿主的具体原因未持久化，或跳过任务改变了尝试次数、状态及旧缓存。");
             }
             if (!diagnosed[pending.Id].Message.Contains(vitalReadiness.Status, StringComparison.Ordinal) ||
+                JsonSerializer.Serialize(diagnosed[canonical.Id], LibraryJson.Options) != canonicalJson ||
                 JsonSerializer.Serialize(_settings.Plugins, LibraryJson.Options) != configuredJson ||
                 JsonSerializer.Serialize(_store.LoadSettings().Plugins, LibraryJson.Options) != configuredJson ||
                 TaskProgressDetails.Text != StatusMessage || !TaskSettingsVisibility ||
@@ -185,13 +206,15 @@ public partial class MainWindow
             }
             void CheckResult(int reused, int unconfigured, int unavailable = 0)
             {
+                int expectedCount = ShowDuplicates.IsChecked == true ? 7 : 6;
                 string counters = $"成功 {reused}（新生成 0 / 复用 {reused}） · 失败 0";
                 if (unconfigured > 0) counters += $" · 未选择生成方式 {unconfigured}";
                 if (unavailable > 0) counters += $" · 暂不可用 {unavailable}";
                 if (!StatusMessage.Contains("当前筛选：", StringComparison.Ordinal) ||
                     !TaskProgressText.Contains(counters, StringComparison.Ordinal) ||
-                    !TaskSelectionText.StartsWith("当前筛选 · 本次所选 7 条 · 去重 7 个 · 处理队列 7 个", StringComparison.Ordinal) ||
-                    Filters() != filterSnapshot || PresetsView.Count != 7 ||
+                    !TaskSelectionText.StartsWith($"当前筛选 · 本次所选 {expectedCount} 条 · 去重 {expectedCount} 个 · 处理队列 {expectedCount} 个", StringComparison.Ordinal) ||
+                    Filters() != filterSnapshot || PresetsView.Count != expectedCount ||
+                    (ShowDuplicates.IsChecked != true && PresetsView.Cast<PresetRow>().Any(row => row.Record.DuplicateOfId.Length > 0)) ||
                     JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == unrelated.Id), LibraryJson.Options) != unrelatedJson)
                     throw new InvalidOperationException("生成范围、旧 WAV/AAC 复用、损坏预览重试或完成后的筛选保留不正确：" + StatusMessage + " / " + TaskProgressText + " / " + TaskSelectionText);
             }

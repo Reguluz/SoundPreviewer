@@ -274,6 +274,7 @@ public partial class MainWindow
             PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
             SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, MultiSelectFiltersChecked = true, FilterRefreshPreservedChecked = true,
+            StrictDuplicateHidingChecked = filteredGenerationChecked,
             FivePreviewStatusesChecked = true, DirectoryConfigurationChecked = true,
             CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
             StartupWarnings = App.StorageStartupMessages,
@@ -313,7 +314,7 @@ public partial class MainWindow
             Package = secondSourceId, Tags = ["TEST ONLY bright"], CategoryTags = ["TEST ONLY lead"] });
         var crossPath = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = secondSourceId,
             Name = "TEST ONLY cross source", Synth = SynthKind.Vital, Package = secondSourceId,
-            Tags = ["TEST ONLY bright"], CategoryTags = ["TEST ONLY lead"],
+            Tags = ["TEST ONLY bright", "TEST ONLY copy tag"], CategoryTags = ["TEST ONLY lead"],
             SourcePath = Path.Combine(App.DataDirectory, "TEST ONLY other source", "copy.vital"), DuplicateOfId = canonical.Record.Id });
         try
         {
@@ -349,13 +350,27 @@ public partial class MainWindow
                 !SourceOption(secondSourceId).Label.Contains("1 个音色，去重 1 个，跨来源相同 1 个", StringComparison.Ordinal))
                 throw new InvalidOperationException("跨路径重复统计遗漏了主项或其他来源副本。");
             SetFilterSelection("source", secondSourceId);
-            if (PresetsView.Count != 1 || PresetsView.Cast<PresetRow>().Single() != crossPath ||
-                _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(item => item.Record)).Single() != canonical.Record)
-                throw new InvalidOperationException("仅含跨路径副本的来源未保留本地代表，或生成未归并到主项。");
-            PresetGrid.SelectedItem = crossPath;
-            if (!CanRenderSelection) throw new InvalidOperationException("来源副本无法通过主项重新生成。");
+            AssertCopiesHiddenUntilEnabled(crossPath);
             if (!SourceOption("").Label.StartsWith($"全部来源（{Presets.Count} 个音色，去重 ", StringComparison.Ordinal))
                 throw new InvalidOperationException("全部来源的音色总量不正确。");
+
+            SetFilterSelection("source", sourceId, secondSourceId);
+            canonical.Record.Status = PresetStatus.Failed;
+            canonical.Refresh();
+            SetFilterSelection("synth", SynthKind.Vital.ToString());
+            SetFilterSelection("status", "pending");
+            AssertCopiesHiddenUntilEnabled(duplicate, crossPath);
+            SetFilterSelection("status");
+            SearchBox.Text = crossPath.Name;
+            PresetsView.Refresh();
+            AssertCopiesHiddenUntilEnabled(crossPath);
+            SearchBox.Clear();
+            SetFilterSelection("tag", "TEST ONLY copy tag");
+            AssertCopiesHiddenUntilEnabled(crossPath);
+            SetFilterSelection("tag");
+            SetFilterSelection("favorite", "0");
+            AssertCopiesHiddenUntilEnabled(duplicate, crossPath);
+            ClearFilterSelections();
 
             SetFilterSelection("source", sourceId, secondSourceId);
             AssertVisible(canonical, added);
@@ -371,17 +386,14 @@ public partial class MainWindow
             SetFilterSelection("category", "TEST ONLY lead");
             AssertVisible(added);
             SetFilterSelection("favorite", "0");
-            AssertVisible(crossPath);
-            // Deduplicate after all active filters: a matching copy must survive when its canonical does not match.
-            if (_duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)).Single() != canonical.Record)
-                throw new InvalidOperationException("筛选副本未归并至原音色生成记录。");
+            AssertCopiesHiddenUntilEnabled(crossPath);
             var beforeRefresh = FilterGroups.ToDictionary(group => group.Key,
                 group => group.Options.Where(option => option.IsSelected && option.Key.Length > 0).Select(option => option.Key).Order().ToArray());
             RefreshFilterCollections();
             foreach (var group in FilterGroups)
                 if (!beforeRefresh[group.Key].SequenceEqual(group.Options.Where(option => option.IsSelected && option.Key.Length > 0).Select(option => option.Key).Order()))
                     throw new InvalidOperationException("刷新选项丢失了某组的多个选择。");
-            AssertVisible(crossPath);
+            AssertVisible();
             SetFilterSelection("source", "");
             if (FilterGroups.Single(group => group.Key == "source").Options.Any(option => option.Key.Length > 0 && option.IsSelected) ||
                 !SourceOption("").IsSelected || !FilterGroups.Single(group => group.Key == "category").Options.Single(option => option.Key == "TEST ONLY lead").IsSelected)
@@ -418,7 +430,24 @@ public partial class MainWindow
         void AssertVisible(params PresetRow[] expected)
         {
             if (!PresetsView.Cast<PresetRow>().ToHashSet().SetEquals(expected))
-                throw new InvalidOperationException("同组多选、跨组交集或筛选后的重复项代表不正确。");
+                throw new InvalidOperationException("同组多选、跨组交集或全局重复项隐藏不正确。");
+        }
+        void AssertCopiesHiddenUntilEnabled(params PresetRow[] copies)
+        {
+            ShowDuplicates.IsChecked = false;
+            AssertVisible();
+            if (_duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)).Count != 0)
+                throw new InvalidOperationException("关闭重复项后，空筛选仍将隐藏副本重定向至其他来源主项。");
+            ShowDuplicates.IsChecked = true;
+            AssertVisible(copies);
+            if (_duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)).Single() != canonical.Record)
+                throw new InvalidOperationException("开启重复项后，同音色的跨路径副本没有归并至同一个全局主项。");
+            PresetGrid.SelectedItem = copies[0];
+            if (!CanRenderSelection) throw new InvalidOperationException("显式显示的副本无法通过主项重新生成。");
+            ShowDuplicates.IsChecked = false;
+            AssertVisible();
+            if (PresetGrid.SelectedItem is not null || Selected is not null || CanRenderSelection)
+                throw new InvalidOperationException("隐藏已选副本后，表格选择、详情或生成所选能力仍保留了隐藏音色。");
         }
     }
 
