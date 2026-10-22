@@ -26,7 +26,7 @@ Windows 的独立 x86 VST.NET 宿主保留，不加入 macOS 发布。macOS 的 
 
 Serum 2 的共用 DawDreamer 适配使用 VST3 和原生 `.SerumPreset`。适配器从实际插件的 fresh state 获取状态格式和版本，转换预制后加载，再保存状态并核对目标内容；无法确认时拒绝提交。旧 Serum FXP 须先在 Serum 2 中导入并另存为 `.SerumPreset`。这套实现随 Windows / macOS 版本发布，本轮真实执行仅覆盖 Apple Silicon 上的 Serum 2 2.0.23。
 
-Spire 增加了音色文件识别、设置行和 `.spf` / `.spf2` / `.sbf` / `.swzip` 索引。原生预制与银行统一显示「待适配」，不展开未知银行格式、不自动生成预览；共享 `.fxp` 需人工核对归属。尚无 Spire 真机加载或渲染验证。
+Spire 增加了音色文件识别、设置行和 `.spf` / `.spf2` / `.sbf` / `.swzip` 索引。原生预制与银行统一显示「无法预览」，详情解释格式尚不支持；不展开未知银行格式、不自动生成预览，共享 `.fxp` 需人工核对归属。尚无 Spire 真机加载或渲染验证。
 
 ## 音源扫描
 

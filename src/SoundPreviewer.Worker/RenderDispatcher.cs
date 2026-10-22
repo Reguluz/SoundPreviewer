@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Scanning;
 
 namespace SoundPreviewer.Worker;
 
@@ -166,9 +167,11 @@ public static partial class RenderDispatcher
         if (request.IsInitializationBaseline)
             throw new NotSupportedException("Vital 原生命令行尚不支持安全地生成无预制的默认启动基准；未使用自造 Init 预制代替。");
         if (request.Preset.Synth != SynthKind.Vital) throw new ArgumentException("Vital 原生适配器仅能处理 Vital 预制。");
-        if (request.Preset.BankSlot is not null || !string.IsNullOrEmpty(request.Preset.InternalPath) ||
-            !Path.GetExtension(request.Preset.SourcePath).Equals(".vital", StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException("Vital 原生适配器目前仅处理独立 .vital；请通过 Vital 导入银行并指定导出的预制目录。");
+        bool bankEntry = request.Preset.InternalPath.Length > 0 &&
+            Path.GetExtension(request.Preset.SourcePath).Equals(".vitalbank", StringComparison.OrdinalIgnoreCase);
+        if (request.Preset.BankSlot is not null || !bankEntry && (!string.IsNullOrEmpty(request.Preset.InternalPath) ||
+            !Path.GetExtension(request.Preset.SourcePath).Equals(".vital", StringComparison.OrdinalIgnoreCase)))
+            throw new NotSupportedException("无法预览：Vital 需要独立 .vital 或已核对内嵌资源的音色包条目。" + VitalBankPresetSource.ExportInstructions);
         var template = request.Template;
         if (Math.Abs(template.HoldSeconds - Math.Round(template.HoldSeconds)) > 0.000001 || template.HoldSeconds < 1)
             throw new ArgumentException("Vital 原生 --length 按整数秒读取，请使用 1 到 30 秒的整数按键时长。");
@@ -177,11 +180,12 @@ public static partial class RenderDispatcher
         string executable = Path.GetFullPath(request.Plugin.ExecutablePath);
         if (!File.Exists(executable)) throw new FileNotFoundException("找不到 Vital 独立程序，请指定当前平台的 Vital 可执行文件。", executable);
         if (!File.Exists(request.Preset.SourcePath)) throw new FileNotFoundException("源预制已丢失。", request.Preset.SourcePath);
-        if (new FileInfo(request.Preset.SourcePath).Length > 64L * 1024 * 1024)
+        if (!bankEntry && new FileInfo(request.Preset.SourcePath).Length > 64L * 1024 * 1024)
             throw new InvalidDataException("Vital 预制超过 64 MB 读取限制。");
-        byte[] presetBytes = await File.ReadAllBytesAsync(request.Preset.SourcePath, cancellationToken);
+        byte[] presetBytes = bankEntry ? VitalBankPresetSource.ReadVerifiedEntry(request.Preset, cancellationToken) :
+            await File.ReadAllBytesAsync(request.Preset.SourcePath, cancellationToken);
         string actualHash = Convert.ToHexString(SHA256.HashData(presetBytes)).ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(request.Preset.ContentHash) &&
+        if (!bankEntry && !string.IsNullOrWhiteSpace(request.Preset.ContentHash) &&
             !string.Equals(actualHash, request.Preset.ContentHash, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("源预制在扫描后发生变化，请重新扫描后再生成预览。");
         using (var presetJson = JsonDocument.Parse(presetBytes))
@@ -242,7 +246,7 @@ public static partial class RenderDispatcher
             return new RenderResult
             {
                 Success = true, OutputPath = output, Metrics = metrics, Notes = notes,
-                AdapterVersion = VitalAdapterVersion, NeedsReview = true,
+                AdapterVersion = bankEntry ? VitalAdapterVersion + "+embedded-bank-v1" : VitalAdapterVersion, NeedsReview = true,
                 Message = "已生成真实 Vital 输出；原生 CLI 不报告预制加载成功，须人工确认音色及外部资源。" +
                     (template.SampleRate == 48000 ? " 原生 44100 Hz 输出已重采样为 48000 Hz。" : "") +
                     (suspicious ? " 检测到静音或接近削波的音区。" : "")

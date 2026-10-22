@@ -74,17 +74,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<string> PluginDirectories { get; } = [];
     public ObservableCollection<DiscoveredPluginRow> DiscoveredPlugins { get; } = [];
     public DataGridCollectionView PresetsView { get; }
-    public ObservableCollection<Choice<string>> SourceFilters { get; } = [new("全部来源", "")];
-    public ObservableCollection<Choice<string>> PackageFilters { get; } = [new("全部音色包", "")];
-    public ObservableCollection<Choice<string>> TagFilters { get; } = [new("全部标签", "")];
-    public ObservableCollection<Choice<string>> CategoryFilters { get; } = [new("全部分类", "")];
-    public List<Choice<int?>> FavoriteFilters { get; } = [new("全部收藏状态", null), new("已收藏", 1), new("未收藏", 0)];
     public ObservableCollection<InitializationRow> InitBaselines { get; } = [];
     public string CategoryRulesStatus => _categoryRulesStatus;
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
-    public List<Choice<SynthKind?>> SynthFilters { get; } = [new("全部音源", null), .. Enum.GetValues<SynthKind>().Select(s => new Choice<SynthKind?>($"{Labels.Synth(s)} ({Labels.PresetExtensions(s)})", s))];
-    public List<StatusFilterChoice> StatusFilters { get; } = [new("全部状态"), new("已生成（含待确认）", GeneratedOnly: true), new("最近生成失败", LatestFailedOnly: true), .. Enum.GetValues<PresetStatus>().Select(s => new StatusFilterChoice(Labels.Status(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
     public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
@@ -159,7 +152,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PresetsView.Filter = FilterPreset;
         InitializeComponent();
         InitializePreviewShortcut();
-        AddHandler(PointerPressedEvent, DismissMoreFilters_PointerPressed, RoutingStrategies.Tunnel);
         Title += " (" + AppVersion + ")";
         DataContext = this;
         Pages.SelectionChanged += (_, _) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TaskBandVisible)));
@@ -221,73 +213,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex) { ShowError(ex); if (App.SmokeTest) App.Shutdown(1); }
     }
 
-    private bool FilterPreset(object item)
-    {
-        if (item is not PresetRow row) return false;
-        string? selectedSource = (SourceFilter?.SelectedItem as Choice<string>)?.Value is { Length: > 0 } sourceValue
-            ? sourceValue == MissingFilter ? "" : sourceValue : null;
-        if (ShowDuplicates?.IsChecked != true && !_duplicateView.IsRepresentative(row.Record, selectedSource)) return false;
-        var search = SearchBox?.Text?.Trim() ?? "";
-        if (search.Length > 0 && !new[] { row.Name, row.Package, row.Record.SourcePath, row.Record.InternalPath, row.SynthLabel, row.Record.ContentMd5 }.Concat(row.Record.Tags).Concat(row.Record.CategoryTags).Any(s => s.Contains(search, StringComparison.CurrentCultureIgnoreCase))) return false;
-        if (SynthFilter?.SelectedItem is Choice<SynthKind?> { Value: { } synth } && row.Record.Synth != synth) return false;
-        if (StatusFilter?.SelectedItem is StatusFilterChoice statusFilter &&
-            (statusFilter.GeneratedOnly ? !row.HasPreview : statusFilter.LatestFailedOnly ? row.Record.LastRenderOutcome != "失败" : statusFilter.Value is { } status && row.Record.Status != status)) return false;
-        if (SourceFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } source &&
-            (source.Value == MissingFilter ? row.Record.SourceId.Length != 0 : row.Record.SourceId != source.Value)) return false;
-        if (PackageFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } package &&
-            (package.Value == MissingFilter ? row.Package.Length != 0 : !string.Equals(row.Package, package.Value, StringComparison.OrdinalIgnoreCase))) return false;
-        if (CategoryFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } category &&
-            (category.Value == MissingFilter ? row.Record.CategoryTags.Count != 0 : !row.Record.CategoryTags.Contains(category.Value, StringComparer.OrdinalIgnoreCase))) return false;
-        if (TagFilter?.SelectedItem is Choice<string> { Value.Length: > 0 } tag &&
-            !row.Record.Tags.Concat(row.Record.CategoryTags).Contains(tag.Value, StringComparer.OrdinalIgnoreCase)) return false;
-        if (FavoriteFilter?.SelectedItem is Choice<int?> { Value: { } favorite } && row.Record.Favorite != (favorite == 1)) return false;
-        return FavoritesOnly?.IsChecked != true || row.Record.Favorite;
-    }
-
-    private void Filter_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_updatingFilterChoices) return;
-        PresetsView?.Refresh();
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EmptyVisibility)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisiblePresetCount)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRenderFiltered)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AdditionalFiltersLabel)));
-    }
-
-    private void RefreshFilterChoices()
-    {
-        _updatingFilterChoices = true;
-        try
-        {
-            var records = Presets.Select(p => p.Record).ToList();
-            _duplicateView = new PresetDuplicateView(records);
-            void Fill(ObservableCollection<Choice<string>> target, ComboBox control, string allLabel, IEnumerable<Choice<string>> values)
-            {
-                var selected = (control.SelectedItem as Choice<string>)?.Value ?? "";
-                target.Clear();
-                target.Add(new(allLabel, ""));
-                foreach (var value in values) target.Add(value);
-                control.SelectedItem = target.FirstOrDefault(item => item.Value == selected) ?? target[0];
-            }
-            Fill(SourceFilters, SourceFilter, SourceCountLabel("全部来源", _duplicateView.TotalCounts),
-                records.GroupBy(record => record.SourceId, StringComparer.Ordinal).Select(group =>
-                {
-                    string path = group.Key.Length == 0 ? "未关联来源" : Sources.FirstOrDefault(source => source.Id == group.Key)?.Path ??
-                        Path.GetDirectoryName(group.First().SourcePath) ?? group.Key;
-                    return new Choice<string>(SourceCountLabel(path, _duplicateView.GetSourceCounts(group.Key)),
-                        group.Key.Length == 0 ? MissingFilter : group.Key);
-                }).OrderBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase));
-            Fill(PackageFilters, PackageFilter, "全部音色包", records.Select(p => p.Package).Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value.Length == 0 ? "无音色包" : value, value.Length == 0 ? MissingFilter : value)));
-            Fill(CategoryFilters, CategoryFilter, "全部分类", new[] { new Choice<string>("未分类", MissingFilter) }.Concat(records.SelectMany(p => p.CategoryTags)
-                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value, value))));
-            Fill(TagFilters, TagFilter, "全部标签", records.SelectMany(p => p.Tags.Concat(p.CategoryTags)).Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new Choice<string>(value, value)));
-        }
-        finally { _updatingFilterChoices = false; }
-    }
-
     private static string SourceCountLabel(string path, PresetSourceCounts counts) =>
         $"{path}（{counts.Total} 个音色，去重 {counts.Unique} 个" +
         (counts.DuplicateCopies > 0 ? $"，重复副本 {counts.DuplicateCopies} 个" : "") +
@@ -299,7 +224,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Presets.Clear();
         foreach (var record in records) Presets.Add(new PresetRow(record));
         RefreshFilterChoices();
-        PresetsView.Refresh();
         PresetGrid.SelectedItem = Presets.FirstOrDefault(p => p.Record.Id == selectedId);
         RefreshCompatibility();
         NotifyAll();
@@ -406,7 +330,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 if (changedRows.TryRemove(id, out _) && rows.TryGetValue(id, out var row)) row.Refresh();
             if (_taskWatch.Elapsed - lastViewRefresh >= TimeSpan.FromSeconds(1))
             {
-                PresetsView.Refresh();
+                RefreshPresetView();
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GeneratedResultsVisibility)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EmptyVisibility)));
@@ -538,7 +462,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _taskCancellation.Dispose();
             _taskCancellation = null;
             foreach (var row in Presets) row.Refresh();
-            PresetsView.Refresh();
+            RefreshPresetView();
             RefreshCompatibility();
             try { await RefreshInitBaselinesAsync(); }
             catch (Exception error) { Log("基准状态未刷新：" + error.Message); }
@@ -564,9 +488,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         ResetFilterControls();
         ShowDuplicates.IsChecked = false;
-        StatusFilter.SelectedItem = StatusFilters.Single(filter => filter.GeneratedOnly);
+        SetFilterSelection("status", "generated");
+        SelectFilterGroup("status");
         Pages.SelectedIndex = 0;
-        PresetsView.Refresh();
         PresetGrid.SelectedItem = PresetsView.Cast<PresetRow>().FirstOrDefault();
         NotifyAll();
     }
@@ -574,22 +498,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ClearFilters_Click(object sender, RoutedEventArgs e)
     {
         ResetFilterControls();
-        PresetsView.Refresh();
         NotifyAll();
     }
 
     private void ResetFilterControls()
     {
-        SearchBox.Clear();
-        SynthFilter.SelectedIndex = 0;
-        StatusFilter.SelectedIndex = 0;
-        SourceFilter.SelectedIndex = 0;
-        PackageFilter.SelectedIndex = 0;
-        TagFilter.SelectedIndex = 0;
-        CategoryFilter.SelectedIndex = 0;
-        FavoriteFilter.SelectedIndex = 0;
-        FavoritesOnly.IsChecked = false;
-        MoreFiltersToggle.IsChecked = false;
+        _updatingFilterChoices = true;
+        try
+        {
+            SearchBox.Clear();
+            foreach (var group in FilterGroups) group.SetSelection([]);
+        }
+        finally { _updatingFilterChoices = false; }
+        RefreshPresetView();
+        NotifyFilterResults();
     }
 
     private void RefreshCompatibility()
@@ -756,7 +678,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         _store.Upsert(_selected!.Record);
         _selected.Refresh();
-        PresetsView.Refresh();
+        RefreshPresetView();
         NotifyAll();
     }
     private void Confirm_Click(object sender, RoutedEventArgs e)
@@ -780,7 +702,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _store.UpsertMany(Presets.Select(p => p.Record));
             foreach (var preset in Presets) preset.Refresh();
             RefreshFilterChoices();
-            PresetsView.Refresh();
             RefreshCompatibility();
             NotifyAll();
             await LoadSelectedPreview();
@@ -924,7 +845,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshPresetMetadataEditors();
         foreach (var row in Presets) row.Refresh();
         RefreshFilterChoices();
-        PresetsView.Refresh();
         _categoryRulesStatus = $"已检查 {result.Processed} 个音色，更新 {result.Changed} 个分类。";
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CategoryRulesStatus)));
         Log(_categoryRulesStatus);
@@ -1301,6 +1221,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             row.Record.Message = copy.Message;
             row.Refresh();
         }
+        RefreshPresetView();
         NotifyAll();
     }
     private static int ParseInt(string? value, string label) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : throw new ArgumentException(label + "须为整数。");

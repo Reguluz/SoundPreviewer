@@ -1,15 +1,18 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using SoundPreviewer.Core.Models;
 
 namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
-    private sealed record LibraryLayoutSnapshot(Rect Pages, Rect Table, Rect List, Rect Details, Rect Filters, Rect Playback, Rect Progress);
+    private sealed record LibraryLayoutSnapshot(Rect Pages, Rect Table, Rect List, Rect Details, Rect Filters, Rect Options, Rect Playback, Rect Progress);
 
     private LibraryLayoutSnapshot CaptureLibraryLayout() => new(SmokeBounds(Pages), SmokeBounds(PresetGrid),
-        SmokeBounds(LibraryListPane), SmokeBounds(LibraryDetailsPane), SmokeBounds(FilterStrip), SmokeBounds(PlaybackBar), SmokeBounds(TaskStatusBand));
+        SmokeBounds(LibraryListPane), SmokeBounds(LibraryDetailsPane), SmokeBounds(FilterStrip), SmokeBounds(FilterOptionsBand), SmokeBounds(PlaybackBar), SmokeBounds(TaskStatusBand));
 
     private void CheckLibraryWorkspaceGeometry()
     {
@@ -21,16 +24,24 @@ public partial class MainWindow
         double listShare = list.Width / workspace.Width;
         // Allow rounding and the gutter while keeping the list near four fifths of the library.
         if (listShare is < .74 or > .82 || details.Left < list.Right - 1 || details.Right > workspace.Right + 1 ||
-            table.Width < list.Width - 28 || table.Height < Math.Max(180, ClientSize.Height - 480))
+            table.Width < list.Width - 28 || table.Height < Math.Max(180, ClientSize.Height - 582))
             throw SmokeLayoutFailure("音色列表未获得足够的宽度或高度，或详情栏挤占了列表。");
 
         var filters = SmokeBounds(FilterStrip);
-        var row = new Control[] { SearchBox, SynthFilter, StatusFilter, SourceFilter };
+        var row = new Control[] { SearchBox, FilterTabs };
         double center = SmokeBounds(SearchBox).Center.Y;
-        if (filters.Height > 48 || row.Any(control => !control.IsEffectivelyVisible ||
+        if (Math.Abs(filters.Height - 38) > .5 || row.Any(control => !control.IsEffectivelyVisible ||
                 Math.Abs(SmokeBounds(control).Center.Y - center) > 6 || !filters.Inflate(1).Contains(SmokeBounds(control))) ||
             SearchBox.Bounds.Width < 120)
-            throw SmokeLayoutFailure("搜索和主要筛选没有保持为一行可见控件。");
+            throw SmokeLayoutFailure("搜索与七组筛选标签没有保持为一行可见控件。");
+        var tabs = FilterTabs.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.DataContext is FilterGroup).ToList();
+        if (tabs.Count != 7 || tabs.Any(tab => !tab.IsEffectivelyVisible || !filters.Inflate(1).Contains(SmokeBounds(tab))))
+            throw SmokeLayoutFailure("七组筛选标签没有完整显示。");
+        var options = SmokeBounds(FilterOptionsBand);
+        if (!FilterOptionsBand.IsEffectivelyVisible || Math.Abs(options.Height - 96) > .5 ||
+            options.Top < filters.Bottom - 1 || list.Top < options.Bottom - 1 || details.Top < options.Bottom - 1 ||
+            !options.Inflate(1).Contains(SmokeBounds(FilterOptionsScroll)))
+            throw SmokeLayoutFailure("筛选选项未固定占用96像素，或与列表、详情重叠。");
 
         var playback = SmokeBounds(PlaybackBar);
         var progress = SmokeBounds(TaskStatusBand);
@@ -53,8 +64,9 @@ public partial class MainWindow
         var actual = CaptureLibraryLayout();
         if (!Same(expected.Pages, actual.Pages) || !Same(expected.Table, actual.Table) ||
             !Same(expected.List, actual.List) || !Same(expected.Details, actual.Details) ||
-            !Same(expected.Filters, actual.Filters) || !Same(expected.Playback, actual.Playback) || !Same(expected.Progress, actual.Progress))
-            throw SmokeLayoutFailure("空闲、生成、停止或筛选浮层改变了列表与底部播放进度区域的位置。");
+            !Same(expected.Filters, actual.Filters) || !Same(expected.Options, actual.Options) ||
+            !Same(expected.Playback, actual.Playback) || !Same(expected.Progress, actual.Progress))
+            throw SmokeLayoutFailure("空闲、生成、停止或切换筛选改变了列表与底部播放进度区域的位置。");
 
         static bool Same(Rect left, Rect right) => Math.Abs(left.X - right.X) <= .5 && Math.Abs(left.Y - right.Y) <= .5 &&
             Math.Abs(left.Width - right.Width) <= .5 && Math.Abs(left.Height - right.Height) <= .5;
@@ -63,27 +75,80 @@ public partial class MainWindow
     private async Task CheckStableLibraryLayoutAsync(string name)
     {
         var previous = (_hasTaskFeedback, _taskTitle, _statusMessage, _taskProgressText, _taskMemoryText,
-            _taskSelectionText, _progressValue, _progressIndeterminate, MoreFiltersToggle.IsChecked);
+            _taskSelectionText, _progressValue, _progressIndeterminate);
+        string activeGroup = FilterGroups.Single(group => group.IsActive).Key;
+        var overflow = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), Name = "TEST ONLY filter overflow",
+            Tags = Enumerable.Range(0, 48).Select(index => $"TEST ONLY long filter option {index:00}").ToList() });
         try
         {
+            Presets.Add(overflow);
+            RefreshFilterCollections();
             _smokeLayoutPhase = name + "-idle";
             _hasTaskFeedback = false;
             _statusMessage = "TEST ONLY: idle";
             _taskProgressText = _taskMemoryText = _taskSelectionText = "";
-            MoreFiltersToggle.IsChecked = false;
             NotifyAll();
             await SettleLayoutAsync();
             CheckSmokeLayout();
             var fixedLayout = CaptureLibraryLayout();
             CaptureSmokeImage($"ui-idle-{name}.png");
 
-            MoreFiltersToggle.IsChecked = true;
+            foreach (var group in FilterGroups)
+            {
+                SelectFilterGroup(group.Key);
+                await SettleLayoutAsync();
+                CheckSmokeLayout();
+                CheckLibraryLayoutUnchanged(fixedLayout);
+                var tab = FilterTabs.GetVisualDescendants().OfType<ToggleButton>().Single(button => ReferenceEquals(button.DataContext, group));
+                // ToggleButton changes its target before Click; the OneWay model must restore an already-active tab.
+                tab.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                tab.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await SettleLayoutAsync();
+                if (!group.IsActive || tab.IsChecked != true || !ReferenceEquals(ActiveFilterOptions, group.Options))
+                    throw SmokeLayoutFailure("再次点击已激活筛选标签后标签或选项失去选中状态。");
+            }
+            SelectFilterGroup("tag");
             await SettleLayoutAsync();
-            if (!AdvancedFiltersPanel.IsEffectivelyVisible)
-                throw SmokeLayoutFailure("更多筛选没有打开覆盖面板。");
+            if (FilterOptionsScroll.Extent.Height <= FilterOptionsScroll.Viewport.Height)
+                throw SmokeLayoutFailure("大量筛选选项没有在固定区域中滚动。");
+            var viewport = SmokeBounds(FilterOptionsScroll).Inflate(1);
+            var visibleRows = FilterOptionsItems.GetVisualDescendants().OfType<ToggleButton>()
+                .Where(button => viewport.Contains(SmokeBounds(button))).Select(button => Math.Round(SmokeBounds(button).Top)).Distinct().Count();
+            if (visibleRows < 3)
+                throw SmokeLayoutFailure("固定筛选区域无法完整显示三行紧凑选项。");
+            var allOption = ActiveFilterOptions.Single(option => option.Key.Length == 0);
+            var allButton = FilterOptionsItems.GetVisualDescendants().OfType<ToggleButton>().Single(button => ReferenceEquals(button.DataContext, allOption));
+            if (allOption.IsSelected)
+            {
+                allButton.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                allButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await SettleLayoutAsync();
+                if (!allOption.IsSelected || allButton.IsChecked != true)
+                    throw SmokeLayoutFailure("再次点击全部选项后它失去选中状态。");
+            }
+            string[] savedTagKeys = FilterGroups.Single(group => group.Key == "tag").SelectedKeys.ToArray();
+            foreach (string key in overflow.Record.Tags.Take(2))
+            {
+                var option = ActiveFilterOptions.Single(option => option.Key == key);
+                var button = FilterOptionsItems.GetVisualDescendants().OfType<ToggleButton>().Single(button => ReferenceEquals(button.DataContext, option));
+                button.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await SettleLayoutAsync();
+                if (!option.IsSelected || button.IsChecked != true)
+                    throw SmokeLayoutFailure("点击多个筛选选项后选中样式与模型不同步。");
+            }
+            CheckSmokeLayout();
+            CheckLibraryLayoutUnchanged(fixedLayout);
+            CaptureSmokeImage($"ui-filters-multiselect-{name}.png");
+            SetFilterSelection("tag", savedTagKeys);
+            FilterOptionsScroll.Offset = new Vector(0, FilterOptionsScroll.Extent.Height);
+            await SettleLayoutAsync();
+            if (FilterOptionsScroll.Offset.Y <= 0)
+                throw SmokeLayoutFailure("筛选内容溢出时无法向下滚动。");
             CheckLibraryLayoutUnchanged(fixedLayout);
             CaptureSmokeImage($"ui-filters-{name}.png");
-            MoreFiltersToggle.IsChecked = false;
+            FilterOptionsScroll.Offset = default;
+            SelectFilterGroup(activeGroup);
             await SettleLayoutAsync();
             CheckLibraryLayoutUnchanged(fixedLayout);
 
@@ -124,7 +189,14 @@ public partial class MainWindow
         finally
         {
             (_hasTaskFeedback, _taskTitle, _statusMessage, _taskProgressText, _taskMemoryText,
-                _taskSelectionText, _progressValue, _progressIndeterminate, MoreFiltersToggle.IsChecked) = previous;
+                _taskSelectionText, _progressValue, _progressIndeterminate) = previous;
+            PresetGrid.SelectedItem = null;
+            PresetsView.Filter = null;
+            PresetsView.MoveCurrentToPosition(-1);
+            try { Presets.Remove(overflow); RefreshFilterCollections(); }
+            finally { PresetsView.Filter = FilterPreset; }
+            SelectFilterGroup(activeGroup);
+            PresetsView.Refresh();
             NotifyAll();
             await SettleLayoutAsync();
         }
@@ -138,7 +210,7 @@ public partial class MainWindow
         try
         {
             Pages.SelectedItem = LibraryTab;
-            ResetFilterControls();
+            ClearFilterSelections();
             PresetGrid.SelectedItem = row;
             PresetMetadataExpander.IsExpanded = false;
             PresetDetailsScroll.Offset = default;

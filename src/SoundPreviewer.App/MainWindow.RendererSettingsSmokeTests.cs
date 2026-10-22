@@ -87,7 +87,7 @@ public partial class MainWindow
             _store.SaveState(savedRecords, savedSettings);
             _settings = savedSettings;
             PopulateSettings();
-            ResetFilterControls();
+            ClearFilterSelections();
             SetPresets(savedRecords);
         }
 

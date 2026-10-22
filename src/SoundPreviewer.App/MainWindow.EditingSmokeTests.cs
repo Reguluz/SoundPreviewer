@@ -52,7 +52,7 @@ public partial class MainWindow
             var row = Presets.FirstOrDefault(item => item.Record.Package == "TEST ONLY / no synthesizer loaded" && item.Record.DuplicateOfId.Length == 0);
             if (row is not null)
             {
-                ResetFilterControls();
+                ClearFilterSelections();
                 Pages.SelectedIndex = 0;
                 PresetGrid.SelectedItem = row;
                 EditPresetMetadata_Click(PresetMetadataExpander, new RoutedEventArgs());
@@ -101,7 +101,7 @@ public partial class MainWindow
             _store.SaveState(savedRecords, savedSettings);
             _settings = savedSettings;
             PopulateSettings();
-            ResetFilterControls();
+            ClearFilterSelections();
             SetPresets(savedRecords);
             PresetMetadataExpander.IsExpanded = false;
         }

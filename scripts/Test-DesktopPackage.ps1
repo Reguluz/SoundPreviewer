@@ -41,7 +41,9 @@ try {
         throw "Published application did not verify the Space shortcut and visible hint; see $dataDirectory"
     }
     if (-not $result.ClipboardPathChecked -or -not $result.LibrarySpaceChecked -or
-        -not $result.SingleRowFiltersChecked -or -not $result.PlaybackProgressDockChecked) {
+        -not $result.SingleRowFiltersChecked -or -not $result.PlaybackProgressDockChecked -or
+        -not $result.MultiSelectFiltersChecked -or -not $result.FilterRefreshPreservedChecked -or
+        -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked) {
         throw "Published application did not verify copy-path and compact library layout; see $dataDirectory"
     }
     if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {

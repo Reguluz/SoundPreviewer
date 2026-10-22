@@ -21,7 +21,9 @@ public partial class MainWindow
             await SettleLayoutAsync();
             _player.Volume = 0;
             StopPlayback();
-            foreach (var target in new Control[] { SearchBox, SynthFilter, ShowDuplicates, SeekSlider })
+            var filterTab = FilterTabs.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
+            var filterOption = FilterOptionsItems.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
+            foreach (var target in new Control[] { SearchBox, filterTab, filterOption, ShowDuplicates, SeekSlider })
                 CheckIgnored(target, KeyModifiers.None);
             if (SearchBox.GetVisualDescendants().OfType<Control>().FirstOrDefault() is { } textChild)
                 CheckIgnored(textChild, KeyModifiers.None);

@@ -76,6 +76,7 @@ internal static partial class Program
             ("Persisted MD5 duplicates, canonical promotion and legacy index migration", TestMd5IndexAsync),
             ("Cross-source duplicates retain local representatives and resolve one canonical render", TestCrossSourceDuplicateViewAsync),
             ("Vital banks retain internal identities and invalidate resource changes", TestBankScanningAsync),
+            ("Vital bank embedded resources preview privately with legacy hashes and bounded reads", TestVitalBankEmbeddedPreviewAsync),
             ("Mixed roots identify unique suffixes and verified VST IDs", TestMixedRootDetectionAsync),
             ("Directory evidence, ambiguity and fixed-source overlap stay conservative", TestDetectionAmbiguityAsync),
             ("Spire indexing, conservative FXP identity and legacy configuration migration", TestSpireFoundationAsync),

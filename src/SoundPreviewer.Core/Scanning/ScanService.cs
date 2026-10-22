@@ -45,8 +45,10 @@ public sealed class ScanService
         }
         if (extension.Equals(".fxb", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(record.InternalPath))
         {
+            if (synth == SynthKind.Vital && extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) && record.InternalPath.Length > 0 && !changed)
+                return; // Retain the scanner's embedded-resource validation result.
             if (record.Status != PresetStatus.Missing) record.Status = PresetStatus.Unsupported;
-            record.Message = "已指定银行音源；银行加载与槽位尚未验证，暂不生成预览。";
+            record.Message = "无法预览：此银行条目尚未通过资源及槽位检查；请在音源中导出独立音色，再添加导出目录并扫描。";
         }
     }
 
@@ -265,6 +267,8 @@ public sealed class ScanService
     {
         var file = new FileInfo(path);
         long fileSize = file.Length;
+        if (file.Extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) && fileSize > VitalBankPresetSource.MaximumBankBytes)
+            throw new InvalidDataException("无法预览：Vital 音色包超过 256 MiB 读取限制。" + VitalBankPresetSource.ExportInstructions);
         DateTime lastWriteUtc = file.LastWriteTimeUtc;
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         var fileHashes = Hash(stream, token);
@@ -289,7 +293,7 @@ public sealed class ScanService
             {
                 token.ThrowIfCancellationRequested();
                 string internalPath = entry.FullName.Replace('\\', '/');
-                if (internalPath.StartsWith('/') || internalPath.Split('/').Any(part => part is ".." or "." || part.Contains(':')))
+                if (internalPath.StartsWith('/') || internalPath.Split('/').Any(part => part.Length == 0 || part is ".." or "." || part.Contains(':')))
                     throw new InvalidDataException("Vital 音色包含不安全的内部路径。");
                 if (!names.Add(internalPath)) throw new InvalidDataException("Vital 音色包含重复的内部路径。");
                 if (entry.Length > MaximumVitalBytes) throw new InvalidDataException("Vital 音色包中的预设超过安全读取大小限制。");
@@ -300,12 +304,18 @@ public sealed class ScanService
                 string entryHash = Hash(content, token).Sha256;
                 content.Position = 0;
                 var record = CreateRecord(source, detection, path, Path.GetFileNameWithoutExtension(internalPath), Path.GetFileNameWithoutExtension(path), Fingerprints.HashText($"{fileHash}|{internalPath}|{entryHash}"), fileHashes.Md5, entry.Length, lastWriteUtc, internalPath);
-                record.Status = PresetStatus.Unsupported;
-                record.Message = "已识别 Vital 音色包条目；尚未验证原生音色包导入及依赖资源，不生成预览。";
-                try { ValidateVital(content, record); }
-                catch (JsonException ex)
+                try
                 {
-                    record.Message = $"Vital 音色包条目无效：{ex.Message}";
+                    ValidateVital(content, record);
+                    content.Position = 0;
+                    using var document = JsonDocument.Parse(content);
+                    VitalBankPresetSource.ValidateEmbeddedResources(document.RootElement);
+                    record.Message = "已核对包内预制及内嵌采样、波表；生成时只读取此条目，不导入或更改 Vital 资源目录。";
+                }
+                catch (Exception ex) when (ex is JsonException or InvalidDataException)
+                {
+                    record.Status = PresetStatus.Unsupported;
+                    record.Message = ex is InvalidDataException ? ex.Message : $"无法预览：Vital 音色包条目无效：{ex.Message}。" + VitalBankPresetSource.ExportInstructions;
                     warnings.Add($"{path} / {internalPath}：{record.Message}");
                 }
                 bankRecords.Add(record);
@@ -314,7 +324,7 @@ public sealed class ScanService
             {
                 var empty = CreateRecord(source, detection, path, Path.GetFileNameWithoutExtension(path), package, fileHash, fileHashes.Md5, fileSize, lastWriteUtc);
                 empty.Status = PresetStatus.Unsupported;
-                empty.Message = "此 Vital 音色包没有可识别的 .vital 条目。";
+                empty.Message = "无法预览：此 Vital 音色包没有可识别的 .vital 条目。" + VitalBankPresetSource.ExportInstructions;
                 bankRecords.Add(empty);
             }
             VerifyStable(file, fileSize, lastWriteUtc);

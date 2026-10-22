@@ -25,7 +25,8 @@ public partial class MainWindow
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
-        CheckSourceFilterCounts();
+        CheckLibraryFilterSelections();
+        CheckPreviewStatusGroups();
         CheckDirectoryConfiguration();
         if (!_categoryService.Load().Success || !File.Exists(_categoryService.RulesPath) || string.IsNullOrWhiteSpace(RulesEditor.Text))
             throw new InvalidOperationException("分类规则未能从已有配置或程序内置默认值加载。");
@@ -51,26 +52,26 @@ public partial class MainWindow
         ShowDuplicates.IsChecked = false;
         foreach (var synth in Enum.GetValues<SynthKind>())
         {
-            var filter = SynthFilters.Single(choice => choice.Value == synth);
-            if (filter.Label != $"{Labels.Synth(synth)} ({Labels.PresetExtensions(synth)})")
+            var filter = FilterGroups.Single(group => group.Key == "synth").Options.Single(choice => choice.Key == synth.ToString());
+            if (filter.Label != Labels.Synth(synth) || filter.ToolTip != $"{Labels.Synth(synth)} ({Labels.PresetExtensions(synth)})")
                 throw new InvalidOperationException("音源类型与文件后缀标签不一致。");
         }
         var first = Presets.FirstOrDefault(row => row.Record.DuplicateOfId.Length == 0);
         if (first is not null)
         {
-            ResetFilterControls();
-            SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == first.Record.Synth);
-            SourceFilter.SelectedItem = SourceFilters.Single(choice => choice.Value == (first.Record.SourceId.Length == 0 ? MissingFilter : first.Record.SourceId));
-            PackageFilter.SelectedItem = PackageFilters.Single(choice => choice.Value == (first.Package.Length == 0 ? MissingFilter : first.Package));
-            CategoryFilter.SelectedItem = CategoryFilters.First(choice => choice.Value == (first.Record.CategoryTags.FirstOrDefault() ?? MissingFilter));
-            FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (first.Record.Favorite ? 1 : 0));
-            StatusFilter.SelectedItem = StatusFilters.Single(choice => choice.Value == first.Record.Status);
+            ClearFilterSelections();
+            SetFilterSelection("synth", first.Record.Synth.ToString());
+            SetFilterSelection("source", first.Record.SourceId.Length == 0 ? MissingFilter : first.Record.SourceId);
+            SetFilterSelection("package", first.Package.Length == 0 ? MissingFilter : first.Package);
+            SetFilterSelection("category", first.Record.CategoryTags.FirstOrDefault() ?? MissingFilter);
+            SetFilterSelection("favorite", first.Record.Favorite ? "1" : "0");
+            SetFilterSelection("status", Labels.PreviewStatusKey(first.Record, first.HasPreview));
             SearchBox.Text = first.Name;
             PresetsView.Refresh();
             if (!PresetsView.Cast<PresetRow>().Contains(first)) throw new InvalidOperationException("组合筛选遗漏匹配音色。");
-            FavoriteFilter.SelectedItem = FavoriteFilters.Single(choice => choice.Value == (first.Record.Favorite ? 0 : 1));
+            SetFilterSelection("favorite", first.Record.Favorite ? "0" : "1");
             if (PresetsView.Cast<PresetRow>().Contains(first)) throw new InvalidOperationException("收藏筛选没有排除音色。");
-            ResetFilterControls();
+            ClearFilterSelections();
         }
         var menu = new ContextMenu();
         ColumnMenu_Opened(menu, new RoutedEventArgs());
@@ -137,11 +138,11 @@ public partial class MainWindow
         {
             SearchBox.Text = "TEST ONLY: no search match";
             ShowGeneratedPreviews();
-            if (StatusFilter.SelectedItem is not StatusFilterChoice { GeneratedOnly: true } ||
+            if (!FilterGroups.Single(group => group.Key == "status").Options.Single(option => option.Key == "generated").IsSelected ||
                 SearchBox.Text?.Length > 0 || !PresetsView.Cast<PresetRow>().Contains(preview) || !CanPlay)
                 throw new InvalidOperationException("已生成视图没有清除旧筛选或选择预览。");
             generatedViewChecked = true;
-            ResetFilterControls();
+            ClearFilterSelections();
         }
         var unconfigured = _settings.Plugins.FirstOrDefault(plugin => plugin.Backend == RenderBackend.Unconfigured);
         if (unconfigured is not null)
@@ -167,14 +168,14 @@ public partial class MainWindow
             _smokeLayoutPhase = name + "-format";
             Width = width; Height = height;
             Pages.SelectedIndex = 0;
-            SynthFilter.SelectedItem = SynthFilters.Single(choice => choice.Value == SynthKind.Serum2);
+            SetFilterSelection("synth", SynthKind.Serum2.ToString());
             await SettleLayoutAsync();
             CheckSmokeLayout();
             actualViewports.Add(new { Name = name, RequestedWidth = width, RequestedHeight = height, ActualWidth = ClientSize.Width, ActualHeight = ClientSize.Height });
             WriteSmokeLayoutState($"ui-layout-{name}.json");
             CaptureSmokeImage($"ui-format-{name}.png");
             await CheckStableLibraryLayoutAsync(name);
-            ResetFilterControls();
+            ClearFilterSelections();
             for (var page = 0; page < 3; page++)
             {
                 _smokeLayoutPhase = $"{name}-page-{page}";
@@ -262,12 +263,13 @@ public partial class MainWindow
             RendererSettingsChecked = rendererSettingsChecked,
             PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
             SourceRevealCommandChecked = true, SourceCountsChecked = true,
-            CrossSourceDuplicatesChecked = true, DirectoryConfigurationChecked = true,
+            CrossSourceDuplicatesChecked = true, MultiSelectFiltersChecked = true, FilterRefreshPreservedChecked = true,
+            FivePreviewStatusesChecked = true, DirectoryConfigurationChecked = true,
             CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
             StartupWarnings = App.StorageStartupMessages,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
             QueueSelectionCountsChecked = true, ProgressLayoutStableChecked = true,
-            LibrarySpaceChecked = true, SingleRowFiltersChecked = true, PlaybackProgressDockChecked = true,
+            LibrarySpaceChecked = true, SingleRowFiltersChecked = true, FixedFilterOptionsChecked = true, PlaybackProgressDockChecked = true,
             DirectoryConfigurationPath = DirectoryConfigurationLocation, DirectoryPluginDirectories = _settings.PluginDirectories,
             InstalledStorageChecked = App.TestInstalledStorage, LibraryDirectory = App.DataDirectory, PreviewDirectory = _settings.PreviewDirectory,
             ExistingPreviewsLocal = Presets.Where(row => row.Record.PreviewPath.Length > 0).All(row => File.Exists(row.Record.PreviewPath) && ApplicationPaths.IsWithin(row.Record.PreviewPath, App.DataDirectory)),
@@ -280,59 +282,107 @@ public partial class MainWindow
         App.Shutdown();
     }
 
-    private void CheckSourceFilterCounts()
+    private void CheckLibraryFilterSelections()
     {
-        string originalSource = (SourceFilter.SelectedItem as Choice<string>)?.Value ?? "";
+        var savedSelections = FilterGroups.ToDictionary(group => group.Key,
+            group => group.Options.Where(option => option.IsSelected && option.Key.Length > 0).Select(option => option.Key).ToArray());
+        string originalSearch = SearchBox.Text ?? "";
+        bool? originalDuplicates = ShowDuplicates.IsChecked;
         string sourceId = "TEST-ONLY-source-counts-" + Guid.NewGuid().ToString("N");
         string secondSourceId = sourceId + "-other";
         string path = Path.Combine(App.DataDirectory, "TEST ONLY count source", "preset.vital");
-        var canonical = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
-        var duplicate = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path, DuplicateOfId = canonical.Record.Id });
-        var added = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = sourceId, SourcePath = path });
+        var canonical = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), Name = "TEST ONLY canonical",
+            SourceId = sourceId, SourcePath = path, Synth = SynthKind.Vital, Favorite = true,
+            Package = sourceId, Tags = ["TEST ONLY warm"], CategoryTags = ["TEST ONLY bass"] });
+        var duplicate = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), Name = "TEST ONLY local duplicate",
+            SourceId = sourceId, SourcePath = path, Synth = SynthKind.Vital, DuplicateOfId = canonical.Record.Id,
+            Package = sourceId, Tags = ["TEST ONLY warm"], CategoryTags = ["TEST ONLY bass"] });
+        var added = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), Name = "TEST ONLY added",
+            SourceId = sourceId, SourcePath = path, Synth = SynthKind.Serum1, Favorite = true,
+            Package = secondSourceId, Tags = ["TEST ONLY bright"], CategoryTags = ["TEST ONLY lead"] });
         var crossPath = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), SourceId = secondSourceId,
+            Name = "TEST ONLY cross source", Synth = SynthKind.Vital, Package = secondSourceId,
+            Tags = ["TEST ONLY bright"], CategoryTags = ["TEST ONLY lead"],
             SourcePath = Path.Combine(App.DataDirectory, "TEST ONLY other source", "copy.vital"), DuplicateOfId = canonical.Record.Id });
         try
         {
+            ClearFilterSelections();
+            SearchBox.Clear();
+            ShowDuplicates.IsChecked = false;
             Presets.Add(canonical);
             Presets.Add(duplicate);
-            RefreshFilterChoices();
-            var choice = SourceFilters.Single(item => item.Value == sourceId);
-            if (choice.Label != Path.GetDirectoryName(path) + "（2 个音色，去重 1 个，重复副本 1 个）")
-                throw new InvalidOperationException("来源下拉未显示对应路径的音色总量和重复副本数量。");
-            SourceFilter.SelectedItem = choice;
+            RefreshFilterCollections();
+            var choice = SourceOption(sourceId);
+            if (choice.Label != Path.GetDirectoryName(path) + "（2 个音色，去重 1 个，重复副本 1 个）" ||
+                choice.CountLabel != "2 · 去重 1" || choice.ToolTip != choice.Label)
+                throw new InvalidOperationException("来源选项未显示对应路径的音色总量和重复副本数量。");
+            SetFilterSelection("source", sourceId);
             if (PresetsView.Count != 1) throw new InvalidOperationException("来源计数改变了默认重复项筛选。");
             ShowDuplicates.IsChecked = true;
-            if (PresetsView.Count != 2 || ((Choice<string>)SourceFilter.SelectedItem!).Label != choice.Label)
+            if (PresetsView.Count != 2 || SourceOption(sourceId).Label != choice.Label)
                 throw new InvalidOperationException("显示重复项应恢复副本，来源扫描总量不应变化。");
             ShowDuplicates.IsChecked = false;
             SearchBox.Text = "TEST ONLY no source count match";
             PresetsView.Refresh();
-            if (PresetsView.Count != 0 || ((Choice<string>)SourceFilter.SelectedItem!).Label != choice.Label)
+            if (PresetsView.Count != 0 || SourceOption(sourceId).Label != choice.Label)
                 throw new InvalidOperationException("搜索筛选不应改变来源路径的扫描总量。");
             SearchBox.Clear();
             Presets.Add(added);
-            RefreshFilterChoices();
-            if (SourceFilter.SelectedItem is not Choice<string> selected || selected.Value != sourceId ||
-                selected.Label != Path.GetDirectoryName(path) + "（3 个音色，去重 2 个，重复副本 1 个）")
+            RefreshFilterCollections();
+            if (!SourceOption(sourceId).IsSelected ||
+                SourceOption(sourceId).Label != Path.GetDirectoryName(path) + "（3 个音色，去重 2 个，重复副本 1 个）")
                 throw new InvalidOperationException("来源计数刷新后未保留所选来源 ID 或新增音色数量。");
             Presets.Add(crossPath);
-            RefreshFilterChoices();
-            if (!SourceFilters.Single(item => item.Value == sourceId).Label.Contains("跨来源相同 2 个", StringComparison.Ordinal) ||
-                !SourceFilters.Single(item => item.Value == secondSourceId).Label.Contains("1 个音色，去重 1 个，跨来源相同 1 个", StringComparison.Ordinal))
+            RefreshFilterCollections();
+            if (!SourceOption(sourceId).Label.Contains("跨来源相同 2 个", StringComparison.Ordinal) ||
+                !SourceOption(secondSourceId).Label.Contains("1 个音色，去重 1 个，跨来源相同 1 个", StringComparison.Ordinal))
                 throw new InvalidOperationException("跨路径重复统计遗漏了主项或其他来源副本。");
-            SourceFilter.SelectedItem = SourceFilters.Single(item => item.Value == secondSourceId);
+            SetFilterSelection("source", secondSourceId);
             if (PresetsView.Count != 1 || PresetsView.Cast<PresetRow>().Single() != crossPath ||
                 _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(item => item.Record)).Single() != canonical.Record)
                 throw new InvalidOperationException("仅含跨路径副本的来源未保留本地代表，或生成未归并到主项。");
             PresetGrid.SelectedItem = crossPath;
             if (!CanRenderSelection) throw new InvalidOperationException("来源副本无法通过主项重新生成。");
-            if (!SourceFilters[0].Label.StartsWith($"全部来源（{Presets.Count} 个音色，去重 ", StringComparison.Ordinal))
+            if (!SourceOption("").Label.StartsWith($"全部来源（{Presets.Count} 个音色，去重 ", StringComparison.Ordinal))
                 throw new InvalidOperationException("全部来源的音色总量不正确。");
+
+            SetFilterSelection("source", sourceId, secondSourceId);
+            AssertVisible(canonical, added);
+            ShowDuplicates.IsChecked = true;
+            AssertVisible(canonical, duplicate, added, crossPath);
+            ShowDuplicates.IsChecked = false;
+            SetFilterSelection("synth", SynthKind.Vital.ToString(), SynthKind.Serum1.ToString());
+            SetFilterSelection("package", sourceId, secondSourceId);
+            SetFilterSelection("category", "TEST ONLY bass", "TEST ONLY lead");
+            SetFilterSelection("tag", "TEST ONLY warm", "TEST ONLY bright");
+            SetFilterSelection("favorite", "1");
+            AssertVisible(canonical, added);
+            SetFilterSelection("category", "TEST ONLY lead");
+            AssertVisible(added);
+            SetFilterSelection("favorite", "0");
+            AssertVisible(crossPath);
+            // Deduplicate after all active filters: a matching copy must survive when its canonical does not match.
+            if (_duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)).Single() != canonical.Record)
+                throw new InvalidOperationException("筛选副本未归并至原音色生成记录。");
+            var beforeRefresh = FilterGroups.ToDictionary(group => group.Key,
+                group => group.Options.Where(option => option.IsSelected && option.Key.Length > 0).Select(option => option.Key).Order().ToArray());
+            RefreshFilterCollections();
+            foreach (var group in FilterGroups)
+                if (!beforeRefresh[group.Key].SequenceEqual(group.Options.Where(option => option.IsSelected && option.Key.Length > 0).Select(option => option.Key).Order()))
+                    throw new InvalidOperationException("刷新选项丢失了某组的多个选择。");
+            AssertVisible(crossPath);
+            SetFilterSelection("source", "");
+            if (FilterGroups.Single(group => group.Key == "source").Options.Any(option => option.Key.Length > 0 && option.IsSelected) ||
+                !SourceOption("").IsSelected || !FilterGroups.Single(group => group.Key == "category").Options.Single(option => option.Key == "TEST ONLY lead").IsSelected)
+                throw new InvalidOperationException("全部选项没有清空当前组，或错误清除了其他组。");
+            ClearFilterSelections();
+            if (FilterGroups.Any(group => group.Options.Any(option => option.Key.Length > 0 && option.IsSelected) || !group.Options.Single(option => option.Key.Length == 0).IsSelected))
+                throw new InvalidOperationException("清除筛选没有恢复各组的全部选项。");
         }
         finally
         {
             PresetGrid.SelectedItem = null;
-            SourceFilter.SelectedItem = SourceFilters[0];
+            ClearFilterSelections();
             SearchBox.Clear();
             ShowDuplicates.IsChecked = false;
             // Reset currency before removing selected fixtures from a filtered Avalonia view.
@@ -344,11 +394,106 @@ public partial class MainWindow
                 Presets.Remove(duplicate);
                 Presets.Remove(added);
                 Presets.Remove(crossPath);
-                RefreshFilterChoices();
+                RefreshFilterCollections();
             }
             finally { PresetsView.Filter = FilterPreset; }
-            SourceFilter.SelectedItem = SourceFilters.FirstOrDefault(item => item.Value == originalSource) ?? SourceFilters[0];
+            foreach (var (key, values) in savedSelections) SetFilterSelection(key, values);
+            SearchBox.Text = originalSearch;
+            ShowDuplicates.IsChecked = originalDuplicates;
             PresetsView.Refresh();
+        }
+
+        FilterOption SourceOption(string key) => FilterGroups.Single(group => group.Key == "source").Options.Single(option => option.Key == key);
+        void AssertVisible(params PresetRow[] expected)
+        {
+            if (!PresetsView.Cast<PresetRow>().ToHashSet().SetEquals(expected))
+                throw new InvalidOperationException("同组多选、跨组交集或筛选后的重复项代表不正确。");
+        }
+    }
+
+    private void CheckPreviewStatusGroups()
+    {
+        if (!Enum.GetValues<PresetStatus>().Select(value => (int)value).SequenceEqual(Enumerable.Range(0, 8)) ||
+            Enum.GetValues<PresetStatus>().Select(Labels.Status).Distinct().Count() != 5)
+            throw new InvalidOperationException("状态显示归并改变了数据库枚举，或静态标签未收敛为五类。");
+        string directory = Path.Combine(App.DataDirectory, "TEST-ONLY-status-groups-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string preview = Path.Combine(directory, "existing-preview.wav");
+        File.WriteAllText(preview, "TEST ONLY existence sentinel; never played.");
+        var rows = new List<PresetRow>();
+        try
+        {
+            ClearFilterSelections();
+            SearchBox.Text = directory;
+            foreach (var status in Enum.GetValues<PresetStatus>())
+                foreach (bool hasPreview in new[] { false, true })
+                {
+                    var row = new PresetRow(new PresetRecord { Id = Guid.NewGuid().ToString("N"), Name = status.ToString(), Status = status,
+                        SourcePath = Path.Combine(directory, status + ".vital"), PreviewPath = hasPreview ? preview : "",
+                        Message = "TEST ONLY detailed reason", LastRenderMessage = "TEST ONLY latest render detail" });
+                    string expectedKey = status == PresetStatus.Rendering ? "rendering" : hasPreview ? "generated" : status switch
+                    {
+                        PresetStatus.Pending or PresetStatus.Ready or PresetStatus.NeedsReview => "pending",
+                        PresetStatus.Failed => "failed", _ => "unavailable"
+                    };
+                    string expectedLabel = expectedKey switch { "rendering" => "生成中", "generated" => "已生成", "pending" => "待生成", "failed" => "生成失败", _ => "无法预览" };
+                    if (Labels.PreviewStatusKey(row.Record, row.HasPreview) != expectedKey || row.StatusLabel != expectedLabel ||
+                        !row.Message.Contains("TEST ONLY detailed reason", StringComparison.Ordinal) || row.LastRenderMessageLabel != "TEST ONLY latest render detail")
+                        throw new InvalidOperationException("状态没有归并为五类，或丢失了原始原因与确认信息。");
+                    rows.Add(row);
+                    Presets.Add(row);
+                }
+            RefreshFilterCollections();
+            foreach (string key in new[] { "pending", "rendering", "generated", "failed", "unavailable" })
+            {
+                SetFilterSelection("status", key);
+                if (!PresetsView.Cast<PresetRow>().ToHashSet().SetEquals(rows.Where(row => Labels.PreviewStatusKey(row.Record, row.HasPreview) == key)))
+                    throw new InvalidOperationException("状态筛选与列表显示的五类状态不一致。");
+            }
+            SetFilterSelection("status", "generated", "failed");
+            if (!PresetsView.Cast<PresetRow>().ToHashSet().SetEquals(rows.Where(row => Labels.PreviewStatusKey(row.Record, row.HasPreview) is "generated" or "failed")))
+                throw new InvalidOperationException("已生成和失败状态不能同时选择。");
+            var generated = rows.First(row => row.Record.Status == PresetStatus.NeedsReview && row.HasPreview);
+            generated.Record.DuplicateOfId = "TEST ONLY canonical";
+            if (generated.StatusLabel != "已生成" || generated.DuplicateLabel.Length == 0)
+                throw new InvalidOperationException("重复副本再次成为独立状态，或丢失了重复详情。");
+            File.Delete(preview);
+            generated.Refresh();
+            if (generated.HasPreview || generated.StatusLabel != "待生成" || !generated.Message.StartsWith("原预览文件不存在，可重新生成。", StringComparison.Ordinal))
+                throw new InvalidOperationException("缺失缓存仍被显示为已生成。");
+            foreach (var (suffix, oldReason, newReason) in new[]
+            {
+                (".vitalbank", "尚未验证原生音色包导入及依赖资源", "重新扫描音色"),
+                (".fxb", "银行加载与槽位尚未验证", "独立 .fxp")
+            })
+            {
+                var record = new PresetRecord { Status = PresetStatus.Unsupported, SourcePath = Path.Combine(directory, "legacy" + suffix), Message = oldReason };
+                var row = new PresetRow(record);
+                if (!row.Message.Contains(newReason, StringComparison.Ordinal) || record.Message != oldReason)
+                    throw new InvalidOperationException("旧音色包原因没有提供可操作提示，或修改了已存原因。");
+                record.Message = "TEST ONLY custom failure";
+                if (row.Message != record.Message) throw new InvalidOperationException("友好提示覆盖了自定义失败原因。");
+            }
+            foreach (var status in new[] { PresetStatus.Unsupported, PresetStatus.Missing, PresetStatus.Unidentified })
+                if (new PresetRow(new PresetRecord { Status = status }).Message.Length == 0)
+                    throw new InvalidOperationException("无法预览记录缺少可操作的原因提示。");
+        }
+        finally
+        {
+            ClearFilterSelections();
+            SearchBox.Clear();
+            PresetGrid.SelectedItem = null;
+            PresetsView.Filter = null;
+            PresetsView.MoveCurrentToPosition(-1);
+            try
+            {
+                foreach (var row in rows) Presets.Remove(row);
+                RefreshFilterCollections();
+            }
+            finally { PresetsView.Filter = FilterPreset; }
+            PresetsView.Refresh();
+            File.Delete(preview);
+            Directory.Delete(directory);
         }
     }
 
@@ -445,7 +590,7 @@ public partial class MainWindow
             SmokeBounds(ScanPresetsButton).Intersects(SmokeBounds(ForceGeneration)))
             throw SmokeLayoutFailure("扫描音源、扫描音色与主工具栏重叠。");
         string? formats = PresetFormatHint.Text;
-        foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb", ".spf", ".spf2", ".sbf", ".swzip" })
+        foreach (var suffix in new[] { ".vital", ".vitalbank", ".fxp", ".SerumPreset", ".fxb" })
             if (formats?.Contains(suffix, StringComparison.Ordinal) != true) throw new InvalidOperationException("文件后缀说明缺失。");
         CheckLibraryWorkspaceGeometry();
         if (EmptyPresetState.IsEffectivelyVisible && SmokeBounds(EmptyPresetState).Bottom > SmokeBounds(PresetGrid).Bottom + 1)
@@ -476,7 +621,7 @@ public partial class MainWindow
             StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
             TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, CopyPresetPathButton, PresetDetailsScroll, LocatePresetButton,
             LibraryWorkspace, LibraryListPane, LibraryDetailsPane, FilterStrip, PlaybackBar, PlayPreviewButton,
-            SearchBox, SynthFilter, StatusFilter, SourceFilter, AdvancedFiltersPanel, RecentLogList,
+            SearchBox, FilterTabs, FilterOptionsBand, FilterOptionsScroll, FilterOptionsItems, RecentLogList,
             PreviewShortcutHint, Waveform, SeekSlider];
         var state = new
         {

@@ -12,9 +12,32 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
     public string Name => Record.Name;
     public string SynthLabel => Labels.Synth(Record.Synth);
     public string Package => Record.Package;
-    public string StatusLabel => Record.DuplicateOfId.Length > 0 ? "重复副本" : Labels.Status(Record.Status);
+    public string StatusLabel => Labels.PreviewStatus(Record, HasPreview);
     public string DuplicateLabel => Record.DuplicateOfId.Length > 0 ? "相同内容已有保留项，生成时共用保留项的预览；可查看保留项试听。" : "";
-    public string Message => Record.Message;
+    public string Message
+    {
+        get
+        {
+            if (!HasPreview && Record.Status is PresetStatus.Ready or PresetStatus.NeedsReview)
+                return "原预览文件不存在，可重新生成。" + (Record.Message.Length > 0 ? Environment.NewLine + Record.Message : "");
+            if (Record.Status == PresetStatus.Unsupported &&
+                Record.Message.Contains("尚未验证原生音色包导入及依赖资源", StringComparison.Ordinal) &&
+                Path.GetExtension(Record.SourcePath).Equals(".vitalbank", StringComparison.OrdinalIgnoreCase))
+                return "此包内条目尚未通过当前版本的资源检查，请重新扫描音色；若仍无法预览，可在 Vital 中导入后另存为独立 .vital 文件再扫描。";
+            if (Record.Status == PresetStatus.Unsupported &&
+                Record.Message.Contains("银行加载与槽位尚未验证", StringComparison.Ordinal) &&
+                Path.GetExtension(Record.SourcePath).Equals(".fxb", StringComparison.OrdinalIgnoreCase))
+                return "当前无法直接生成 FXB 音色库预览。请在对应音源中打开音色库，将所需音色导出为独立 .fxp 文件后重新扫描。";
+            if (Record.Message.Length > 0) return Record.Message;
+            return Record.Status switch
+            {
+                PresetStatus.Unsupported => "当前格式无法直接生成预览，请在对应音源中另存为受支持的独立音色后重新扫描。",
+                PresetStatus.Missing => "来源文件不存在，请检查来源目录后重新扫描。",
+                PresetStatus.Unidentified => "尚未识别对应音源，请指定音源后重新扫描。",
+                _ => ""
+            };
+        }
+    }
     public string TagsLabel => string.Join(" · ", Record.Tags);
     public string CategoryTagsLabel => string.Join(" · ", Record.CategoryTags);
     public string SourceLabel => Path.GetDirectoryName(Record.SourcePath) ?? "";
@@ -40,7 +63,6 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
 }
 
 public sealed record Choice<T>(string Label, T Value);
-public sealed record StatusFilterChoice(string Label, PresetStatus? Value = null, bool GeneratedOnly = false, bool LatestFailedOnly = false);
 public sealed record CompatibilityRow(string Synth, string Status, string Detail);
 
 public static class Labels
@@ -56,10 +78,21 @@ public static class Labels
         SynthKind.Unknown => ".fxp / .fxb",
         _ => ""
     };
+    public static string PreviewStatusKey(PresetRecord record, bool hasPreview) => record.Status switch
+    {
+        PresetStatus.Rendering => "rendering",
+        _ when hasPreview => "generated",
+        PresetStatus.Pending or PresetStatus.Ready or PresetStatus.NeedsReview => "pending",
+        PresetStatus.Failed => "failed",
+        _ => "unavailable"
+    };
+    public static string PreviewStatus(PresetRecord record, bool hasPreview) => PreviewStatusKey(record, hasPreview) switch
+    {
+        "rendering" => "生成中", "generated" => "已生成", "pending" => "待生成", "failed" => "生成失败", _ => "无法预览"
+    };
     public static string Status(PresetStatus s) => s switch
     {
-        PresetStatus.Pending => "待生成", PresetStatus.Rendering => "生成中", PresetStatus.Ready => "已就绪",
-        PresetStatus.Failed => "失败", PresetStatus.NeedsReview => "已生成待确认", PresetStatus.Unsupported => "待适配",
-        PresetStatus.Missing => "来源缺失", PresetStatus.Unidentified => "待识别", _ => s.ToString()
+        PresetStatus.Pending => "待生成", PresetStatus.Rendering => "生成中", PresetStatus.Ready or PresetStatus.NeedsReview => "已生成",
+        PresetStatus.Failed => "生成失败", _ => "无法预览"
     };
 }

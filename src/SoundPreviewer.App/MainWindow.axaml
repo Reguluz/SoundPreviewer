@@ -25,31 +25,32 @@
    <TabItem x:Name="LibraryTab" Header="音色库">
     <Grid x:Name="LibraryWorkspace" Background="White">
      <Grid.ColumnDefinitions><ColumnDefinition Width="3.5*"/><ColumnDefinition Width="*" MinWidth="228" MaxWidth="270"/></Grid.ColumnDefinitions>
-     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="102"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <Grid x:Name="FilterStrip" Classes="filter-strip" Grid.ColumnSpan="2" Height="38" Margin="0,4,0,4">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="105"/><ColumnDefinition Width="108"/><ColumnDefinition Width="160"/><ColumnDefinition Width="94"/><ColumnDefinition Width="32"/><ColumnDefinition Width="112"/><ColumnDefinition Width="34"/><ColumnDefinition Width="26"/></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="150"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="32"/><ColumnDefinition Width="108"/><ColumnDefinition Width="34"/><ColumnDefinition Width="26"/></Grid.ColumnDefinitions>
       <TextBox x:Name="SearchBox" Watermark="搜索音色、标签或路径" TextChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="搜索名称、标签、MD5、音色包或文件路径" AutomationProperties.Name="搜索音色"/>
-      <ComboBox x:Name="SynthFilter" Grid.Column="1" ItemsSource="{Binding SynthFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #SynthFilter.SelectedItem.Label}" AutomationProperties.Name="音源筛选"/>
-      <ComboBox x:Name="StatusFilter" Grid.Column="2" ItemsSource="{Binding StatusFilters}" SelectedIndex="0" DisplayMemberBinding="{Binding Label}" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #StatusFilter.SelectedItem.Label}" AutomationProperties.Name="状态筛选"/>
-      <ComboBox x:Name="SourceFilter" Grid.Column="3" ItemsSource="{Binding SourceFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{Binding #SourceFilter.SelectedItem.Label}" AutomationProperties.Name="来源目录筛选"/>
-      <ToggleButton x:Name="MoreFiltersToggle" Grid.Column="4" Classes="filter-toggle" Content="{Binding AdditionalFiltersLabel}" IsChecked="False" VerticalAlignment="Center" ToolTip.Tip="音色包、分类、标签和收藏筛选" AutomationProperties.Name="更多筛选"/>
-      <Button x:Name="ClearFiltersButton" Grid.Column="5" Classes="icon compact" Content="↺" Click="ClearFilters_Click" Width="26" Margin="0,0,6,0" ToolTip.Tip="清除全部筛选" AutomationProperties.Name="清除全部筛选"/>
-      <Button x:Name="RenderFilteredButton" Grid.Column="6" Classes="compact" Content="生成筛选结果" Click="RenderFiltered_Click" IsEnabled="{Binding CanRenderFiltered}" ToolTip.Tip="生成当前筛选结果，跳过已有有效预览"/>
-      <Button x:Name="ColumnsButton" Grid.Column="7" Classes="icon compact" Content="☷" Click="ShowColumns_Click" Width="28" Margin="0,0,6,0" ToolTip.Tip="选择音色列表显示列" AutomationProperties.Name="列表显示列"><Button.ContextMenu><ContextMenu x:Name="ColumnsMenu" Opened="ColumnMenu_Opened"/></Button.ContextMenu></Button>
-      <Button Grid.Column="8" Classes="icon compact" Content="?" Width="26" Margin="0" ToolTip.Tip="{Binding #PresetFormatHint.Text}" AutomationProperties.Name="查看支持的音色文件格式"/>
-      <CheckBox x:Name="FavoritesOnly" Content="收藏" IsVisible="False" IsCheckedChanged="Filter_Changed"/>
-      <TextBlock x:Name="PresetFormatHint" IsVisible="False" Text="文件后缀：Vital .vital / .vitalbank；Serum 1 .fxp；Serum 2 .SerumPreset / .fxp；Sylenth1 .fxp / .fxb；Spire .spf / .spf2 / .sbf / .swzip（预览待适配）。音色包与银行暂仅索引。"/>
+      <ItemsControl x:Name="FilterTabs" Grid.Column="1" ItemsSource="{Binding FilterGroups}" VerticalAlignment="Center" Margin="0,0,6,0">
+       <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+       <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Classes="filter-tab" Content="{Binding DisplayLabel}" IsChecked="{Binding IsActive, Mode=OneWay}" Click="FilterGroup_Click" ToolTip.Tip="点击切换下方选项；每组均可多选" AutomationProperties.Name="{Binding Label}"/></DataTemplate></ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button x:Name="ClearFiltersButton" Grid.Column="2" Classes="icon compact" Content="↺" Click="ClearFilters_Click" Width="26" Margin="0,0,6,0" ToolTip.Tip="清除全部筛选" AutomationProperties.Name="清除全部筛选"/>
+      <Button x:Name="RenderFilteredButton" Grid.Column="3" Classes="compact" Content="生成筛选结果" Click="RenderFiltered_Click" IsEnabled="{Binding CanRenderFiltered}" ToolTip.Tip="生成当前筛选结果，跳过已有有效预览"/>
+      <Button x:Name="ColumnsButton" Grid.Column="4" Classes="icon compact" Content="☷" Click="ShowColumns_Click" Width="28" Margin="0,0,6,0" ToolTip.Tip="选择音色列表显示列" AutomationProperties.Name="列表显示列"><Button.ContextMenu><ContextMenu x:Name="ColumnsMenu" Opened="ColumnMenu_Opened"/></Button.ContextMenu></Button>
+      <Button Grid.Column="5" Classes="icon compact" Content="?" Width="26" Margin="0" ToolTip.Tip="{Binding #PresetFormatHint.Text}" AutomationProperties.Name="查看支持的音色文件格式"/>
+      <TextBlock x:Name="PresetFormatHint" IsVisible="False" Text="独立音色：Vital .vital；Serum 1 .fxp；Serum 2 .SerumPreset；Sylenth1 .fxp。Vital .vitalbank 包内音色通过内嵌资源检查后可生成，旧条目请重新扫描；.fxb 音色库及 Spire 原生格式无法直接生成。具体原因请选中音色查看详情。"/>
      </Grid>
-     <Border x:Name="AdvancedFiltersPanel" Grid.Row="1" Grid.ColumnSpan="2" ZIndex="5" IsVisible="{Binding #MoreFiltersToggle.IsChecked}" Width="300" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,0,0" Padding="12" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" BoxShadow="0 4 16 0 #22000000">
-      <StackPanel>
-       <Grid ColumnDefinitions="*,Auto"><TextBlock Text="更多筛选" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="AdvancedFiltersCloseButton" Grid.Column="1" Classes="icon compact" Content="×" Width="26" Height="26" Margin="0" Click="CloseMoreFilters_Click" ToolTip.Tip="收起更多筛选"/></Grid>
-       <TextBlock Text="音色包" Classes="field-label"/><ComboBox x:Name="PackageFilter" ItemsSource="{Binding PackageFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="音色包筛选"/>
-       <TextBlock Text="分类" Classes="field-label"/><ComboBox x:Name="CategoryFilter" ItemsSource="{Binding CategoryFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="音色类别筛选"/>
-       <TextBlock Text="标签" Classes="field-label"/><ComboBox x:Name="TagFilter" ItemsSource="{Binding TagFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="标签筛选"/>
-       <TextBlock Text="收藏" Classes="field-label"/><ComboBox x:Name="FavoriteFilter" ItemsSource="{Binding FavoriteFilters}" DisplayMemberBinding="{Binding Label}" SelectedIndex="0" SelectionChanged="Filter_Changed" AutomationProperties.Name="收藏状态筛选"/>
-      </StackPanel>
+     <Border x:Name="FilterOptionsBand" Grid.Row="1" Grid.ColumnSpan="2" Height="96" Padding="8,5" Margin="0,0,0,6" Background="#F4F8F5" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,1">
+      <Grid ColumnDefinitions="62,*">
+       <StackPanel Margin="0,4,6,0"><TextBlock Text="{Binding ActiveFilterLabel}" FontSize="12" FontWeight="SemiBold"/><TextBlock Text="可多选" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,0" ToolTip.Tip="同组满足任意一项；不同组同时满足。再次点击取消，选择“全部”清空该组。"/></StackPanel>
+       <ScrollViewer x:Name="FilterOptionsScroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl x:Name="FilterOptionsItems" ItemsSource="{Binding ActiveFilterOptions}">
+         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+         <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Classes="filter-option" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="FilterOption_Click" ToolTip.Tip="{Binding ToolTip}" AutomationProperties.Name="{Binding Label}"><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding DisplayLabel}" TextTrimming="CharacterEllipsis" MaxWidth="230"/><TextBlock Text="{Binding CountLabel}" FontSize="11" Margin="5,0,0,0" VerticalAlignment="Center" Opacity="0.85"/></StackPanel></ToggleButton></DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+       </ScrollViewer>
+      </Grid>
      </Border>
-     <Grid x:Name="LibraryListPane" Grid.Row="1" Margin="0,0,12,0">
+     <Grid x:Name="LibraryListPane" Grid.Row="2" Margin="0,0,12,0">
       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
       <Grid>
        <DataGrid RowHeight="32" ColumnHeaderHeight="30" FontSize="13" x:Name="PresetGrid" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
@@ -88,11 +89,12 @@
       </Grid>
       <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
-     <Border x:Name="LibraryDetailsPane" Classes="preset-details" Grid.Row="1" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="12,4,0,0">
+     <Border x:Name="LibraryDetailsPane" Classes="preset-details" Grid.Row="2" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="12,4,0,0">
       <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-       <StackPanel x:Name="PresetDetailsContent">
+       <StackPanel x:Name="PresetDetailsContent" Margin="0,0,12,0">
         <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
-        <TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}" Margin="0,4,0,8"/>
+        <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,4"><TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}"/><TextBlock Grid.Column="1" Text="{Binding Selected.StatusLabel}" FontWeight="SemiBold"/></Grid>
+        <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="#97632E" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal">
          <Button x:Name="FavoriteButton" Classes="icon" Content="☆" Click="Favorite_Click" ToolTip.Tip="切换收藏" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="＋" Click="Like_Click" ToolTip.Tip="喜欢 / 取消喜欢" IsEnabled="{Binding CanEditSelection}"/>
@@ -112,8 +114,6 @@
           <WrapPanel><Button Content="保存修改" Click="SavePresetMetadata_Click" Padding="10,6"/><Button Content="恢复自动" Click="ResetPresetMetadata_Click" Padding="10,6" Margin="0"/></WrapPanel>
          </StackPanel>
         </Expander>
-        <TextBlock Text="状态" Classes="field-label"/><TextBlock Text="{Binding Selected.StatusLabel}"/>
-        <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="#97632E" Margin="0,6,0,0"/>
         <TextBlock Text="最近任务" Classes="field-label"/><TextBlock Text="{Binding Selected.LastRenderOutcomeLabel}"/><TextBlock Text="{Binding Selected.LastRenderMessageLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
         <TextBlock Text="来源" Classes="field-label"/><TextBox Text="{Binding Selected.Record.SourcePath}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0"/>
         <TextBlock Text="{Binding Selected.Record.InternalPath}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Muted}"/>
