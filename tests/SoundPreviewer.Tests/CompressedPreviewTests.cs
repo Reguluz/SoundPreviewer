@@ -9,7 +9,7 @@ namespace SoundPreviewer.Tests;
 
 internal static partial class Program
 {
-    private static Task TestWindowsAacCrossPlatformAsync()
+    private static async Task TestWindowsAacCrossPlatformAsync()
     {
         string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures", "NativeAac");
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtures, "windows-mf-fixtures.json")));
@@ -26,42 +26,49 @@ internal static partial class Program
                 continue;
             }
             // Windows and macOS must both actually decode these Windows-produced bytes; failures are not skipped.
-            var audio = PreviewAudioFile.Read(path);
             int rate = entry.GetProperty("SampleRate").GetInt32(), frames = entry.GetProperty("OriginalFrames").GetInt32();
-            Equal(rate, audio.SampleRate, "A cache copied between platforms keeps its original sample rate.");
-            Equal(2, audio.Channels, "A cache copied between platforms retains stereo.");
-            Equal(frames, audio.Frames, "Cross-platform AAC decoding cannot lose frames or expose codec padding to the note map.");
-            var reference = WindowsAacFixtureReference(rate);
-            var regions = new List<object>();
-            for (int region = 0; region < 3; region++)
+            try
             {
-                int first = region * (rate / 2) + 256, end = first + 7744, bestShift = int.MaxValue;
-                double bestScore = double.NegativeInfinity;
-                for (int shift = -4096; shift <= 4096; shift++)
+                var audio = PreviewAudioFile.Read(path);
+                Equal(rate, audio.SampleRate, "A cache copied between platforms keeps its original sample rate.");
+                Equal(2, audio.Channels, "A cache copied between platforms retains stereo.");
+                Equal(frames, audio.Frames, "Cross-platform AAC decoding cannot lose frames or expose codec padding to the note map.");
+                var reference = WindowsAacFixtureReference(rate);
+                var regions = new List<object>();
+                for (int region = 0; region < 3; region++)
                 {
-                    double dot = 0, referenceEnergy = 0, decodedEnergy = 0;
-                    for (int frame = first; frame < end; frame += 3)
+                    int first = region * (rate / 2) + 256, end = first + 7744, bestShift = int.MaxValue;
+                    double bestScore = double.NegativeInfinity;
+                    for (int shift = -4096; shift <= 4096; shift++)
                     {
-                        int candidate = frame + shift;
-                        if (candidate < 0 || candidate >= audio.Frames) continue;
-                        double expected = reference.Samples[frame * 2], actual = audio.Samples[candidate * 2];
-                        dot += expected * actual; referenceEnergy += expected * expected; decodedEnergy += actual * actual;
+                        double dot = 0, referenceEnergy = 0, decodedEnergy = 0;
+                        for (int frame = first; frame < end; frame += 3)
+                        {
+                            int candidate = frame + shift;
+                            if (candidate < 0 || candidate >= audio.Frames) continue;
+                            double expected = reference.Samples[frame * 2], actual = audio.Samples[candidate * 2];
+                            dot += expected * actual; referenceEnergy += expected * expected; decodedEnergy += actual * actual;
+                        }
+                        double score = referenceEnergy > 0 && decodedEnergy > 0 ? dot / Math.Sqrt(referenceEnergy * decodedEnergy) : -1;
+                        if (score > bestScore) { bestScore = score; bestShift = shift; }
                     }
-                    double score = referenceEnergy > 0 && decodedEnergy > 0 ? dot / Math.Sqrt(referenceEnergy * decodedEnergy) : -1;
-                    if (score > bestScore) { bestScore = score; bestShift = shift; }
+                    True(bestScore >= .85, $"Windows AAC region {region} must retain its recognizable waveform on this platform (score {bestScore:0.000}).");
+                    True(Math.Abs(bestShift) / (double)rate <= .001,
+                        $"Windows AAC region {region} start drift exceeds 1 ms on this platform: {bestShift} frames at {rate} Hz.");
+                    regions.Add(new { Region = region, ShiftFrames = bestShift, ShiftSeconds = bestShift / (double)rate, Correlation = bestScore });
                 }
-                True(bestScore >= .85, $"Windows AAC region {region} must retain its recognizable waveform on this platform (score {bestScore:0.000}).");
-                True(Math.Abs(bestShift) / (double)rate <= .001,
-                    $"Windows AAC region {region} start drift exceeds 1 ms on this platform: {bestShift} frames at {rate} Hz.");
-                regions.Add(new { Region = region, ShiftFrames = bestShift, ShiftSeconds = bestShift / (double)rate, Correlation = bestScore });
+                reports.Add(new { File = Path.GetFileName(path), SampleRate = rate, audio.Channels, audio.Frames, Regions = regions });
             }
-            reports.Add(new { File = Path.GetFileName(path), SampleRate = rate, audio.Channels, audio.Frames, Regions = regions });
+            catch (Exception error) when (OperatingSystem.IsMacOS())
+            {
+                string diagnostic = await MacAacDecodeDiagnosticsAsync(path, rate);
+                throw new InvalidOperationException("Windows AAC fixture decode failed: " + error.Message + "\n" + diagnostic, error);
+            }
         }
         string report = Path.Combine(Fixture("windows-aac-cross-platform"), "windows-aac-compatibility.json");
         File.WriteAllText(report, JsonSerializer.Serialize(new { Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             WindowsProducedFilesDecoded = reports.Count, Files = reports }, LibraryJson.Options));
         Console.WriteLine("Windows-produced AAC compatibility report: " + report);
-        return Task.CompletedTask;
     }
 
     private static WaveData WindowsAacFixtureReference(int rate)

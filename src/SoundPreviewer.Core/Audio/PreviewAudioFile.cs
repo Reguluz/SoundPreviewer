@@ -25,7 +25,7 @@ public static partial class PreviewAudioFile
         if (!File.Exists(fullPath)) throw new FileNotFoundException("预览音频文件不存在。", fullPath);
         if (!IsCompressed(fullPath)) return WaveFile.Read(fullPath, cancellationToken);
         var timing = ReadTiming(fullPath, cancellationToken);
-        var decoded = DecodeNative(fullPath, timing.SampleRate, timing.Channels, timing.Frames, cancellationToken);
+        var decoded = DecodeNative(fullPath, timing.SampleRate, timing.Channels, timing.Frames, cancellationToken, timing.Platform == 1);
         return decoded.Audio;
     }
 
@@ -80,13 +80,13 @@ public static partial class PreviewAudioFile
     private static bool IsNativeCodecFailure(Exception error) =>
         error is InvalidOperationException or Win32Exception or TimeoutException or DllNotFoundException or EntryPointNotFoundException;
 
-    private static Decoded DecodeNative(string path, int sampleRate, int channels, int frames, CancellationToken token)
+    private static Decoded DecodeNative(string path, int sampleRate, int channels, int frames, CancellationToken token, bool windowsOrigin = false)
     {
         token.ThrowIfCancellationRequested();
         try
         {
             if (OperatingSystem.IsWindows()) return DecodeWindows(path, sampleRate, channels, frames, token);
-            if (OperatingSystem.IsMacOS()) return DecodeMac(path, sampleRate, channels, frames, token);
+            if (OperatingSystem.IsMacOS()) return DecodeMac(path, sampleRate, channels, frames, token, windowsOrigin);
         }
         catch (Exception error) when (IsNativeCodecFailure(error))
         {
@@ -184,7 +184,7 @@ public static partial class PreviewAudioFile
         finally { Directory.Delete(scratch, recursive: true); }
     }
 
-    private static Decoded DecodeMac(string path, int rate, int channels, int frames, CancellationToken token)
+    private static Decoded DecodeMac(string path, int rate, int channels, int frames, CancellationToken token, bool windowsOrigin)
     {
         string scratch = CreateScratch(path);
         try
@@ -193,19 +193,25 @@ public static partial class PreviewAudioFile
             // Run the async process helper off the caller's UI synchronization
             // context; Read is also used by synchronous waveform/playback callers.
             long maximumOutputBytes = (frames + (long)MaximumPaddingFrames) * channels * sizeof(float) + 65536;
-            var outcome = Task.Run(() => RunMacDecodeAsync(path, output, scratch, maximumOutputBytes, token),
+            var outcome = Task.Run(() => RunMacDecodeAsync(path, output, scratch, maximumOutputBytes, token, windowsOrigin),
                 CancellationToken.None).GetAwaiter().GetResult();
-            if (outcome.ExitCode != 0) throw new InvalidDataException("系统 AAC 解码未完成：" + outcome.StandardError);
+            if (outcome.ExitCode != 0) throw new InvalidDataException("系统 AAC 解码未完成（" +
+                (windowsOrigin ? "Windows 来源兼容模式" : "来源原有时序") + "）：" + outcome.StandardError);
             return ReadMacDecodedWave(output, rate, channels, frames, token);
         }
         finally { Directory.Delete(scratch, recursive: true); }
     }
 
     private static async Task<ProcessOutcome> RunMacDecodeAsync(string input, string output, string scratch,
-        long maximumOutputBytes, CancellationToken token)
+        long maximumOutputBytes, CancellationToken token, bool windowsOrigin)
     {
         using var outputLimit = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var conversion = ProcessRunner.RunAsync("/usr/bin/afconvert", [input, output, "-f", "WAVE", "-d", "LEF32"],
+        List<string> arguments = [input, output, "-f", "WAVE", "-d", "LEF32"];
+        // The checksum-bound Windows timing records a native zero-offset start.
+        // Override Apple's legacy implicit 2112-frame rule for this origin only;
+        // the system decoder still performs decoding, and we only trim known tail.
+        if (windowsOrigin) arguments.AddRange(["--prime-override", "0", "0"]);
+        var conversion = ProcessRunner.RunAsync("/usr/bin/afconvert", arguments,
             scratch, TimeSpan.FromSeconds(60), outputLimit.Token);
         try
         {

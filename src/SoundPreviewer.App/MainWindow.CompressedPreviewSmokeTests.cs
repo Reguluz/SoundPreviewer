@@ -8,11 +8,11 @@ namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
-    private async Task<bool> CheckCompressedPreviewAsync()
+    private async Task<(bool Checked, bool PlaybackChecked)> CheckCompressedPreviewAsync()
     {
         // Only temporary test libraries are eligible; never rewrite a supplied real library for verification.
         if (_settings.Plugins.Any(plugin => plugin.Backend != RenderBackend.Unconfigured) ||
-            Presets.Any(row => row.Record.SourceId != "test-only-ui-fixture")) return false;
+            Presets.Any(row => row.Record.SourceId != "test-only-ui-fixture")) return (false, false);
         var savedSettings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
         var savedRecords = _store.LoadPresets();
         string savedRecordsJson = JsonSerializer.Serialize(savedRecords.OrderBy(record => record.Id), LibraryJson.Options);
@@ -55,6 +55,13 @@ public partial class MainWindow
             PopulateSettings();
             SetPresets(_store.LoadPresets());
             ClearFilterSelections();
+            // Compare the same valid audio through the normal UI before and after compression.
+            // Hosted desktops may have no default output device even though both codecs work.
+            Pages.SelectedItem = LibraryTab;
+            PresetGrid.SelectedItem = Presets.Single(row => row.Record.Id == id);
+            await LoadSelectedPreview();
+            bool referencePlaybackAvailable = _mediaOpened && CanPlay;
+            string referenceLoadDiagnostic = Logs.LastOrDefault() ?? "";
             Pages.SelectedItem = SettingsTab;
             SettingsPages.SelectedItem = StorageSettingsTab;
             await SettleLayoutAsync();
@@ -77,21 +84,25 @@ public partial class MainWindow
             ClearFilterSelections();
             PresetGrid.SelectedItem = Presets.Single(row => row.Record.Id == id);
             await LoadSelectedPreview();
-            if (!_mediaOpened || !CanPlay) throw new InvalidOperationException("AAC 预览未能通过正常界面加载。");
+            bool compressedPlaybackAvailable = _mediaOpened && CanPlay;
+            if (!CanPlay || compressedPlaybackAvailable != referencePlaybackAvailable)
+                throw new InvalidOperationException($"AAC 与原 WAV 的正常界面加载能力不一致：WAV={referencePlaybackAvailable}，AAC={compressedPlaybackAvailable}。WAV检查：{referenceLoadDiagnostic}；AAC检查：{Logs.LastOrDefault()}");
             _player.Volume = 0;
             foreach (string region in new[] { "Low", "Middle", "High" })
             {
                 var note = FindPreviewNote(compressed, region)!;
                 PlayNote_Click(new Button { Tag = region }, new RoutedEventArgs());
-                if (Math.Abs(_openPosition - note.StartSeconds) > 1d / rate || _segmentEnd != note.StartSeconds + note.DurationSeconds || !_isPlaying)
-                    throw new InvalidOperationException("AAC 的低中高音区试听没有保持原始边界。");
+                if (Math.Abs(_openPosition - note.StartSeconds) > 1d / rate || _segmentEnd != note.StartSeconds + note.DurationSeconds || _isPlaying != referencePlaybackAvailable)
+                    throw new InvalidOperationException("AAC 的低中高音区试听没有保持原始边界或原 WAV 的播放能力。" + Logs.LastOrDefault());
                 await Task.Delay(60);
                 StopPlayback();
             }
-            if (!await CheckPreviewShortcutAsync()) throw new InvalidOperationException("AAC 预览未通过原生播放与空格重播检查。");
+            bool shortcutPlaybackChecked = await CheckPreviewShortcutAsync();
+            if (shortcutPlaybackChecked != referencePlaybackAvailable)
+                throw new InvalidOperationException("AAC 预览未保持原 WAV 的原生播放与空格重播能力。" + Logs.LastOrDefault());
             await SettleLayoutAsync();
             CaptureSmokeImage("ui-compressed-preview.png");
-            return true;
+            return (true, shortcutPlaybackChecked);
         }
         finally
         {
