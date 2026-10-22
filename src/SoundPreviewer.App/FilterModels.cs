@@ -3,13 +3,15 @@ using System.ComponentModel;
 
 namespace SoundPreviewer.App;
 
-public sealed class FilterOption(string key, string label, string? toolTip = null, string? displayLabel = null, string countLabel = "") : INotifyPropertyChanged
+public sealed class FilterOption(string key, string label, string? toolTip = null, string? displayLabel = null) : INotifyPropertyChanged
 {
     private bool isSelected;
+    private int count;
     public string Key { get; } = key;
     public string Label { get; } = label;
     public string DisplayLabel { get; } = displayLabel ?? label;
-    public string CountLabel { get; } = countLabel;
+    public int Count => count;
+    public string CountLabel => count.ToString();
     public string ToolTip { get; } = toolTip ?? label;
     public bool IsSelected
     {
@@ -22,6 +24,14 @@ public sealed class FilterOption(string key, string label, string? toolTip = nul
         }
     }
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal void SetCount(int value)
+    {
+        if (count == value) return;
+        count = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CountLabel)));
+    }
 }
 
 public sealed class FilterGroup : INotifyPropertyChanged
@@ -52,6 +62,7 @@ public sealed class FilterGroup : INotifyPropertyChanged
     }
     public ObservableCollection<FilterOption> Options { get; } = [];
     public IReadOnlySet<string> SelectedKeys => selectedKeys;
+    internal IEqualityComparer<string> KeyComparer => selectedKeys.Comparer;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     internal void ReplaceOptions(IEnumerable<FilterOption> options)

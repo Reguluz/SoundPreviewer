@@ -137,6 +137,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     public List<DiscoveredPlugin> DiscoveredPlugins { get; set; } = [];
     public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new PluginConfiguration { Synth = s }).ToList();
     public PreviewTemplate Template { get; set; } = new();
+    public AppearanceSettings Appearance { get; set; } = new();
     public string PreviewDirectory { get; set; } = "";
     public PreviewAudioFormat PreviewFormat { get; set; } = PreviewAudioFormat.Aac;
     public double StorageBudgetGb { get; set; } = 10;
@@ -152,6 +153,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     void IJsonOnDeserialized.OnDeserialized()
     {
         if (!parallelRendersSpecified) maxParallelRenders = 1;
+        Appearance ??= new();
         Plugins ??= [];
         foreach (var synth in Enum.GetValues<SynthKind>().Where(synth => synth != SynthKind.Unknown))
             if (Plugins.All(plugin => plugin.Synth != synth)) Plugins.Add(new PluginConfiguration { Synth = synth });

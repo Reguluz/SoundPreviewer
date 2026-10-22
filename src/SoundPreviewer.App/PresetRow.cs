@@ -13,6 +13,9 @@ public sealed class PresetRow(PresetRecord record) : INotifyPropertyChanged
     public string SynthLabel => Labels.Synth(Record.Synth);
     public string Package => Record.Package;
     public string StatusLabel => Labels.PreviewStatus(Record, HasPreview);
+    public bool IsFailed => Labels.PreviewStatusKey(Record, HasPreview) == "failed";
+    public bool IsGenerated => Labels.PreviewStatusKey(Record, HasPreview) == "generated";
+    public bool IsRendering => Labels.PreviewStatusKey(Record, HasPreview) == "rendering";
     public string DuplicateLabel => Record.DuplicateOfId.Length > 0 ? "相同内容已有保留项，生成时共用保留项的预览；可查看保留项试听。" : "";
     public string Message
     {

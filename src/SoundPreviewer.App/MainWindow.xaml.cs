@@ -135,6 +135,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _store = new LibraryStore(Path.Combine(App.DataDirectory, "library.db"));
         _store.Initialize();
         _settings = App.ImportedSettings ?? _store.LoadSettings();
+        _settings.Appearance = ThemeManager.Normalize(_settings.Appearance);
+        ThemeManager.Apply(_settings.Appearance);
         _directoryConfiguration = new DirectoryConfigurationService(App.SmokeTest && !App.TestInstalledStorage
             ? App.DataDirectory : ApplicationPaths.PortableApplicationDirectory);
         bool createdDirectoryConfiguration = _directoryConfiguration.LoadOrCreate(_settings);

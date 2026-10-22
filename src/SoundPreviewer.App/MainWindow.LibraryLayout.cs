@@ -77,31 +77,121 @@ public partial class MainWindow
     private bool MatchesFilterPreset(PresetRow row)
     {
         string search = SearchBox?.Text?.Trim() ?? "";
-        if (search.Length > 0 && !new[] { row.Name, row.Package, row.Record.SourcePath, row.Record.InternalPath, row.SynthLabel,
-                row.Record.ContentMd5 }.Concat(row.Record.Tags).Concat(row.Record.CategoryTags)
-            .Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase))) return false;
+        if (!MatchesFilterSearch(row, search)) return false;
+        var values = new FilterRowValues(row);
         foreach (var group in FilterGroups)
-        {
-            var keys = group.SelectedKeys;
-            if (keys.Count == 0) continue;
-            bool matches = group.Key switch
-            {
-                "synth" => keys.Contains(row.Record.Synth.ToString()),
-                "status" => keys.Contains(Labels.PreviewStatusKey(row.Record, row.HasPreview)),
-                "source" => keys.Contains(row.Record.SourceId.Length == 0 ? MissingFilter : row.Record.SourceId),
-                "package" => keys.Contains(row.Package.Length == 0 ? MissingFilter : row.Package),
-                "category" => row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) : row.Record.CategoryTags.Any(keys.Contains),
-                "tag" => row.Record.Tags.Count + row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) :
-                    row.Record.Tags.Concat(row.Record.CategoryTags).Any(keys.Contains),
-                "favorite" => keys.Contains(row.Record.Favorite ? "1" : "0"),
-                _ => true
-            };
-            if (!matches) return false;
-        }
+            if (!MatchesFilterGroup(values, group)) return false;
         return true;
     }
 
-    private void RefreshPresetView() => PresetsView.Refresh();
+    private static bool MatchesFilterSearch(PresetRow row, string search) => search.Length == 0 ||
+        row.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Package.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Record.SourcePath.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Record.InternalPath.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.SynthLabel.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Record.ContentMd5.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Record.Tags.Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase)) ||
+        row.Record.CategoryTags.Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase));
+
+    private readonly struct FilterRowValues(PresetRow row)
+    {
+        public PresetRow Row { get; } = row;
+        public string Synth { get; } = row.Record.Synth.ToString();
+        public string Status { get; } = Labels.PreviewStatusKey(row.Record, row.HasPreview);
+        public string Source { get; } = row.Record.SourceId.Length == 0 ? MissingFilter : row.Record.SourceId;
+        public string Package { get; } = row.Package.Length == 0 ? MissingFilter : row.Package;
+        public string Favorite { get; } = row.Record.Favorite ? "1" : "0";
+    }
+
+    private static bool MatchesFilterGroup(FilterRowValues values, FilterGroup group)
+    {
+        var row = values.Row;
+        var keys = group.SelectedKeys;
+        return keys.Count == 0 || (group.Key switch
+        {
+            "synth" => keys.Contains(values.Synth),
+            "status" => keys.Contains(values.Status),
+            "source" => keys.Contains(values.Source),
+            "package" => keys.Contains(values.Package),
+            "category" => row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) : row.Record.CategoryTags.Any(keys.Contains),
+            "tag" => row.Record.Tags.Count + row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) :
+                row.Record.Tags.Any(keys.Contains) || row.Record.CategoryTags.Any(keys.Contains),
+            "favorite" => keys.Contains(values.Favorite),
+            _ => true
+        });
+    }
+
+    private void RefreshPresetView()
+    {
+        RefreshFilterCounts();
+        PresetsView.Refresh();
+    }
+
+    private void RefreshFilterCounts(IEnumerable<PresetRow>? records = null)
+    {
+        string search = SearchBox?.Text?.Trim() ?? "";
+        bool showDuplicates = ShowDuplicates?.IsChecked == true;
+        var groups = FilterGroups.ToArray();
+        var counts = groups.Select(group => new Dictionary<string, int>(group.KeyComparer)).ToArray();
+        var seen = groups.Select(group => new HashSet<string>(group.KeyComparer)).ToArray();
+        var totals = new int[groups.Length];
+        foreach (var row in records ?? Presets)
+        {
+            if ((!showDuplicates && row.Record.DuplicateOfId.Length > 0) || !MatchesFilterSearch(row, search)) continue;
+            var values = new FilterRowValues(row);
+            int unmatchedGroup = -1;
+            bool multipleUnmatched = false;
+            for (int index = 0; index < groups.Length; index++)
+            {
+                if (MatchesFilterGroup(values, groups[index])) continue;
+                if (unmatchedGroup >= 0) { multipleUnmatched = true; break; }
+                unmatchedGroup = index;
+            }
+            // A facet ignores its own selection. A row that misses two groups
+            // cannot qualify for any facet; one miss qualifies only for that group.
+            if (multipleUnmatched) continue;
+            for (int index = 0; index < groups.Length; index++)
+            {
+                if (unmatchedGroup >= 0 && unmatchedGroup != index) continue;
+                totals[index]++;
+                AddFilterCounts(values, groups[index].Key, counts[index], seen[index]);
+            }
+        }
+        // Cache the finished values on options; tab changes and UI bindings do
+        // not rescan records. No record is compared with every available option.
+        for (int index = 0; index < groups.Length; index++)
+            foreach (var option in groups[index].Options)
+                option.SetCount(option.Key.Length == 0 ? totals[index] : counts[index].GetValueOrDefault(option.Key));
+    }
+
+    private static void AddFilterCounts(FilterRowValues values, string groupKey, Dictionary<string, int> counts, HashSet<string> seen)
+    {
+        var row = values.Row;
+        void Add(string key) => counts[key] = counts.GetValueOrDefault(key) + 1;
+        switch (groupKey)
+        {
+            case "synth": Add(values.Synth); break;
+            case "status": Add(values.Status); break;
+            case "source": Add(values.Source); break;
+            case "package": Add(values.Package); break;
+            case "favorite": Add(values.Favorite); break;
+            case "category":
+                seen.Clear();
+                foreach (string key in row.Record.CategoryTags)
+                    if (seen.Add(key)) Add(key);
+                if (seen.Count == 0) Add(MissingFilter);
+                break;
+            case "tag":
+                seen.Clear();
+                foreach (string key in row.Record.Tags)
+                    if (seen.Add(key)) Add(key);
+                foreach (string key in row.Record.CategoryTags)
+                    if (seen.Add(key)) Add(key);
+                if (seen.Count == 0) Add(MissingFilter);
+                break;
+        }
+    }
 
     private void Filter_Changed(object sender, RoutedEventArgs e)
     {
@@ -127,7 +217,7 @@ public partial class MainWindow
             _duplicateView = new PresetDuplicateView(records);
             FilterGroup Group(string key) => FilterGroups.First(group => group.Key == key);
             static FilterOption SourceOption(string key, string path, PresetSourceCounts counts) =>
-                new(key, SourceCountLabel(path, counts), displayLabel: path, countLabel: $"{counts.Total} · 去重 {counts.Unique}");
+                new(key, SourceCountLabel(path, counts), displayLabel: path);
             Group("source").ReplaceOptions(new[] { SourceOption("", "全部来源", _duplicateView.TotalCounts) }.Concat(
                 records.GroupBy(record => record.SourceId, StringComparer.Ordinal).Select(group =>
                 {

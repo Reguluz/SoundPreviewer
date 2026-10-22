@@ -7,6 +7,17 @@ namespace SoundPreviewer.App;
 
 public sealed class WaveformView : Control
 {
+    public static readonly StyledProperty<IBrush?> BackgroundBrushProperty = AvaloniaProperty.Register<WaveformView, IBrush?>(nameof(BackgroundBrush));
+    public static readonly StyledProperty<IBrush?> WaveBrushProperty = AvaloniaProperty.Register<WaveformView, IBrush?>(nameof(WaveBrush));
+    public static readonly StyledProperty<IBrush?> LineBrushProperty = AvaloniaProperty.Register<WaveformView, IBrush?>(nameof(LineBrush));
+    public static readonly StyledProperty<IBrush?> PlayheadBrushProperty = AvaloniaProperty.Register<WaveformView, IBrush?>(nameof(PlayheadBrush));
+    public IBrush? BackgroundBrush { get => GetValue(BackgroundBrushProperty); set => SetValue(BackgroundBrushProperty, value); }
+    public IBrush? WaveBrush { get => GetValue(WaveBrushProperty); set => SetValue(WaveBrushProperty, value); }
+    public IBrush? LineBrush { get => GetValue(LineBrushProperty); set => SetValue(LineBrushProperty, value); }
+    public IBrush? PlayheadBrush { get => GetValue(PlayheadBrushProperty); set => SetValue(PlayheadBrushProperty, value); }
+
+    static WaveformView() => AffectsRender<WaveformView>(BackgroundBrushProperty, WaveBrushProperty, LineBrushProperty, PlayheadBrushProperty);
+
     private WaveData? _audio;
     private double _position;
     public void SetAudio(WaveData? audio) { _audio = audio; InvalidateVisual(); }
@@ -15,12 +26,12 @@ public sealed class WaveformView : Control
     public override void Render(DrawingContext drawingContext)
     {
         base.Render(drawingContext);
-        drawingContext.DrawRectangle(new SolidColorBrush(Color.FromRgb(242, 247, 244)), null, new Rect(Bounds.Size));
+        drawingContext.DrawRectangle(BackgroundBrush, null, new Rect(Bounds.Size));
         var mid = Bounds.Height / 2;
-        drawingContext.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(211, 224, 215)), 1), new Point(0, mid), new Point(Bounds.Width, mid));
+        drawingContext.DrawLine(new Pen(LineBrush, 1), new Point(0, mid), new Point(Bounds.Width, mid));
         if (_audio is null || _audio.Samples.Length == 0 || Bounds.Width < 1) return;
         var columns = Math.Max(1, (int)Bounds.Width);
-        var pen = new Pen(new SolidColorBrush(Color.FromRgb(22, 124, 105)), 1);
+        var pen = new Pen(WaveBrush, 1);
         for (var x = 0; x < columns; x++)
         {
             var from = (int)((long)x * _audio.Samples.Length / columns);
@@ -31,6 +42,6 @@ public sealed class WaveformView : Control
             drawingContext.DrawLine(pen, new Point(x, mid - height), new Point(x, mid + height));
         }
         var playhead = Math.Clamp(_position / _audio.DurationSeconds, 0, 1) * Bounds.Width;
-        drawingContext.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(205, 99, 60)), 2), new Point(playhead, 0), new Point(playhead, Bounds.Height));
+        drawingContext.DrawLine(new Pen(PlayheadBrush, 2), new Point(playhead, 0), new Point(playhead, Bounds.Height));
     }
 }
