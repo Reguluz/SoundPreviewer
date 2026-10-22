@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Storage;
 
 namespace SoundPreviewer.Core.Services;
 
@@ -95,7 +96,9 @@ public static class InitBaselineService
                 CreatedUtc = DateTime.UtcNow, Result = references[0].Result, References = references
             };
             temporaryMetadata = metadataPath + ".tmp";
-            await File.WriteAllTextAsync(temporaryMetadata, JsonSerializer.Serialize(metadata, LibraryJson.Options), cancellationToken).ConfigureAwait(false);
+            var storedMetadata = JsonSerializer.Deserialize<BaselineMetadata>(JsonSerializer.Serialize(metadata, LibraryJson.Options), LibraryJson.Options)!;
+            RewritePaths(storedMetadata, path => PreviewPathStorage.Store(path, settings.PreviewDirectory));
+            await File.WriteAllTextAsync(temporaryMetadata, JsonSerializer.Serialize(storedMetadata, LibraryJson.Options), cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporaryMetadata, metadataPath);
             // Publishing the locator is the last non-cancellable step; retain any previous baseline on failure.
@@ -141,6 +144,7 @@ public static class InitBaselineService
                 throw new InvalidDataException("默认启动基准记录不存在或超过大小限制。");
             var metadata = JsonSerializer.Deserialize<BaselineMetadata>(File.ReadAllText(plugin.InitBaselinePath), LibraryJson.Options)
                 ?? throw new InvalidDataException("默认启动基准记录无效。");
+            RewritePaths(metadata, path => PreviewPathStorage.Resolve(path, settings.PreviewDirectory));
             if (metadata.Kind != BaselineKind || metadata.PolicyVersion != InitAudioComparer.PolicyVersion ||
                 metadata.Synth != plugin.Synth || metadata.Identity != identity.Key ||
                 metadata.TemplateJson != JsonSerializer.Serialize(Fingerprints.TemplateIdentity(settings.Template), LibraryJson.Options))
@@ -259,6 +263,19 @@ public static class InitBaselineService
     }
 
     private static bool SamePath(string first, string second) => ApplicationPaths.SamePath(first, second);
+
+    private static void RewritePaths(BaselineMetadata metadata, Func<string, string> rewrite)
+    {
+        metadata.WavPath = rewrite(metadata.WavPath);
+        if (metadata.Result is not null) metadata.Result.OutputPath = rewrite(metadata.Result.OutputPath);
+        if (metadata.References is null) return;
+        foreach (var reference in metadata.References)
+        {
+            if (reference is null) continue;
+            reference.WavPath = rewrite(reference.WavPath);
+            if (reference.Result is not null) reference.Result.OutputPath = rewrite(reference.Result.OutputPath);
+        }
+    }
 
     private static bool IsDiagnostic(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException or
         ArgumentException or JsonException or InvalidOperationException or OverflowException or NotSupportedException;

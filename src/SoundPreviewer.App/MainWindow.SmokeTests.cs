@@ -18,6 +18,7 @@ public partial class MainWindow
     private async Task RunSmokeTestAsync()
     {
         // Exercises the same controller, bindings and native playback on both desktop targets.
+        bool appearancePersistenceChecked = await CheckAppearanceAsync();
         if (ForceGeneration.IsChecked == true || ShowDuplicates.IsChecked == true)
             throw new InvalidOperationException("全量生成与重复项必须默认关闭。");
         if (SourceSynthChoice.SelectedIndex != 0 || SourceChoices[0].Value is not null ||
@@ -259,6 +260,7 @@ public partial class MainWindow
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
         {
             Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            AppearanceChecked = true, AppearancePersistenceChecked = appearancePersistenceChecked, AppearanceCancelChecked = true, AppearanceViewports = 2,
             Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = actualViewports.Count, ActualViewports = actualViewports,
             PreviewShortcutChecked = true, PreviewShortcutPlaybackChecked = shortcutPlaybackChecked, PreviewShortcutHintViewports = 2,
             MixedDirectoryChecked = true, UnidentifiedChecked = Presets.Any(row => row.Record.Status == PresetStatus.Unidentified),
@@ -625,6 +627,10 @@ public partial class MainWindow
             throw SmokeLayoutFailure("全量覆盖选项不可见或与标题重叠。");
         CheckScanButtonVisible(ScanPluginsButton);
         CheckScanButtonVisible(ScanPresetsButton);
+        if (!AppearanceButton.IsEffectivelyVisible || !area.Contains(SmokeBounds(AppearanceButton)) ||
+            SmokeBounds(AppearanceButton).Intersects(SmokeBounds(AppBrandName)) ||
+            SmokeBounds(AppearanceButton).Intersects(SmokeBounds(ScanPluginsButton)))
+            throw SmokeLayoutFailure("配色入口不可见或与标题、扫描按钮重叠。");
         if (SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(AppBrandName)) ||
             SmokeBounds(ScanPluginsButton).Intersects(SmokeBounds(ScanPresetsButton)) ||
             SmokeBounds(ScanPresetsButton).Intersects(SmokeBounds(ForceGeneration)))
@@ -657,7 +663,7 @@ public partial class MainWindow
     {
         var content = (Control)Content!;
         var screen = Screens.ScreenFromWindow(this);
-        Control[] controls = [AppBrandName, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
+        Control[] controls = [AppBrandName, AppearanceButton, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
             StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
             TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, CopyPresetPathButton, PresetDetailsScroll, LocatePresetButton,
             LibraryWorkspace, LibraryListPane, LibraryDetailsPane, FilterStrip, PlaybackBar, PlayPreviewButton,

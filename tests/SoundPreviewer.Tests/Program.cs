@@ -56,6 +56,7 @@ internal static partial class Program
             ("Worker renders bounded configurable quick previews and delayed notes", TestConfigurableQuickWorkerAsync),
             ("Quick duration storage budgets and existing previews stay compatible", TestQuickDurationQueueAsync),
             ("Stable user data, portable upgrades and library location recovery", TestPortablePathsAsync),
+            ("Relative preview paths survive installation moves and reject directory escapes", TestRelativePreviewPathsAsync),
             ("Installation-local Preview imports legacy WAL libraries and preserves data on failure", TestInstalledStorageAsync),
             ("Prepared Preview startup skips migration after rendering and metadata edits while detecting old external audio", TestPreparedStorageStartupAsync),
             ("Installation-local editable directory JSON preserves identities and refuses conflicting edits", TestDirectoryConfigurationAsync),

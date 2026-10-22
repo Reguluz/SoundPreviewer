@@ -73,10 +73,11 @@ public sealed partial class RenderQueue
                 ?? new Dictionary<SynthKind, RenderReadiness>();
             this.resourceProbe = resourceProbe;
             targetConcurrency = RenderResourcePolicy.ResolveMaxConcurrency(this.settings.MaxParallelRenders, resourceProbe.Hardware);
+            memoryLimitBytes = RenderResourcePolicy.ResolveMemoryLimitBytes(this.settings.MemoryBudgetGiB);
             summary = new()
             {
                 Requested = originals.Count, RequestedConcurrency = this.settings.MaxParallelRenders,
-                ResolvedConcurrency = targetConcurrency, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes
+                ResolvedConcurrency = targetConcurrency, MemoryBudgetBytes = memoryLimitBytes
             };
         }
 
@@ -738,7 +739,7 @@ public sealed partial class RenderQueue
                 {
                     Stage = stage, IsIndeterminate = indeterminate, ActiveCount = activeWorkers,
                     MaxConcurrency = targetConcurrency, ItemElapsedSeconds = itemElapsed,
-                    WorkingSetBytes = memorySnapshot.ResidentBytes, MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes,
+                    WorkingSetBytes = memorySnapshot.ResidentBytes, MemoryBudgetBytes = memoryLimitBytes,
                     ReservedMemoryBytes = ReservedMemoryBytes, Selection = prepared ? summary.Selection : null,
                     ResourceMessage = resourceMessage, AllowedConcurrency = allowedConcurrency,
                     EffectiveConcurrency = terminal ? 0 : concurrency.Capacity,

@@ -110,8 +110,26 @@ internal static partial class Program
         var calibrationMetadata = JsonNode.Parse(await File.ReadAllTextAsync(plugin.InitBaselinePath))!;
         Equal(3, calibrationMetadata["References"]!.AsArray().Count, "Published startup metadata contains exactly three separately captured references.");
         var referencePaths = calibrationMetadata["References"]!.AsArray().Select(reference => reference!["WavPath"]!.GetValue<string>()).ToArray();
+        True(referencePaths.All(path => !PreviewPathStorage.IsAbsolute(path) && File.Exists(PreviewPathStorage.Resolve(path, settings.PreviewDirectory))),
+            "New baseline JSON stores relative references rooted in Preview.");
         Equal(3, referencePaths.Distinct(StringComparer.OrdinalIgnoreCase).Count(), "Calibration does not reuse a single file as three independent observations.");
         string validMetadata = await File.ReadAllTextAsync(plugin.InitBaselinePath);
+        string relocatedPreview = Path.Combine(directory, "TEST ONLY relocated preview");
+        Directory.CreateDirectory(Path.Combine(relocatedPreview, "InitializationBaselines"));
+        foreach (string path in Directory.GetFiles(Path.GetDirectoryName(plugin.InitBaselinePath)!))
+            File.Copy(path, Path.Combine(relocatedPreview, "InitializationBaselines", Path.GetFileName(path)));
+        var relocatedSettings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings, LibraryJson.Options), LibraryJson.Options)!;
+        relocatedSettings.PreviewDirectory = relocatedPreview;
+        var relocatedPlugin = JsonSerializer.Deserialize<PluginConfiguration>(JsonSerializer.Serialize(plugin, LibraryJson.Options), LibraryJson.Options)!;
+        relocatedPlugin.InitBaselinePath = Path.Combine(relocatedPreview, "InitializationBaselines", Path.GetFileName(plugin.InitBaselinePath));
+        var relocatedBaseline = await InitBaselineService.InspectAsync(relocatedSettings, relocatedPlugin);
+        True(relocatedBaseline.CanCompare && ApplicationPaths.IsWithin(relocatedBaseline.WavPath, relocatedPreview),
+            "Relocating Preview preserves calibrated comparison and resolves audio from the new local copy.");
+        var legacyMetadata = JsonNode.Parse(validMetadata)!;
+        RewriteFixturePaths(legacyMetadata, path => PreviewPathStorage.Resolve(path, settings.PreviewDirectory));
+        await File.WriteAllTextAsync(plugin.InitBaselinePath, legacyMetadata.ToJsonString());
+        True((await InitBaselineService.InspectAsync(settings, plugin)).CanCompare, "Old absolute baseline metadata stays readable for compatibility before startup migration.");
+        await File.WriteAllTextAsync(plugin.InitBaselinePath, validMetadata);
         calibrationMetadata["References"]![1]!["WavSha256"] = new string('0', 64);
         await File.WriteAllTextAsync(plugin.InitBaselinePath, calibrationMetadata.ToJsonString());
         True(!(await InitBaselineService.InspectAsync(settings, plugin)).CanCompare, "A damaged secondary reference disables the entire baseline guard.");

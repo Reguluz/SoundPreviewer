@@ -184,7 +184,13 @@ internal static partial class Program
         File.Delete(missing.Preview);
         var missingImport = InstalledStorageService.Prepare(missing.Application, missing.UserData, missing.Root);
         var missingStore = new LibraryStore(Path.Combine(missingImport.Directory, "library.db"));
-        Equal(JsonSerializer.Serialize(missing.Record, LibraryJson.Options), JsonSerializer.Serialize(missingStore.LoadPresets().Single(), LibraryJson.Options), "A missing historical WAV retains its old mapping, cache identity, review state and personal metadata for later recovery.");
+        var missingLoaded = missingStore.LoadPresets().Single();
+        True(ApplicationPaths.IsWithin(missingLoaded.PreviewPath, missingImport.Directory), "A missing historical WAV maps to a safe local path for future generation.");
+        Equal(missing.Preview, missingLoaded.AdditionalProperties!["HistoricalPreviewPath"].GetString(), "A missing historical WAV retains its old path as recovery metadata.");
+        var missingExpected = JsonSerializer.Deserialize<PresetRecord>(JsonSerializer.Serialize(missing.Record, LibraryJson.Options), LibraryJson.Options)!;
+        missingExpected.PreviewPath = missingLoaded.PreviewPath;
+        missingExpected.AdditionalProperties = missingLoaded.AdditionalProperties;
+        Equal(JsonSerializer.Serialize(missingExpected, LibraryJson.Options), JsonSerializer.Serialize(missingLoaded, LibraryJson.Options), "A missing historical WAV retains cache identity, review state and personal metadata for later recovery.");
         Equal(missingImport.Directory, missingStore.LoadSettings().PreviewDirectory, "A missing old WAV does not keep the old directory as the location for future generation.");
         True(missingImport.Warnings.Any(message => message.Contains(missing.Preview, ApplicationPaths.PathComparison)), "A missing historical WAV produces an actionable warning with its original path.");
         True(!File.Exists(missing.Preview), "Import never creates or regenerates audio at a missing historical external path.");
@@ -486,9 +492,10 @@ internal static partial class Program
         foreach (string wave in baselineWaves) WaveFile.WritePcm16(wave, Tone(44100, 1, .02));
         File.WriteAllText(baseline, JsonSerializer.Serialize(new
         {
-            Kind = InitBaselineService.BaselineKind, WavPath = baselineWaves[0], Result = new { OutputPath = baselineWaves[0] },
-            References = baselineWaves.Select(wave => new { WavPath = wave, Result = new { OutputPath = wave } })
+            Kind = InitBaselineService.BaselineKind, WavPath = BaselinePath(baselineWaves[0]), Result = new { OutputPath = BaselinePath(baselineWaves[0]) },
+            References = baselineWaves.Select(wave => new { WavPath = BaselinePath(wave), Result = new { OutputPath = BaselinePath(wave) } })
         }, LibraryJson.Options));
+        string BaselinePath(string wave) => legacySchema || externalPreview ? wave : PreviewPathStorage.Store(wave, root);
         var settings = new AppSettings { PreviewDirectory = audioRoot, Sources = [new SourceFolder { Id = "kept-source", Synth = SynthKind.Vital, Path = Path.GetDirectoryName(source)! }] };
         settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Vital).InitBaselinePath = baseline;
         string config = Path.Combine(root, "Config", "preset-categories.json");
@@ -510,7 +517,7 @@ internal static partial class Program
     private static Dictionary<string, string> InstalledFixtureHashes(InstalledStorageFixture fixture)
     {
         var paths = new[] { fixture.Preview, fixture.Baseline, fixture.Config, fixture.Source, fixture.Unrelated }
-            .Concat(StorageBaselinePaths(JsonNode.Parse(File.ReadAllText(fixture.Baseline))!));
+            .Concat(StorageBaselinePaths(JsonNode.Parse(File.ReadAllText(fixture.Baseline))!).Select(path => PreviewPathStorage.Resolve(path, fixture.Root)));
         return paths.Distinct(ApplicationPaths.PathComparer).ToDictionary(path => path, path => Fingerprints.HashFile(path), ApplicationPaths.PathComparer);
     }
 
@@ -538,7 +545,7 @@ internal static partial class Program
         string baseline = settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Vital).InitBaselinePath;
         True(ApplicationPaths.IsWithin(baseline, target) && File.Exists(baseline), "The active baseline metadata follows the local Preview directory.");
         foreach (string wave in StorageBaselinePaths(JsonNode.Parse(File.ReadAllText(baseline))!))
-            True(ApplicationPaths.IsWithin(wave, target) && File.Exists(wave), "All nested baseline audio and result references point at existing local files.");
+            True(!PreviewPathStorage.IsAbsolute(wave) && File.Exists(PreviewPathStorage.Resolve(wave, target)), "All nested baseline audio and result references use relative paths to existing local files.");
         Equal(Path.GetDirectoryName(fixture.Source), settings.Sources.Single().Path, "Import never redirects the user's original preset sources.");
     }
 }

@@ -42,9 +42,9 @@ public static class PreviewStorageService
             string backup = Path.Combine(stage, "Backups", "library-before-relocation-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ") + ".db");
             store.CreateBackup(backup);
             File.Copy(backup, Path.Combine(stage, "library.db"));
-            var destinationStore = new LibraryStore(Path.Combine(stage, "library.db"));
+            var snapshotStore = new LibraryStore(Path.Combine(stage, "library.db"), plan.LibraryRoot);
             // Check the snapshot before changing any path or removing any source audio.
-            if (JsonSerializer.Serialize(destinationStore.LoadPresets(), LibraryJson.Options) != JsonSerializer.Serialize(plan.Records, LibraryJson.Options))
+            if (JsonSerializer.Serialize(snapshotStore.LoadPresets(), LibraryJson.Options) != JsonSerializer.Serialize(plan.Records, LibraryJson.Options))
                 throw new IOException("复制期间音色库记录发生变化，请停止任务后重试；原音色库未更改。");
             CopyConfig(Path.Combine(plan.LibraryRoot, "Config"), Path.Combine(stage, "Config"));
             var mappings = new Dictionary<string, string>(ApplicationPaths.PathComparer);
@@ -72,7 +72,7 @@ public static class PreviewStorageService
                 {
                     string relative = Path.Combine("InitializationBaselines", Path.GetFileName(source));
                     if (!destinations.Add(relative)) relative = Path.Combine("InitializationBaselines", Fingerprints.HashText(source)[..20] + ".json");
-                    RewriteBaselinePaths(metadata, mappings, plan.LibraryRoot);
+                    RewriteBaselinePaths(metadata, mappings, plan.LibraryRoot, target);
                     string output = Path.Combine(stage, relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(output)!);
                     File.WriteAllText(output, metadata.ToJsonString(LibraryJson.Options));
@@ -92,7 +92,7 @@ public static class PreviewStorageService
                 plugin.InitBaselinePath = mode == PreviewDirectoryChangeMode.Migrate && previous is not null && mappings.TryGetValue(previous, out string? next) ? next : "";
             }
             plan.Settings.PreviewDirectory = target;
-            destinationStore.SaveState(plan.Records, plan.Settings);
+            new LibraryStore(Path.Combine(stage, "library.db"), target).SaveState(plan.Records, plan.Settings);
             ValidateDestination(target, plan);
             staged = StageForDeletion(plan.DeletableFiles);
             if (Directory.Exists(target)) Directory.Delete(target); // Empty directories only; never remove another user's contents.
@@ -183,7 +183,7 @@ public static class PreviewStorageService
         try { metadata = JsonNode.Parse(File.ReadAllText(path)) as JsonObject; }
         catch (JsonException) { plan.Warnings.Add("无法识别的基准配置已保留：" + path); return; }
         if (metadata?["Kind"] is not JsonValue kind || !kind.TryGetValue<string>(out string? kindText) || kindText != InitBaselineService.BaselineKind) return;
-        var references = BaselinePaths(metadata).Select(value => Normalize(value, plan.LibraryRoot)).Where(value => value is not null).Cast<string>().Distinct(ApplicationPaths.PathComparer).ToList();
+        var references = BaselinePaths(metadata).Select(value => PreviewPathStorage.Resolve(value, plan.LibraryRoot)).Distinct(ApplicationPaths.PathComparer).ToList();
         bool complete = references.Count > 0;
         foreach (string wav in references)
         {
@@ -212,16 +212,16 @@ public static class PreviewStorageService
             foreach (var value in array) foreach (string path in BaselinePaths(value)) yield return path;
     }
 
-    private static void RewriteBaselinePaths(JsonNode? node, Dictionary<string, string> mappings, string root)
+    private static void RewriteBaselinePaths(JsonNode? node, Dictionary<string, string> mappings, string root, string target)
     {
         if (node is JsonObject obj)
             foreach (string key in obj.Select(entry => entry.Key).ToList())
             {
                 if (key is "WavPath" or "OutputPath" && obj[key] is JsonValue text && text.TryGetValue<string>(out string? path) &&
-                    Normalize(path, root) is string previous && mappings.TryGetValue(previous, out string? next)) obj[key] = next;
-                else RewriteBaselinePaths(obj[key], mappings, root);
+                    PreviewPathStorage.Resolve(path, root) is string previous && mappings.TryGetValue(previous, out string? next)) obj[key] = PreviewPathStorage.Store(next, target);
+                else RewriteBaselinePaths(obj[key], mappings, root, target);
             }
-        else if (node is JsonArray array) foreach (var value in array) RewriteBaselinePaths(value, mappings, root);
+        else if (node is JsonArray array) foreach (var value in array) RewriteBaselinePaths(value, mappings, root, target);
     }
 
     private static bool ClearMapping(PresetRecord record)

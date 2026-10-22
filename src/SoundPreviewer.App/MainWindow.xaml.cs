@@ -80,6 +80,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
     public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未选择生成方式", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
     public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
+    public List<Choice<int>> MemoryBudgetChoices { get; } = Enumerable.Range(RenderResourcePolicy.MinimumMemoryBudgetGiB,
+        RenderResourcePolicy.MaximumMemoryBudgetGiB - RenderResourcePolicy.MinimumMemoryBudgetGiB + 1)
+        .Select(value => new Choice<int>(value == RenderResourcePolicy.DefaultMemoryBudgetGiB ? $"{value} GiB（默认）" : $"{value} GiB", value)).ToList();
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
     public bool IsBusy => _isBusy;
@@ -132,6 +135,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _store = new LibraryStore(Path.Combine(App.DataDirectory, "library.db"));
         _store.Initialize();
         _settings = App.ImportedSettings ?? _store.LoadSettings();
+        _settings.Appearance = ThemeManager.Normalize(_settings.Appearance);
+        ThemeManager.Apply(_settings.Appearance);
         _directoryConfiguration = new DirectoryConfigurationService(App.SmokeTest && !App.TestInstalledStorage
             ? App.DataDirectory : ApplicationPaths.PortableApplicationDirectory);
         bool createdDirectoryConfiguration = _directoryConfiguration.LoadOrCreate(_settings);
@@ -969,6 +974,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshDiscoveredPlugins();
         var t = _settings.Template;
         ParallelRendering.SelectedItem = ParallelRenderChoices.FirstOrDefault(choice => choice.Value == _settings.MaxParallelRenders) ?? ParallelRenderChoices[0];
+        MemoryBudgetBox.SelectedItem = MemoryBudgetChoices.FirstOrDefault(choice => choice.Value == _settings.MemoryBudgetGiB)
+            ?? MemoryBudgetChoices.Single(choice => choice.Value == RenderResourcePolicy.DefaultMemoryBudgetGiB);
         QuickPreviewMode.IsChecked = t.QuickPreview;
         QuickPreviewSecondsBox.Text = t.QuickPreviewSeconds.ToString(CultureInfo.InvariantCulture);
         LowNoteBox.Text = NoteNames.Format(t.LowNote);
@@ -980,7 +987,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BpmBox.Text = t.Bpm.ToString(CultureInfo.InvariantCulture);
         SampleRateBox.SelectedIndex = t.SampleRate == 48000 ? 1 : 0;
         PreviewFormatBox.SelectedIndex = _settings.PreviewFormat == PreviewAudioFormat.Wav ? 1 : 0;
-        PreviewDirectoryBox.Text = _settings.PreviewDirectory;
+        PreviewDirectoryBox.Text = "Preview/（当前程序目录下）";
         BudgetBox.Text = _settings.StorageBudgetGb.ToString(CultureInfo.InvariantCulture);
         AttemptsBox.Text = _settings.MaxAttempts.ToString(CultureInfo.InvariantCulture);
         VolumeSlider.Value = _settings.PlaybackVolume;
@@ -1193,6 +1200,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             candidate.StorageBudgetGb = budget;
             candidate.MaxAttempts = attempts;
             candidate.MaxParallelRenders = (ParallelRendering.SelectedItem as Choice<int>)?.Value ?? 0;
+            candidate.MemoryBudgetGiB = (MemoryBudgetBox.SelectedItem as Choice<int>)?.Value ?? RenderResourcePolicy.DefaultMemoryBudgetGiB;
+            RenderResourcePolicy.ResolveMemoryLimitBytes(candidate.MemoryBudgetGiB);
             if (!App.SmokeTest || App.TestInstalledStorage) candidate.PreviewDirectory = App.DataDirectory;
             SaveDirectoryConfiguration(candidate);
             _settings = candidate;

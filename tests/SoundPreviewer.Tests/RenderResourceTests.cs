@@ -12,6 +12,11 @@ internal static partial class Program
         Equal(0, new AppSettings().MaxParallelRenders, "A newly created library starts in automatic mode.");
         Equal(1, JsonSerializer.Deserialize<AppSettings>("{}", LibraryJson.Options)!.MaxParallelRenders, "An old settings document keeps its one-worker behavior.");
         Equal(0, JsonSerializer.Deserialize<AppSettings>("{\"MaxParallelRenders\":0}", LibraryJson.Options)!.MaxParallelRenders, "An explicitly saved automatic selection survives loading.");
+        Equal(4, new AppSettings().MemoryBudgetGiB, "New libraries default to four GiB.");
+        Equal(4, JsonSerializer.Deserialize<AppSettings>("{}", LibraryJson.Options)!.MemoryBudgetGiB, "Old settings without a budget retain the four-GiB default.");
+        Equal(16, JsonSerializer.Deserialize<AppSettings>("{\"MemoryBudgetGiB\":16}", LibraryJson.Options)!.MemoryBudgetGiB, "A saved sixteen-GiB budget survives loading.");
+        foreach (int invalid in new[] { int.MinValue, -1, 0, 17, int.MaxValue })
+            Throws<ArgumentException>(() => RenderResourcePolicy.ResolveMemoryLimitBytes(invalid));
         foreach (var item in new (int Cores, int Expected)[] { (1, 1), (2, 2), (3, 2), (4, 4), (7, 4), (8, 8), (15, 8), (16, 16), (32, 16) })
             Equal(item.Expected, RenderResourcePolicy.ResolveMaxConcurrency(0, new(Math.Max(2, item.Cores * 2), item.Cores)), "Automatic concurrency follows physical cores and rounds down to a supported tier.");
         Equal(4, RenderResourcePolicy.ResolveMaxConcurrency(0, new(8, null)), "Unknown physical topology uses a conservative half-logical fallback.");
@@ -42,6 +47,17 @@ internal static partial class Program
         True(!RenderResourcePolicy.CanStart(soft, 0, 0) && !RenderResourcePolicy.MustStop(soft), "Soft pressure pauses starts without mislabeling it as a hard overage.");
         True(!RenderResourcePolicy.MustStop(normal with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes }), "The hard boundary is exceeded only above the configured budget.");
         True(RenderResourcePolicy.MustStop(normal with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1, IsComplete = false }), "Even an incomplete sample must stop when its already known RSS exceeds the approved four-GiB budget.");
+        foreach (int budgetGiB in Enumerable.Range(1, 16))
+        {
+            long limit = RenderResourcePolicy.ResolveMemoryLimitBytes(budgetGiB);
+            Equal(budgetGiB * 1024L * mib, limit, "All selectable budgets resolve without a four-GiB cap or integer overflow.");
+            var boundary = normal with { ResidentBytes = limit - RenderResourcePolicy.AdmissionHeadroomBytes };
+            True(!RenderResourcePolicy.CanStart(boundary, 0, 0, limit), "Admission pauses at the selected budget's soft boundary.");
+            True(RenderResourcePolicy.CanStart(boundary with { ResidentBytes = boundary.ResidentBytes - 128 * mib }, 64 * mib, 64 * mib, limit), "Admission uses the selected budget while honoring all reservations.");
+            True(!RenderResourcePolicy.CanStart(boundary with { ResidentBytes = boundary.ResidentBytes - 128 * mib }, 64 * mib, 64 * mib + 1, limit), "A single byte above the combined selected-budget allowance is refused.");
+            True(!RenderResourcePolicy.MustStop(normal with { ResidentBytes = limit }, limit) &&
+                RenderResourcePolicy.MustStop(normal with { ResidentBytes = limit + 1 }, limit), "Hard stopping follows the selected budget exactly.");
+        }
 
         var tree = RenderMemorySnapshot.FromProcesses(10,
         [
@@ -97,41 +113,8 @@ internal static partial class Program
 
     private static async Task TestRenderResourceStopAsync()
     {
-        var fixture = CreateParallelFixture("resource-pressure-stop", 3);
-        var probe = new TestRenderResourceProbe(fixture);
-        using var cancellation = new CancellationTokenSource();
-        var run = new RenderQueue(fixture.Store, probe).RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), cancellation.Token);
-        try
-        {
-            await WaitForParallelStartsAsync(fixture, 1, run);
-            int pid = ParallelStarts(fixture).Single().Pid;
-            const long mib = 1024L * 1024;
-            foreach (long resident in new[] { 2048 * mib, 3584 * mib })
-            {
-                probe.AdditionalResidentBytes = resident - (64 + 160) * mib;
-                var observed = System.Diagnostics.Stopwatch.StartNew();
-                while (probe.LastResidentBytes < resident && observed.Elapsed < TimeSpan.FromSeconds(3)) await Task.Delay(25);
-                Equal(resident, probe.LastResidentBytes, "The live complete resource probe observes the approved higher RSS.");
-                True(!run.IsCompleted && IsRunning(pid), "An already-running worker remains alive between two and three-and-a-half GiB.");
-            }
-            probe.OverBudget = true;
-            RenderResourceLimitException? stopped = null;
-            try { await run; }
-            catch (RenderResourceLimitException error) { stopped = error; }
-            True(stopped is not null, "An injected over-budget observation safely stops the actual held worker.");
-            True(stopped!.Summary.ResourceStopped && stopped.Summary.MemoryBudgetBytes == RenderResourcePolicy.MemoryLimitBytes &&
-                stopped.Summary.PeakWorkingSetBytes > RenderResourcePolicy.MemoryLimitBytes, "The stop result states the measured overage rather than claiming an OS-enforced cap.");
-            True(!IsRunning(pid), "Resource stopping drains the held child process before returning.");
-            Equal(1, ParallelStarts(fixture).Count, "Resource stopping never launches the queued children.");
-            True(fixture.Store.LoadPresets().All(preset => preset.Status == PresetStatus.Pending && preset.Attempts == 0), "Resource stopping preserves resumable state without consuming attempts.");
-        }
-        finally
-        {
-            ReleaseParallel(fixture);
-            cancellation.Cancel();
-            try { await run; }
-            catch (Exception error) when (error is OperationCanceledException or RenderResourceLimitException) { }
-        }
+        await TestSelectedBudgetResourceStopAsync(4);
+        await TestSelectedBudgetResourceStopAsync(16);
         var unknown = CreateParallelFixture("resource-unreadable-probe", 1);
         await ThrowsAsync<InvalidOperationException>(() => new RenderQueue(unknown.Store, new TestRenderResourceProbe { Incomplete = true })
             .RunAsync(unknown.Settings, unknown.Presets, TestExecutable, new ParallelProgress(), CancellationToken.None));
@@ -146,7 +129,88 @@ internal static partial class Program
         Equal(1, serial.PeakActiveCount, "Without a complete worker-tree observation the queue continues one worker at a time.");
         Equal(1, ParallelPeak(unobserved), "Real child lifetimes confirm that a missing calibration never opens extra slots.");
         await TestCalibratedMemoryAdmissionAsync();
+        await TestSelectedBudgetMemoryAdmissionAsync();
         await TestBaselineResourceStopAsync();
+    }
+
+    private static async Task TestSelectedBudgetResourceStopAsync(int budgetGiB)
+    {
+        var fixture = CreateParallelFixture("resource-pressure-stop-" + budgetGiB, 3);
+        fixture.Settings.MemoryBudgetGiB = budgetGiB;
+        long budgetBytes = RenderResourcePolicy.ResolveMemoryLimitBytes(budgetGiB);
+        var probe = new TestRenderResourceProbe(fixture) { OverBudgetLimitBytes = budgetBytes };
+        using var cancellation = new CancellationTokenSource();
+        var run = new RenderQueue(fixture.Store, probe).RunAsync(fixture.Settings, fixture.Presets, TestExecutable, new ParallelProgress(), cancellation.Token);
+        try
+        {
+            await WaitForParallelStartsAsync(fixture, 1, run);
+            int pid = ParallelStarts(fixture).Single().Pid;
+            const long mib = 1024L * 1024;
+            foreach (long resident in new[] { budgetBytes / 2, budgetBytes - 512 * mib })
+            {
+                probe.AdditionalResidentBytes = resident - (64 + 160) * mib;
+                var observed = System.Diagnostics.Stopwatch.StartNew();
+                while (probe.LastResidentBytes < resident && observed.Elapsed < TimeSpan.FromSeconds(3)) await Task.Delay(25);
+                Equal(resident, probe.LastResidentBytes, "The live complete resource probe observes the approved higher RSS.");
+                True(!run.IsCompleted && IsRunning(pid), "An already-running worker remains alive below the chosen budget, including above the former four-GiB cap.");
+            }
+            probe.OverBudget = true;
+            RenderResourceLimitException? stopped = null;
+            try { await run; }
+            catch (RenderResourceLimitException error) { stopped = error; }
+            True(stopped is not null, "An injected over-budget observation safely stops the actual held worker.");
+            True(stopped!.Summary.ResourceStopped && stopped.Summary.MemoryBudgetBytes == budgetBytes &&
+                stopped.Summary.PeakWorkingSetBytes > budgetBytes, "The stop result states the chosen budget and measured overage rather than claiming an OS-enforced cap.");
+            True(stopped.Message.Contains(RenderResourcePolicy.FormatMemoryLimit(budgetBytes), StringComparison.Ordinal), "The failure message describes the chosen limit.");
+            True(!IsRunning(pid), "Resource stopping drains the held child process before returning.");
+            Equal(1, ParallelStarts(fixture).Count, "Resource stopping never launches the queued children.");
+            True(fixture.Store.LoadPresets().All(preset => preset.Status == PresetStatus.Pending && preset.Attempts == 0), "Resource stopping preserves resumable state without consuming attempts.");
+        }
+        finally
+        {
+            ReleaseParallel(fixture);
+            cancellation.Cancel();
+            try { await run; }
+            catch (Exception error) when (error is OperationCanceledException or RenderResourceLimitException) { }
+        }
+    }
+
+    private static async Task TestSelectedBudgetMemoryAdmissionAsync()
+    {
+        const long mib = 1024L * 1024;
+        var fixture = CreateParallelFixture("resource-sixteen-gib-admission", 10);
+        fixture.Settings.MaxParallelRenders = 8;
+        fixture.Settings.MemoryBudgetGiB = 16;
+        ReleaseParallelCalibration(fixture);
+        var progress = new ParallelProgress();
+        var probe = new TestRenderResourceProbe(fixture) { WorkerResidentBytes = 900 * mib };
+        using var cancellation = new CancellationTokenSource();
+        var run = new RenderQueue(fixture.Store, probe).RunAsync(fixture.Settings, fixture.Presets, TestExecutable, progress, cancellation.Token);
+        try
+        {
+            await WaitForParallelActiveAsync(fixture, 8, run);
+            fixture.Settings.MemoryBudgetGiB = 1; // The caller cannot change a running batch's budget snapshot.
+            // Worker creation precedes its next RSS sample, and resource progress is
+            // throttled to 500 ms. Wait for that observation, not an arbitrary short delay.
+            var observation = System.Diagnostics.Stopwatch.StartNew();
+            while (!progress.Values.Any(value => value.ActiveCount == 8 && value.AllowedConcurrency == 8 &&
+                value.WorkingSetBytes > RenderResourcePolicy.MemoryLimitBytes) && observation.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                if (run.IsCompleted) { await run; break; }
+                await Task.Delay(25);
+            }
+            True(!run.IsCompleted && ParallelActive(fixture).Count == 8, "A sixteen-GiB budget admits eight measured large workers and ignores caller edits until the next batch.");
+            True(progress.Values.Any(value => value.ActiveCount == 8 && value.AllowedConcurrency == 8 &&
+                value.WorkingSetBytes > RenderResourcePolicy.MemoryLimitBytes), "Live progress advertises eight slots above the old four-GiB limit.");
+            True(progress.Values.All(value => value.MemoryBudgetBytes == 16 * 1024 * mib), "Every progress update reports the immutable chosen budget.");
+            ReleaseParallel(fixture);
+            var result = await run;
+            Equal(10, result.Generated, "The larger budget commits every job.");
+            Equal(8, result.PeakActiveCount, "Real held worker processes prove eight-way admission with larger memory forecasts.");
+            Equal(16 * 1024 * mib, result.MemoryBudgetBytes, "The batch summary retains its original sixteen-GiB budget.");
+            True(result.PeakWorkingSetBytes > RenderResourcePolicy.MemoryLimitBytes, "The injected measured process tree exceeds four GiB without an accidental default-limit stop.");
+        }
+        finally { await StopParallelFixtureAsync(fixture, run, cancellation); }
     }
 
     private static async Task TestCalibratedMemoryAdmissionAsync()
@@ -257,6 +321,7 @@ internal static partial class Program
     private sealed class TestRenderResourceProbe(ParallelFixture? fixture = null) : IRenderResourceProbe
     {
         public volatile bool OverBudget;
+        public long OverBudgetLimitBytes { get; init; } = RenderResourcePolicy.MemoryLimitBytes;
         private long additionalResidentBytes;
         private long lastResidentBytes;
         public long AdditionalResidentBytes { get => Interlocked.Read(ref additionalResidentBytes); set => Interlocked.Exchange(ref additionalResidentBytes, value); }
@@ -288,7 +353,7 @@ internal static partial class Program
             if (AdditionalResidentBytes > 0)
                 processes.Add(new(int.MaxValue - 2, Environment.ProcessId, AdditionalResidentBytes, null));
             var snapshot = RenderMemorySnapshot.FromProcesses(Environment.ProcessId, processes, !Incomplete, Incomplete ? "TEST ONLY access denied" : null);
-            if (OverBudget) snapshot = snapshot with { ResidentBytes = RenderResourcePolicy.MemoryLimitBytes + 1 };
+            if (OverBudget) snapshot = snapshot with { ResidentBytes = OverBudgetLimitBytes + 1 };
             Interlocked.Exchange(ref lastResidentBytes, snapshot.ResidentBytes);
             return snapshot;
         }

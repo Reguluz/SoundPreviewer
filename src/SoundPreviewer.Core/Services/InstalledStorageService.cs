@@ -35,16 +35,19 @@ public static class InstalledStorageService
             return false;
         string? settingsJson = database.QueryStrings("SELECT json FROM settings WHERE key='application';").SingleOrDefault();
         if (settingsJson is null || JsonNode.Parse(settingsJson) is not JsonObject settings ||
-            !ApplicationPaths.SamePath(Text(settings, "PreviewDirectory") ?? "", target)) return false;
+            Text(settings, "PreviewDirectory") != ".") return false;
         foreach (string json in database.QueryStrings("SELECT json FROM presets;"))
-            if (JsonNode.Parse(json) is not JsonObject preset || NeedsPathPreparation(Text(preset, "PreviewPath"), target))
+            if (JsonNode.Parse(json) is not JsonObject preset || NeedsPathPreparation(Text(preset, "PreviewPath"), target) ||
+                HistoricalFileReturned(preset, "PreviewPath", target))
                 return false;
         if (Node(settings, "Plugins") is JsonArray plugins)
             foreach (var plugin in plugins.OfType<JsonObject>())
             {
                 string? path = Text(plugin, "InitBaselinePath");
-                if (NeedsPathPreparation(path, target)) return false;
-                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+                if (NeedsPathPreparation(path, target) || HistoricalFileReturned(plugin, "InitBaselinePath", target)) return false;
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                path = PreviewPathStorage.Resolve(path, target);
+                if (!File.Exists(path)) continue;
                 if (new FileInfo(path).Length > 4 * 1024 * 1024) return false;
                 var metadata = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
                 if (metadata is null || Text(metadata, "Kind") != InitBaselineService.BaselineKind ||
@@ -57,13 +60,15 @@ public static class InstalledStorageService
     private static bool NeedsPathPreparation(string? path, string target)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
-        if (!Path.IsPathFullyQualified(path)) return true;
-        string fullPath = Path.GetFullPath(path);
-        EnsureNoLinks(fullPath);
-        // Keep missing historical mappings intact. If their disk returns later, the
-        // next startup sees an available external file and safely imports it then.
-        return !ApplicationPaths.IsWithin(fullPath, target) && File.Exists(fullPath);
+        if (PreviewPathStorage.IsAbsolute(path)) return true;
+        _ = PreviewPathStorage.Resolve(path, target); // Reject escaping paths and links before opening the library.
+        return false;
     }
+
+    private static bool HistoricalFileReturned(JsonObject node, string key, string target) =>
+        Text(node, key) is { Length: > 0 } current && current == Text(node, "Historical" + key + "LocalPath") &&
+        Text(node, "Historical" + key) is string historical && File.Exists(historical) &&
+        !File.Exists(PreviewPathStorage.Resolve(current, target));
 
     private static bool BaselineNeedsPreparation(JsonNode? node, string target)
     {
@@ -71,7 +76,8 @@ public static class InstalledStorageService
             foreach (var (key, value) in obj)
             {
                 if ((key.Equals("WavPath", StringComparison.OrdinalIgnoreCase) || key.Equals("OutputPath", StringComparison.OrdinalIgnoreCase)) &&
-                    value is JsonValue text && text.TryGetValue<string>(out string? path) && NeedsPathPreparation(path, target)) return true;
+                    value is JsonValue text && text.TryGetValue<string>(out string? path) &&
+                    (NeedsPathPreparation(path, target) || HistoricalFileReturned(obj, key, target))) return true;
                 if (BaselineNeedsPreparation(value, target)) return true;
             }
         else if (node is JsonArray array)
@@ -134,7 +140,7 @@ public static class InstalledStorageService
             {
                 if (!inPlace) throw new DirectoryNotFoundException("原音色库数据库不存在：" + sourceDatabase);
                 ValidateEmptyTarget(target);
-                var fresh = new LibraryStore(Path.Combine(stage, "library.db"));
+                var fresh = new LibraryStore(Path.Combine(stage, "library.db"), target);
                 fresh.SaveSettings(new AppSettings { PreviewDirectory = target });
                 Publish(stage, target);
                 published = true;
@@ -150,7 +156,7 @@ public static class InstalledStorageService
             int oldVersion;
             using (var snapshot = new NativeSqlite(backup))
                 oldVersion = int.Parse(snapshot.QueryStrings("PRAGMA user_version;")[0], CultureInfo.InvariantCulture);
-            var destination = new LibraryStore(stagedDatabase);
+            var destination = new LibraryStore(stagedDatabase, target);
             destination.Initialize(); // Only the private copy is upgraded; the old library remains usable by its old version.
             var plan = new ImportPlan(source, target, stage, inPlace);
             plan.Warnings.AddRange(warnings);
@@ -197,20 +203,71 @@ public static class InstalledStorageService
         plan.Settings = settingsJson is null
             ? JsonSerializer.SerializeToNode(new AppSettings(), LibraryJson.Options)!.AsObject()
             : JsonNode.Parse(settingsJson) as JsonObject ?? throw new InvalidDataException("音色库包含无效设置，原库未更改。");
+        plan.PreviousRoot = Normalize(Text(plan.Settings, "PreviewDirectory"), plan.Source) ?? plan.Source;
         foreach (var record in plan.Records)
-        {
-            string? path = Normalize(Text(record.Node, "PreviewPath"), plan.Source);
-            if (path is null) continue;
-            if (CopyAudio(path, plan) is string next) Set(record.Node, "PreviewPath", next);
-        }
+            PrepareReference(record.Node, "PreviewPath", plan);
         if (Node(plan.Settings, "Plugins") is JsonArray plugins)
             foreach (var plugin in plugins.OfType<JsonObject>())
+                PrepareReference(plugin, "InitBaselinePath", plan, metadata: true);
+        Set(plan.Settings, "PreviewDirectory", ".");
+    }
+
+    private static void PrepareReference(JsonObject node, string key, ImportPlan plan, bool metadata = false, bool baseline = false, string? relativeRoot = null)
+    {
+        string? original = Normalize(Text(node, key), relativeRoot ?? plan.Source);
+        if (original is null) return;
+        string source = RelocatedSource(original, plan);
+        if (HistoricalFileReturned(node, key, plan.Source)) source = Text(node, "Historical" + key)!;
+        string? next = metadata ? CopyBaseline(source, plan) : CopyAudio(source, plan, baseline);
+        if (next is null)
+        {
+            next = Path.Combine(plan.Target, DestinationRelative(source, plan));
+            if (!ApplicationPaths.IsWithin(source, plan.Target))
             {
-                string? path = Normalize(Text(plugin, "InitBaselinePath"), plan.Source);
-                if (path is null) continue;
-                if (CopyBaseline(path, plan) is string next) Set(plugin, "InitBaselinePath", next);
+                Set(node, "Historical" + key, original);
+                Set(node, "Historical" + key + "LocalPath", PreviewPathStorage.Store(next, plan.Target));
             }
-        Set(plan.Settings, "PreviewDirectory", plan.Target);
+        }
+        else
+        {
+            node.Remove(Key(node, "Historical" + key));
+            node.Remove(Key(node, "Historical" + key + "LocalPath"));
+        }
+        Set(node, key, PreviewPathStorage.Store(next, plan.Target));
+    }
+
+    // Old portable copies can retain absolute paths to an earlier installation. Prefer
+    // the same relative file in the selected/current Preview, even if the old copy exists.
+    private static string RelocatedSource(string path, ImportPlan plan)
+    {
+        // Only an old library root identifies the corresponding portable copy. An
+        // arbitrary external audio directory can contain a same-named unrelated file.
+        string oldRootName = plan.PreviousRoot.Replace('\\', '/').TrimEnd('/').Split('/').Last();
+        bool previousLibrary = oldRootName.Equals("Preview", StringComparison.OrdinalIgnoreCase) ||
+            ApplicationPaths.SamePath(plan.PreviousRoot, plan.Source) || File.Exists(Path.Combine(plan.PreviousRoot, "library.db"));
+        if (!previousLibrary) return path;
+        string? relative = RelativeTo(path, plan.PreviousRoot);
+        if (relative is not null)
+        {
+            string local = PreviewPathStorage.Resolve(relative, plan.Source);
+            if (File.Exists(local)) return local;
+        }
+        return path;
+    }
+
+    private static string DestinationRelative(string path, ImportPlan plan)
+    {
+        string? relative = RelativeTo(path, plan.Source) ?? RelativeTo(path, plan.PreviousRoot);
+        if (relative is not null) return PreviewPathStorage.Store(PreviewPathStorage.Resolve(relative, plan.Target), plan.Target);
+        return Path.Combine("MigratedAudio", Fingerprints.HashText(path)[..20], Path.GetFileName(path.Replace('\\', '/')));
+    }
+
+    private static string? RelativeTo(string path, string root)
+    {
+        string normalizedPath = path.Replace('\\', '/'), prefix = root.Replace('\\', '/').TrimEnd('/') + "/";
+        var comparison = root.Length > 1 && root[1] == ':' || root.StartsWith("\\\\", StringComparison.Ordinal)
+            ? StringComparison.OrdinalIgnoreCase : ApplicationPaths.PathComparison;
+        return normalizedPath.StartsWith(prefix, comparison) ? normalizedPath[prefix.Length..] : null;
     }
 
     private static string? CopyAudio(string source, ImportPlan plan, bool baseline = false)
@@ -233,8 +290,8 @@ public static class InstalledStorageService
             return null;
         }
         if (plan.InPlace && ApplicationPaths.IsWithin(source, plan.Target)) return plan.Mappings[source] = source;
-        string relative = string.Equals(Path.GetFileName(Path.GetDirectoryName(source)), "InitializationBaselines", StringComparison.OrdinalIgnoreCase)
-            ? Path.Combine("InitializationBaselines", Path.GetFileName(source)) : Path.GetFileName(source);
+        string relative = RelativeTo(source, plan.Source) ?? (string.Equals(Path.GetFileName(Path.GetDirectoryName(source)), "InitializationBaselines", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine("InitializationBaselines", Path.GetFileName(source)) : Path.GetFileName(source));
         string result = StageFile(source, relative, plan);
         plan.Mappings[source] = result;
         return result;
@@ -257,7 +314,7 @@ public static class InstalledStorageService
         catch (JsonException error) { throw new InvalidDataException("无法读取原基准配置，未清空原引用：" + source, error); }
         if (metadata is null || Text(metadata, "Kind") != InitBaselineService.BaselineKind)
             throw new InvalidDataException("无法识别原基准配置，未清空原引用：" + source);
-        RewriteBaseline(metadata, plan);
+        RewriteBaseline(metadata, plan, ApplicationPaths.IsWithin(source, plan.Source) ? plan.Source : plan.PreviousRoot);
         bool rewritten = !JsonNode.DeepEquals(JsonNode.Parse(original), metadata);
         if (!rewritten && plan.InPlace && ApplicationPaths.IsWithin(source, plan.Target))
             return plan.Mappings[source] = source;
@@ -275,26 +332,24 @@ public static class InstalledStorageService
         return result;
     }
 
-    private static void RewriteBaseline(JsonNode? node, ImportPlan plan)
+    private static void RewriteBaseline(JsonNode? node, ImportPlan plan, string relativeRoot)
     {
         if (node is JsonObject obj)
             foreach (string key in obj.Select(item => item.Key).ToList())
             {
                 if ((key.Equals("WavPath", StringComparison.OrdinalIgnoreCase) || key.Equals("OutputPath", StringComparison.OrdinalIgnoreCase)) &&
-                    obj[key] is JsonValue value && value.TryGetValue<string>(out string? text) && Normalize(text, plan.Source) is string source)
-                {
-                    if (CopyAudio(source, plan, baseline: true) is string next) obj[key] = next;
-                }
-                else RewriteBaseline(obj[key], plan);
+                    obj[key] is JsonValue value && value.TryGetValue<string>(out _))
+                    PrepareReference(obj, key, plan, baseline: true, relativeRoot: relativeRoot);
+                else RewriteBaseline(obj[key], plan, relativeRoot);
             }
-        else if (node is JsonArray array) foreach (var item in array) RewriteBaseline(item, plan);
+        else if (node is JsonArray array) foreach (var item in array) RewriteBaseline(item, plan, relativeRoot);
     }
 
     private static string StageFile(string source, string preferredRelative, ImportPlan plan, string? identity = null)
     {
         EnsureNoLinks(source);
         string hash = Fingerprints.HashFile(source);
-        string relative = preferredRelative;
+        string relative = PreviewPathStorage.Store(PreviewPathStorage.Resolve(preferredRelative, plan.Target), plan.Target);
         if (Conflicts(relative, hash, plan))
         {
             relative = Path.Combine("MigratedAudio", Fingerprints.HashText(identity ?? source)[..20], Path.GetFileName(preferredRelative));
@@ -416,7 +471,8 @@ public static class InstalledStorageService
         foreach (string directory in Directory.EnumerateDirectories(source)) CopyConfig(directory, Path.Combine(destination, Path.GetFileName(directory)), plan);
     }
 
-    private static string? Normalize(string? path, string root) => string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path, root);
+    private static string? Normalize(string? path, string root) => string.IsNullOrWhiteSpace(path) ? null :
+        Path.IsPathFullyQualified(path) ? Path.GetFullPath(path) : PreviewPathStorage.Resolve(path, root);
     private static string Key(JsonObject obj, string key) => obj.Select(item => item.Key).FirstOrDefault(candidate => candidate.Equals(key, StringComparison.OrdinalIgnoreCase)) ?? key;
     private static JsonNode? Node(JsonObject obj, string key) => obj[Key(obj, key)];
     private static string? Text(JsonObject obj, string key) => Node(obj, key) is JsonValue value && value.TryGetValue<string>(out string? text) ? text : null;
@@ -489,6 +545,7 @@ public static class InstalledStorageService
         public string Target { get; } = target;
         public string Stage { get; } = stage;
         public bool InPlace { get; } = inPlace;
+        public string PreviousRoot { get; set; } = source;
         public List<JsonRecord> Records { get; } = [];
         public JsonObject Settings { get; set; } = new();
         public string? SettingsOriginal { get; set; }

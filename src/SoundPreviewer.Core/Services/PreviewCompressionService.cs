@@ -220,7 +220,7 @@ public static class PreviewCompressionService
                 throw new InvalidDataException("无法安全确认过大的基准配置，未压缩任何新的预览：" + baseline);
             var metadata = JsonNode.Parse(File.ReadAllText(baseline));
             foreach (string audio in BaselinePaths(metadata))
-                if (Normalize(audio, root) is string path) paths.Add(path);
+                paths.Add(PreviewPathStorage.Resolve(audio, root));
         }
         return paths;
     }

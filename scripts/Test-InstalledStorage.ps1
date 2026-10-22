@@ -34,9 +34,19 @@ $legacyDirectoryConfiguration = Join-Path $application 'directories.json'
 $originals[$legacyDirectoryConfiguration] = (Get-FileHash -LiteralPath $legacyDirectoryConfiguration -Algorithm SHA256).Hash
 $manualPluginDirectory = Join-Path $diagnostics 'TEST ONLY manual plugin directory'
 $results = @()
-foreach ($phase in @('migrate', 'reopen')) {
+foreach ($phase in @('migrate', 'reopen', 'moved')) {
+    if ($phase -eq 'moved') {
+        # Keep the old installation intact so an absolute-path regression cannot hide
+        # behind a missing source. Run from another working directory as well.
+        $previousApplication = $application
+        $application = Join-Path $diagnostics 'moved-application'
+        New-Item -ItemType Directory -Path $application | Out-Null
+        Get-ChildItem -LiteralPath $previousApplication -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $application -Recurse }
+        $preview = Join-Path $application 'Preview'
+        $directoryConfiguration = Join-Path $application 'Config/directories.json'
+    }
     $previousBackups = @{}
-    if ($phase -eq 'reopen') {
+    if ($phase -ne 'migrate') {
         Get-ChildItem -LiteralPath (Join-Path $preview 'Backups') -Filter 'library-before-install-*.db' -File | ForEach-Object {
             $previousBackups[$_.Name] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
         }
@@ -47,6 +57,8 @@ foreach ($phase in @('migrate', 'reopen')) {
     }
     $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $application $executable))
     $start.UseShellExecute = $false
+    $start.WorkingDirectory = $diagnostics
+    $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $start.ArgumentList.Add('--test-installed-storage')
     if ($phase -eq 'migrate') {
         $start.ArgumentList.Add('--data-directory')
@@ -65,7 +77,7 @@ foreach ($phase in @('migrate', 'reopen')) {
         [bool]$result.StoragePreparationWindowShown -ne ($phase -eq 'migrate')) {
         throw "Installed storage $phase did not verify that only a real migration opens the preparation window: $diagnostics"
     }
-    if ($phase -eq 'reopen') {
+    if ($phase -ne 'migrate') {
         $currentBackups = @(Get-ChildItem -LiteralPath (Join-Path $preview 'Backups') -Filter 'library-before-install-*.db' -File)
         if ($currentBackups.Count -ne $previousBackups.Count) { throw 'Reopening a prepared library created another migration backup.' }
         foreach ($backup in $currentBackups) {
@@ -106,7 +118,8 @@ foreach ($phase in @('migrate', 'reopen')) {
         }
     }
     $results += @{ Phase = $phase; FixedPreviewDirectory = $preview; Presets = $result.Presets; OriginalFilesPreserved = $true;
-        StoragePreparationWindowShown = [bool]$result.StoragePreparationWindowShown; NoRepeatedMigrationBackup = $phase -eq 'reopen' }
+        StoragePreparationWindowShown = [bool]$result.StoragePreparationWindowShown; NoRepeatedMigrationBackup = $phase -ne 'migrate';
+        MovedInstallationChecked = $phase -eq 'moved' }
     Copy-Item -LiteralPath (Join-Path $preview 'ui-smoke.json') -Destination (Join-Path $diagnostics "$phase-ui-smoke.json")
 }
 $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $diagnostics 'result.json') -Encoding utf8

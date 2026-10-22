@@ -31,6 +31,9 @@ public sealed partial class RenderQueue
         private readonly Dictionary<SynthKind, long> memoryProfiles = new();
         private long peakRootResidentBytes;
         private readonly int targetConcurrency;
+        private readonly long memoryLimitBytes;
+        private long SoftMemoryLimitBytes => memoryLimitBytes - RenderResourcePolicy.AdmissionHeadroomBytes;
+        private string MemoryLimitLabel => RenderResourcePolicy.FormatMemoryLimit(memoryLimitBytes);
         private RenderMemorySnapshot memorySnapshot = new(0, false, 0, "尚未检测内存。");
         private TaskCompletionSource resourcesChanged = NewSignal();
         private CancellationTokenSource? batchCancellation;
@@ -80,9 +83,9 @@ public sealed partial class RenderQueue
             {
                 lock (gate) snapshot = memorySnapshot with { IsComplete = false, Error = error.Message };
             }
-            if (RenderResourcePolicy.MustStop(snapshot))
+            if (RenderResourcePolicy.MustStop(snapshot, memoryLimitBytes))
             {
-                string reason = $"内存保护已停止生成：主程序及渲染进程合计 {snapshot.ResidentBytes / (1024.0 * 1024 * 1024):F2} GiB，超过 {RenderResourcePolicy.MemoryLimitLabel} 目标。已完成的预览保留，其余可继续。";
+                string reason = $"内存保护已停止生成：主程序及渲染进程合计 {snapshot.ResidentBytes / (1024.0 * 1024 * 1024):F2} GiB，超过 {MemoryLimitLabel} 目标。已完成的预览保留，其余可继续。";
                 Interlocked.CompareExchange(ref resourceFailure, reason, null);
                 // A file/database commit can briefly hold gate. Stop other processes as
                 // soon as the sample is known, without waiting for that commit to finish.
@@ -94,14 +97,14 @@ public sealed partial class RenderQueue
                     snapshot = snapshot with { ResidentBytes = Math.Max(0, snapshot.ResidentBytes), IsComplete = false, Error = "内存采样数据无效。" };
                 memorySnapshot = snapshot;
                 summary.PeakWorkingSetBytes = Math.Max(summary.PeakWorkingSetBytes, snapshot.ResidentBytes);
-                if (RenderResourcePolicy.MustStop(snapshot))
+                if (RenderResourcePolicy.MustStop(snapshot, memoryLimitBytes))
                     SetResourceFailure(resourceFailure!);
                 else if (!snapshot.IsComplete)
                 {
                     incompleteMemorySamples++;
                     resourceMessage = "无法完整读取渲染进程树内存，暂停启动新任务。" + snapshot.Error;
                     if (incompleteMemorySamples >= 3)
-                        SetResourceFailure($"无法完整监测主程序及渲染子进程的内存，已停止生成以保护 {RenderResourcePolicy.MemoryLimitLabel} 内存目标。" + snapshot.Error);
+                        SetResourceFailure($"无法完整监测主程序及渲染子进程的内存，已停止生成以保护 {MemoryLimitLabel} 内存目标。" + snapshot.Error);
                 }
                 else
                 {
@@ -116,8 +119,8 @@ public sealed partial class RenderQueue
                         lease.ObservedPeakResidentBytes = Math.Max(lease.ObservedPeakResidentBytes, own);
                         lease.ObservedChildren |= own > 0;
                     }
-                    if (snapshot.ResidentBytes >= RenderResourcePolicy.SoftLimitBytes)
-                        resourceMessage = $"当前实占内存已达到 {RenderResourcePolicy.SoftLimitBytes / 1048576d:0} MiB 启动阈值，等待正在生成的任务结束后再启动新任务。";
+                    if (snapshot.ResidentBytes >= SoftMemoryLimitBytes)
+                        resourceMessage = $"当前实占内存已达到 {SoftMemoryLimitBytes / 1048576d:0} MiB 启动阈值，等待正在生成的任务结束后再启动新任务。";
                 }
                 UpdateAllowedConcurrency();
                 if (memoryLeases.Count > 0 && (elapsed.Elapsed.TotalSeconds - lastResourceProgress >= 0.5 || resourceFailure is not null))
@@ -174,7 +177,7 @@ public sealed partial class RenderQueue
                             // Its conservative unknown-synth reservation must not stop
                             // a smaller, already measured preferred job that still fits.
                             if (candidate >= 0 && RenderResourcePolicy.CanStart(memorySnapshot,
-                                ReservedMemoryBytes, ForecastMemory(waiting[candidate].Plugin.Synth)))
+                                ReservedMemoryBytes, ForecastMemory(waiting[candidate].Plugin.Synth), memoryLimitBytes))
                                 calibrationIndex = candidate;
                         }
                     }
@@ -193,7 +196,7 @@ public sealed partial class RenderQueue
                     if (!job.Plugin.AllowParallelRendering && running.Any(active => active.Plugin.Synth == job.Plugin.Synth)) continue;
                     hasEligibleSynth = true;
                     long forecast = ForecastMemory(job.Plugin.Synth);
-                    if (!RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, forecast)) continue;
+                    if (!RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, forecast, memoryLimitBytes)) continue;
                     memoryLeases.Add(job, new(forecast));
                     waiting.RemoveAt(index);
                     var demand = synthJobDemand[job.Plugin.Synth];
@@ -208,9 +211,9 @@ public sealed partial class RenderQueue
                 }
                 if (hasEligibleSynth)
                 {
-                    resourceMessage = $"预计内存预算不足：实占、任务预留和下一项预测合计将超过 {RenderResourcePolicy.SoftLimitBytes / 1048576d:0} MiB 启动阈值，暂不启动新任务。";
+                    resourceMessage = $"预计内存预算不足：实占、任务预留和下一项预测合计将超过 {SoftMemoryLimitBytes / 1048576d:0} MiB 启动阈值，暂不启动新任务。";
                     if (runningCount == 0)
-                        SetResourceFailure($"预计内存预算不足以安全启动下一个渲染任务，已停止生成以保护 {RenderResourcePolicy.MemoryLimitLabel} 目标。已完成的预览保留；关闭占用内存的试听或重新打开程序后可继续。");
+                        SetResourceFailure($"预计内存预算不足以安全启动下一个渲染任务，已停止生成以保护 {MemoryLimitLabel} 目标。已完成的预览保留；关闭占用内存的试听或重新打开程序后可继续。");
                 }
                 else if (waitingForCalibration)
                     resourceMessage = "等待当前音源任务结束后，单独观测下一音源的首项。";
@@ -252,7 +255,7 @@ public sealed partial class RenderQueue
             synthJobDemand[job.Plugin.Synth].Leased--;
             if (lease.ObservedChildren)
             {
-                long forecast = Math.Max(64L * 1024 * 1024, (long)Math.Min(RenderResourcePolicy.MemoryLimitBytes,
+                long forecast = Math.Max(64L * 1024 * 1024, (long)Math.Min(memoryLimitBytes,
                     lease.ObservedPeakResidentBytes * 1.25 + 64L * 1024 * 1024));
                 memoryProfiles[job.Plugin.Synth] = Math.Max(memoryProfiles.GetValueOrDefault(job.Plugin.Synth), forecast);
             }
@@ -268,7 +271,7 @@ public sealed partial class RenderQueue
             if (resourceFailure is not null || !memorySnapshot.IsComplete) { allowedConcurrency = 0; return; }
             if (memoryProfiles.Count == 0 || memoryLeases.Keys.Any(job => !memoryProfiles.ContainsKey(job.Plugin.Synth)))
             { allowedConcurrency = Math.Min(1, targetConcurrency); return; }
-            long available = RenderResourcePolicy.SoftLimitBytes - memorySnapshot.ResidentBytes - ReservedMemoryBytes;
+            long available = SoftMemoryLimitBytes - memorySnapshot.ResidentBytes - ReservedMemoryBytes;
             int additional = 0;
             // Follow the pending synth groups rather than the largest synth ever
             // observed. Completed heavy synths cannot restrict a later light group.
@@ -284,7 +287,7 @@ public sealed partial class RenderQueue
             if (memoryLeases.Count == 0 && additional == 0)
             {
                 var calibration = synthJobDemand.Values.FirstOrDefault(demand => demand.Waiting > 0 && !memoryProfiles.ContainsKey(demand.Plugin.Synth));
-                if (calibration is not null && RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, ForecastMemory(calibration.Plugin.Synth)))
+                if (calibration is not null && RenderResourcePolicy.CanStart(memorySnapshot, ReservedMemoryBytes, ForecastMemory(calibration.Plugin.Synth), memoryLimitBytes))
                     additional = 1;
             }
             allowedConcurrency = Math.Min(targetConcurrency, memoryLeases.Count + additional);
@@ -321,7 +324,7 @@ public sealed partial class RenderQueue
             var reasons = new List<string>();
             if (permissionReason.Length > 0) reasons.Add(permissionReason);
             if (allowedConcurrency < Math.Min(targetConcurrency, measuredCapacity))
-                reasons.Add($"{RenderResourcePolicy.MemoryLimitLabel} 预计内存预算限制当前最多 {allowedConcurrency} 条（含预留 {ReservedMemoryBytes / 1048576d:0} MiB）。");
+                reasons.Add($"{MemoryLimitLabel} 预计内存预算限制当前最多 {allowedConcurrency} 条（含预留 {ReservedMemoryBytes / 1048576d:0} MiB）。");
             if (measuredCapacity < permissionCapacity)
                 reasons.Add("下一音源须等当前任务结束后单独测量内存。");
             if (jobCount < targetConcurrency)

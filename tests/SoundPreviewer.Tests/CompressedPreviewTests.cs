@@ -258,7 +258,7 @@ internal static partial class Program
                 True(moved.Favorite && moved.Tags.SequenceEqual(record.Tags), "AAC migration preserves personal metadata.");
                 Equal(fixture.Key, moved.CacheKey, "Migration never requests a new render identity just for AAC.");
                 string baseline = movedStore.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).InitBaselinePath;
-                True(StorageBaselinePaths(JsonNode.Parse(File.ReadAllText(baseline))!).All(path => Path.GetExtension(path) == ".wav" && File.Exists(path)),
+                True(StorageBaselinePaths(JsonNode.Parse(File.ReadAllText(baseline))!).All(path => Path.GetExtension(path) == ".wav" && File.Exists(PreviewPathStorage.Resolve(path, target))),
                     "Migration retains initialization comparison audio as WAV even beside compressed previews.");
             }
             else

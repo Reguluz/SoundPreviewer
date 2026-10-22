@@ -9,6 +9,7 @@ public sealed class LibraryStore
 {
     public const int CurrentSchemaVersion = 2;
     private readonly string databasePath;
+    private readonly string previewRoot;
     private readonly object gate = new();
     private bool initialized;
     public string? LastMigrationBackupPath { get; private set; }
@@ -137,10 +138,11 @@ public sealed class LibraryStore
         }
     }
 
-    public LibraryStore(string dbPath)
+    public LibraryStore(string dbPath, string? previewRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dbPath);
         databasePath = Path.GetFullPath(dbPath);
+        this.previewRoot = Path.GetFullPath(previewRoot ?? Path.GetDirectoryName(databasePath)!);
     }
 
     public void Initialize()
@@ -215,7 +217,7 @@ public sealed class LibraryStore
             Initialize();
             using var database = new NativeSqlite(databasePath);
             return database.QueryStrings("SELECT json FROM presets ORDER BY synth, source_path, internal_path, id;")
-                .Select(json => JsonSerializer.Deserialize<PresetRecord>(json, LibraryJson.Options) ?? throw new InvalidDataException("A stored preset has no metadata."))
+                .Select(ReadPreset)
                 .ToList();
         }
     }
@@ -250,8 +252,7 @@ public sealed class LibraryStore
                         merged.Add(rendered);
                         continue;
                     }
-                    var latest = JsonSerializer.Deserialize<PresetRecord>(json ?? JsonSerializer.Serialize(identity, LibraryJson.Options), LibraryJson.Options)
-                        ?? throw new InvalidDataException("音色记录缺少元数据。");
+                    var latest = ReadPreset(json ?? JsonSerializer.Serialize(identity, LibraryJson.Options));
                     if (requiredPreviewIdentities is not null && (json is null || latest.Status == PresetStatus.Rendering))
                         throw new InvalidOperationException("复用预览期间副本已删除或开始生成；未更改其预览。");
                     if (!SameRenderSource(latest, identity))
@@ -286,13 +287,13 @@ public sealed class LibraryStore
         record.AdapterVersion, record.PluginVersion, record.TemplateJson
     }, LibraryJson.Options);
 
-    private static void VerifyPreviewIdentities(NativeSqlite database, IReadOnlyList<PresetRecord>? required)
+    private void VerifyPreviewIdentities(NativeSqlite database, IReadOnlyList<PresetRecord>? required)
     {
         if (required is null) return;
         foreach (var identity in required)
         {
             string? json = database.QueryStrings("SELECT json FROM presets WHERE id=?;", identity.Id).SingleOrDefault();
-            var latest = json is null ? null : JsonSerializer.Deserialize<PresetRecord>(json, LibraryJson.Options);
+            var latest = json is null ? null : ReadPreset(json);
             if (latest is null || latest.Status == PresetStatus.Rendering || !SameRenderSource(latest, identity) ||
                 AudioFieldsIdentity(latest) != AudioFieldsIdentity(identity))
                 throw new InvalidOperationException("复用预览期间保留项的来源或预览已变化；未更改副本记录。");
@@ -312,6 +313,12 @@ public sealed class LibraryStore
 
     internal static void CopyAudioFields(PresetRecord target, PresetRecord rendered)
     {
+        // A committed replacement (including the same cache filename) supersedes a
+        // missing legacy reference. It must not be restored if the new file is later lost.
+        if (File.Exists(rendered.PreviewPath) && target.AdditionalProperties is { } properties)
+            foreach (string key in properties.Keys.Where(key => key.Equals("HistoricalPreviewPath", StringComparison.OrdinalIgnoreCase) ||
+                         key.Equals("HistoricalPreviewPathLocalPath", StringComparison.OrdinalIgnoreCase)).ToArray())
+                properties.Remove(key);
         target.PreviewPath = rendered.PreviewPath;
         target.CacheKey = rendered.CacheKey;
         target.RenderedUtc = rendered.RenderedUtc;
@@ -332,13 +339,12 @@ public sealed class LibraryStore
             try
             {
                 string? json = database.QueryStrings("SELECT json FROM settings WHERE key=?;", "application").SingleOrDefault();
-                var latest = JsonSerializer.Deserialize<AppSettings>(json ?? JsonSerializer.Serialize(batchSettings, LibraryJson.Options), LibraryJson.Options)
-                    ?? throw new InvalidDataException("应用设置缺少元数据。");
+                var latest = ReadSettings(json ?? JsonSerializer.Serialize(batchSettings, LibraryJson.Options));
                 var plugin = latest.Plugins.FirstOrDefault(candidate => candidate.Synth == synth);
                 if (plugin is not null && (json is null || plugin.InitBaselinePath == previousPath))
                 {
                     plugin.InitBaselinePath = nextPath;
-                    database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", JsonSerializer.Serialize(latest, LibraryJson.Options));
+                    database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", WriteSettings(latest));
                 }
                 database.Execute("COMMIT;");
             }
@@ -355,7 +361,7 @@ public sealed class LibraryStore
             Initialize();
             using var database = new NativeSqlite(databasePath);
             return database.QueryStrings("SELECT json FROM presets WHERE content_md5=? COLLATE NOCASE ORDER BY synth, source_path, internal_path, id;", md5)
-                .Select(json => JsonSerializer.Deserialize<PresetRecord>(json, LibraryJson.Options) ?? throw new InvalidDataException("A stored preset has no metadata.")).ToList();
+                .Select(ReadPreset).ToList();
         }
     }
 
@@ -392,21 +398,21 @@ public sealed class LibraryStore
             try
             {
                 WritePresets(database, presets);
-                database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", JsonSerializer.Serialize(settings, LibraryJson.Options));
+                database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", WriteSettings(settings));
                 database.Execute("COMMIT;");
             }
             catch { database.Execute("ROLLBACK;"); throw; }
         }
     }
 
-    private static void WritePresets(NativeSqlite database, IEnumerable<PresetRecord> presets)
+    private void WritePresets(NativeSqlite database, IEnumerable<PresetRecord> presets)
     {
         foreach (var preset in presets)
         {
             ArgumentNullException.ThrowIfNull(preset);
             ArgumentException.ThrowIfNullOrWhiteSpace(preset.Id);
             database.Execute("INSERT OR REPLACE INTO presets (id, source_id, synth, source_path, internal_path, content_hash, content_md5, duplicate_of_id, status, favorite, feedback, json, updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                preset.Id, preset.SourceId, (int)preset.Synth, preset.SourcePath, preset.InternalPath, preset.ContentHash, preset.ContentMd5.ToLowerInvariant(), preset.DuplicateOfId, (int)preset.Status, preset.Favorite, preset.Feedback, JsonSerializer.Serialize(preset, LibraryJson.Options), DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+                preset.Id, preset.SourceId, (int)preset.Synth, preset.SourcePath, preset.InternalPath, preset.ContentHash, preset.ContentMd5.ToLowerInvariant(), preset.DuplicateOfId, (int)preset.Status, preset.Favorite, preset.Feedback, WritePreset(preset), DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         }
     }
 
@@ -417,7 +423,7 @@ public sealed class LibraryStore
             Initialize();
             using var database = new NativeSqlite(databasePath);
             string? json = database.QueryStrings("SELECT json FROM settings WHERE key=?;", "application").SingleOrDefault();
-            return json is null ? new AppSettings() : JsonSerializer.Deserialize<AppSettings>(json, LibraryJson.Options) ?? throw new InvalidDataException("Stored application settings have no metadata.");
+            return json is null ? new AppSettings() : ReadSettings(json);
         }
     }
 
@@ -428,8 +434,43 @@ public sealed class LibraryStore
         {
             Initialize();
             using var database = new NativeSqlite(databasePath);
-            database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", JsonSerializer.Serialize(settings, LibraryJson.Options));
+            database.Execute("INSERT OR REPLACE INTO settings (key, json) VALUES (?, ?);", "application", WriteSettings(settings));
         }
+    }
+
+    private PresetRecord ReadPreset(string json)
+    {
+        var preset = JsonSerializer.Deserialize<PresetRecord>(json, LibraryJson.Options)
+            ?? throw new InvalidDataException("音色记录缺少元数据。");
+        preset.PreviewPath = PreviewPathStorage.Resolve(preset.PreviewPath, previewRoot);
+        return preset;
+    }
+
+    private string WritePreset(PresetRecord preset)
+    {
+        var node = JsonSerializer.SerializeToNode(preset, LibraryJson.Options)!.AsObject();
+        node[nameof(PresetRecord.PreviewPath)] = PreviewPathStorage.Store(preset.PreviewPath, previewRoot);
+        return node.ToJsonString(LibraryJson.Options);
+    }
+
+    private AppSettings ReadSettings(string json)
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(json, LibraryJson.Options)
+            ?? throw new InvalidDataException("应用设置缺少元数据。");
+        settings.PreviewDirectory = PreviewPathStorage.Resolve(settings.PreviewDirectory, previewRoot);
+        foreach (var plugin in settings.Plugins)
+            plugin.InitBaselinePath = PreviewPathStorage.Resolve(plugin.InitBaselinePath, previewRoot);
+        return settings;
+    }
+
+    private string WriteSettings(AppSettings settings)
+    {
+        var node = JsonSerializer.SerializeToNode(settings, LibraryJson.Options)!.AsObject();
+        node[nameof(AppSettings.PreviewDirectory)] = PreviewPathStorage.Store(settings.PreviewDirectory, previewRoot);
+        foreach (var plugin in node[nameof(AppSettings.Plugins)]!.AsArray())
+            plugin![nameof(PluginConfiguration.InitBaselinePath)] = PreviewPathStorage.Store(
+                plugin[nameof(PluginConfiguration.InitBaselinePath)]!.GetValue<string>(), previewRoot);
+        return node.ToJsonString(LibraryJson.Options);
     }
 
     public int RecoverInterrupted(bool preserveMissingPreviewMappings = false)

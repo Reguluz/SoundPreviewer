@@ -44,7 +44,7 @@ internal static partial class Program
             True(File.Exists(fixture.Orphan), "Unreferenced audio remains protected even when another database is not visible nearby.");
             True(File.Exists(fixture.Unrelated) && File.Exists(fixture.Source), "Directory changes do not remove original sources or unrelated audio.");
             string backup = Directory.GetFiles(Path.Combine(target, "Backups"), "*.db").Single();
-            Equal(originalJson, JsonSerializer.Serialize(new LibraryStore(backup).LoadPresets(), LibraryJson.Options), "The consistent pre-relocation snapshot retains every original record field before path changes.");
+            Equal(originalJson, JsonSerializer.Serialize(new LibraryStore(backup, fixture.Root).LoadPresets(), LibraryJson.Options), "The consistent pre-relocation snapshot retains every original record field before path changes.");
             if (mode == PreviewDirectoryChangeMode.Migrate)
             {
                 True(ApplicationPaths.IsWithin(record.PreviewPath, target) && File.Exists(record.PreviewPath), "Migrated preview paths point to existing audio in the new root.");
@@ -53,7 +53,7 @@ internal static partial class Program
                 string baseline = settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).InitBaselinePath;
                 True(File.Exists(baseline) && ApplicationPaths.IsWithin(baseline, target), "The active initialization baseline is relocated.");
                 var metadata = JsonNode.Parse(File.ReadAllText(baseline))!;
-                foreach (string path in StorageBaselinePaths(metadata)) True(ApplicationPaths.IsWithin(path, target) && File.Exists(path), "Every initialization WAV and result locator is rewritten to an existing new file.");
+                foreach (string path in StorageBaselinePaths(metadata)) True(!PreviewPathStorage.IsAbsolute(path) && File.Exists(PreviewPathStorage.Resolve(path, target)), "Every initialization WAV and result locator is rewritten to an existing new file with a relative path.");
             }
             else
             {

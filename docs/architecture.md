@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-23，当前为 0.8.3 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
+更新日期：2026-10-23，当前为 0.9.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
@@ -95,11 +95,13 @@ Vital `.vital` 检查 JSON 和 `settings` 对象。`.vitalbank` 只读取 ZIP，
 
 ## 存储与缓存
 
+持久化的预览引用相对于当前 Preview 根。`LibraryStore` 保存时转换 `PresetRecord.PreviewPath`、`AppSettings.PreviewDirectory` 和 `PluginConfiguration.InitBaselinePath`，加载时解析为运行所需的完整路径；声音参照 JSON 同样保存相对音频路径。正常程序的库根始终来自当前安装目录，源码测试可显式使用隔离库根；暂存迁移分别指定源根读取、目标根保存，避免把暂存路径写进正式记录。相对引用拒绝越界和链接。旧绝对引用先经过保留原件的迁移，移动旧 Preview 时优先本库对应文件；一般外部旧目录仍复制并处理重名冲突。
+
 0.7.1 正式运行固定使用 `ApplicationPaths.DefaultPreviewDirectory`：Windows 为程序目录下的 `Preview`，macOS 为 `.app` 旁的 `Preview`，不写入签名包内。`ApplicationDirectory` 仍指向实际程序与资源目录，`PortableApplicationDirectory` 用于确定数据根。`library.db`、运行日志、缓存、加载防错参照、`Config` 与手工元数据保存在同一库根；设置不能改为任意外部输出目录。程序目录不可写时明确报错，不静默回退到用户目录。普通历史 `--data-directory` 仅指定导入来源，`--smoke-test --data-directory` 保留隔离测试与诊断；内部 `--test-installed-storage` 运行真实启动的同一迁移流程再执行 UI 自检。详见[数据与升级](cross-platform.md#数据与升级)。
 
 旧定位文件、旧用户库和 `local-data` 仅用于确定首次迁移来源。目标 `Preview` 已有库时不使用旧库覆盖，只归并目标自身引用的外部音频与加载防错参照；需要兼容旧库时，先复制一致快照、个人记录和规则及引用预览，校验后在目标库更新路径，再使用目标。旧数据库、规则与音频保留作回退备份，不因定位记录或旧 `PreviewDirectory` 设置而续写原位置。
 
-设置提供「打开 Preview 文件夹」「清空预览」「导入旧版音色库」。手动导入经界面确认后，Core 先在独立暂存目录复制全部引用音频与源数据库，并验证已知记录及设置字段可读；完成后才将当前完整 Preview 原子改名为同一程序目录下 `Preview-before-import-*`，再发布暂存库，不合并。失败且目标空缺时尽量原子恢复原名，并明确显示备份位置。备份内仍有原 Preview 的绝对路径，拒绝将其作为普通异名源直接导入；恢复需退出并备份当前 Preview，再把恢复目录还原名 Preview。
+设置提供「打开 Preview 文件夹」「清空预览」「导入旧版音色库」。手动导入经界面确认后，Core 先在独立暂存目录复制全部引用音频与源数据库，并验证已知记录及设置字段可读；完成后才将当前完整 Preview 原子改名为同一程序目录下 `Preview-before-import-*`，再发布暂存库，不合并。失败且目标空缺时尽量原子恢复原名，并明确显示备份位置。较早版本的备份内可能有原 Preview 的绝对路径，拒绝将其作为普通异名源直接导入；恢复需退出并备份当前 Preview，再把恢复目录还原名 Preview。
 
 存储迁移先建立包含已提交 WAL 页的 SQLite 快照，复制 `Config` 和必要音频并校验哈希，再在目标库中事务保存设置与路径。旧库迁入固定 Preview 时保留试听与基准映射，并保留全部原始数据库、规则和音频作为回退备份。独立「清空预览」只处理当前记录或基准明确引用、可确认独占且不经链接的缓存；共享目录、外部音频、源文件和未知音频 / 基准保留并报告，不凭哈希命名清理孤立文件。清理保留标签、分类、收藏与源记录，不递归删除库根，也不保证目录完全为空。
 
@@ -120,6 +122,8 @@ SQLite schema 0/1 升级前生成一致备份，备份或迁移失败即中止�
 音频提交与数据库提交不属于同一事务；启动恢复发现中断任务时，完整有效旧 WAV / M4A、保存模板和三音区映射可保留并转为待确认，否则转回待处理并清空无效派生映射，原尝试历史保留。已经生成但尚未索引的文件可能保留，自动清理策略尚未实现。
 
 ## 渲染与校验
+
+内存预算由 `AppSettings.MemoryBudgetGiB` 配置为 1–16 GiB，默认 4。队列构造时将预算换算为 `long` 字节并快照，生成和手动声音参照的所有预留、准入、暂停、超限停止及进度报告共用此值。准入上限为预算减 256 MiB；当前任务不受调用方之后修改设置影响。内存预算不进入音频缓存键。
 
 一个任务调用一个独立工作进程，默认按机型和内存目标调度。进程通过 JSON 的 `RenderRequest` / `RenderResult` 协议交换来源、插件、模板、目标路径、音区映射和结果。Windows Job Object 和 macOS 独立进程组用于超时、取消和退出时结束渲染子进程。详细参数与实际限制见 [渲染后端说明](rendering.md)。
 

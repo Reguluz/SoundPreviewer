@@ -22,13 +22,15 @@ public partial class MainWindow
             MiddleNoteBox.Text = "C4";
             HighNoteBox.Text = "A6";
             ParallelRendering.SelectedItem = ParallelRenderChoices.Single(choice => choice.Value == 4);
+            MemoryBudgetBox.SelectedItem = MemoryBudgetChoices.Single(choice => choice.Value == 16);
             SampleRateBox.SelectedIndex = 1;
             PreviewFormatBox.SelectedIndex = 1;
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering = true;
             await RunTask(SaveSettingsCoreAsync);
             var persistedSettings = _store.LoadSettings();
-            if (persistedSettings.MaxParallelRenders != 4 || !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
-                throw new InvalidOperationException("并行设置没有通过界面保存。");
+            if (persistedSettings.MaxParallelRenders != 4 || persistedSettings.MemoryBudgetGiB != 16 ||
+                !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
+                throw new InvalidOperationException("并行设置或 16 GiB 内存预算没有通过界面保存。");
             if (persistedSettings.PreviewFormat != PreviewAudioFormat.Wav || persistedSettings.Template.SampleRate != 48000)
                 throw new InvalidOperationException("WAV 保存格式或48 kHz采样率未保存。");
             PreviewFormatBox.SelectedIndex = 0;
@@ -42,6 +44,15 @@ public partial class MainWindow
                 await RunTask(SaveSettingsCoreAsync);
                 if (_store.LoadSettings().MaxParallelRenders != limit)
                     throw new InvalidOperationException("自动或手动并行档位没有保存。");
+            }
+            foreach (int budget in new[] { 1, 8, 4 })
+            {
+                MemoryBudgetBox.SelectedItem = MemoryBudgetChoices.Single(choice => choice.Value == budget);
+                await RunTask(SaveSettingsCoreAsync);
+                _settings = _store.LoadSettings();
+                PopulateSettings();
+                if (_settings.MemoryBudgetGiB != budget || (MemoryBudgetBox.SelectedItem as Choice<int>)?.Value != budget)
+                    throw new InvalidOperationException("内存预算没有通过界面保存并重新载入。");
             }
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Version = "TEST ONLY changed plugin version";
             await RunTask(SaveSettingsCoreAsync);

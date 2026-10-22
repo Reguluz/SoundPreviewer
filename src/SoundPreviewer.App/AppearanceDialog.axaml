@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SoundPreviewer.App.AppearanceDialog"
+        Title="界面配色" Width="660" Height="650" MinWidth="600" MinHeight="540"
+        MaxHeight="760" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+ <Grid RowDefinitions="Auto,*,Auto" Margin="24" Background="{DynamicResource WindowBackground}">
+  <StackPanel Spacing="7" Margin="0,0,0,20">
+   <TextBlock Text="让音色库更合你的眼光" FontSize="22" FontWeight="SemiBold"/>
+   <TextBlock Text="修改即刻预览整个界面，保存后下次打开仍会沿用。" Foreground="{DynamicResource Muted}"/>
+  </StackPanel>
+  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Visible">
+   <StackPanel Spacing="16" Margin="0,0,8,8">
+    <Border Classes="card" Padding="16">
+     <Grid ColumnDefinitions="*,14,*" RowDefinitions="Auto,8,Auto,12,Auto">
+      <TextBlock Text="配色预设" Foreground="{DynamicResource Muted}"/>
+      <TextBlock Grid.Column="2" Text="控件明暗" Foreground="{DynamicResource Muted}"/>
+      <ComboBox Grid.Row="2" Name="PresetChoice" SelectionChanged="Preset_Changed"/>
+      <ComboBox Grid.Row="2" Grid.Column="2" Name="ModeChoice" SelectionChanged="Mode_Changed"/>
+      <Button Grid.Row="4" Grid.ColumnSpan="3" Content="重置为所选预设" Click="ResetPreset_Click" Classes="compact" HorizontalAlignment="Left"/>
+     </Grid>
+    </Border>
+    <StackPanel Spacing="5">
+     <TextBlock Text="自定义颜色" FontWeight="SemiBold"/>
+     <TextBlock Text="输入 #RRGGBB 色值，例如 #168571。强调色上的文字会自动适配。" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
+    </StackPanel>
+    <Grid Name="ColorGrid" ColumnDefinitions="*,16,*"/>
+    <Border Classes="card" Padding="14" Background="{DynamicResource SurfaceAlt}">
+     <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="4">
+       <TextBlock Text="BS · Midnight Pulse" FontWeight="SemiBold"/>
+       <TextBlock Text="Serum 2  /  Bass" Foreground="{DynamicResource Muted}" FontSize="12"/>
+      </StackPanel>
+      <Button Grid.Column="1" Classes="primary" Content="▶  试听" IsHitTestVisible="False" Margin="0"/>
+     </Grid>
+    </Border>
+   </StackPanel>
+  </ScrollViewer>
+  <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Margin="0,12,0,0">
+   <TextBlock Name="ValidationMessage" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" Margin="0,0,0,10"/>
+   <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto">
+    <TextBlock Text="取消会还原本次修改" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+    <Button Grid.Column="1" Content="取消" Click="Cancel_Click" IsCancel="True" MinWidth="82"/>
+    <Button Grid.Column="2" Name="SaveButton" Classes="primary" Content="保存配色" Click="Save_Click" IsDefault="True" MinWidth="100" Margin="0"/>
+   </Grid>
+  </Grid>
+ </Grid>
+</Window>

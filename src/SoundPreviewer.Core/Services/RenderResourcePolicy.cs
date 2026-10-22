@@ -48,10 +48,24 @@ public interface IRenderResourceProbe
 
 public static class RenderResourcePolicy
 {
-    public const long MemoryLimitBytes = 4L * 1024 * 1024 * 1024;
-    public const long SoftLimitBytes = 3840L * 1024 * 1024;
-    public static string MemoryLimitLabel => $"{MemoryLimitBytes / (1024d * 1024 * 1024):0.##} GiB";
+    public const int DefaultMemoryBudgetGiB = 4;
+    public const int MinimumMemoryBudgetGiB = 1;
+    public const int MaximumMemoryBudgetGiB = 16;
+    public const long AdmissionHeadroomBytes = 256L * 1024 * 1024;
+    // Defaults retained for callers and settings created before budgets were configurable.
+    public const long MemoryLimitBytes = DefaultMemoryBudgetGiB * 1024L * 1024 * 1024;
+    public const long SoftLimitBytes = MemoryLimitBytes - AdmissionHeadroomBytes;
+    public static string MemoryLimitLabel => FormatMemoryLimit(MemoryLimitBytes);
     private static readonly int[] levels = [1, 2, 4, 8, 16];
+
+    public static long ResolveMemoryLimitBytes(int budgetGiB)
+    {
+        if (budgetGiB is < MinimumMemoryBudgetGiB or > MaximumMemoryBudgetGiB)
+            throw new ArgumentException("内存预算须为 1 到 16 GiB。", nameof(budgetGiB));
+        return budgetGiB * 1024L * 1024 * 1024;
+    }
+
+    public static string FormatMemoryLimit(long bytes) => $"{bytes / (1024d * 1024 * 1024):0.##} GiB";
 
     public static int ResolveMaxConcurrency(int requested, RenderHardwareInfo hardware)
     {
@@ -63,7 +77,7 @@ public static class RenderResourcePolicy
         return levels.Last(level => level <= Math.Min(16, cores));
     }
 
-    public static bool MustStop(RenderMemorySnapshot snapshot) => snapshot.ResidentBytes > MemoryLimitBytes;
+    public static bool MustStop(RenderMemorySnapshot snapshot, long memoryLimitBytes = MemoryLimitBytes) => snapshot.ResidentBytes > memoryLimitBytes;
 
     public static long WorkerTreeResidentBytes(RenderMemorySnapshot snapshot, IEnumerable<int> workerProcessIds)
     {
@@ -86,12 +100,14 @@ public static class RenderResourcePolicy
         return resident;
     }
 
-    public static bool CanStart(RenderMemorySnapshot snapshot, long reservedBytes, long newReservationBytes)
+    public static bool CanStart(RenderMemorySnapshot snapshot, long reservedBytes, long newReservationBytes,
+        long memoryLimitBytes = MemoryLimitBytes)
     {
-        if (!snapshot.IsComplete || snapshot.ResidentBytes < 0 || snapshot.ResidentBytes >= SoftLimitBytes ||
+        long softLimitBytes = memoryLimitBytes - AdmissionHeadroomBytes;
+        if (!snapshot.IsComplete || snapshot.ResidentBytes < 0 || snapshot.ResidentBytes >= softLimitBytes ||
             reservedBytes < 0 || newReservationBytes < 0) return false;
         // Subtraction keeps an untrusted or overflowing reservation from becoming free space.
-        long available = SoftLimitBytes - snapshot.ResidentBytes;
+        long available = softLimitBytes - snapshot.ResidentBytes;
         return reservedBytes <= available && newReservationBytes <= available - reservedBytes;
     }
 }

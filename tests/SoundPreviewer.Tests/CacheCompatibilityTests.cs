@@ -32,7 +32,7 @@ internal static partial class Program
             var plugin = settings.Plugins.Single(item => item.Synth == SynthKind.Vital);
             plugin.ExecutablePath = Path.Combine(directory, "custom-host");
             plugin.Version = "legacy-version";
-            plugin.InitBaselinePath = "kept-baseline";
+            plugin.InitBaselinePath = Path.Combine(directory, "kept-baseline");
             string settingsJson = JsonSerializer.Serialize(settings, LibraryJson.Options);
             using var connection = new CacheTestSqlite(databasePath);
             connection.Execute("PRAGMA journal_mode=WAL;");
