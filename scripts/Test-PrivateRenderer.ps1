@@ -9,6 +9,10 @@ if ($env:OS -ne 'Windows_NT') { throw 'This verification targets Windows x64.' }
 $project = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $artifacts = Join-Path $project 'artifacts'
 $source = [IO.Path]::GetFullPath($ApplicationDirectory)
+if (Get-ChildItem -LiteralPath (Join-Path $source 'Renderers') -Recurse -Force | Where-Object {
+    $_.Name -in @('Preview', 'local-data', 'settings.json', 'directories.json', 'library-location.json', 'preset-categories.json') -or
+    $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log')
+}) { throw 'The renderer resources contain personal data; refusing a private-runtime copy.' }
 $diagnostics = Join-Path $artifacts ('private-renderer-win-x64-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $diagnostics 'application'
 $moved = Join-Path $diagnostics 'moved application 中文'

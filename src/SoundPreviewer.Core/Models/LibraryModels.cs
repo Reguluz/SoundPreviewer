@@ -9,6 +9,7 @@ public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5 
 public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
 public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer, Sushi = 4 }
 public enum PreviewNoteOrder { LowMiddleHigh = 0, MiddleHighLow = 1 }
+public enum PreviewAudioFormat { Aac = 0, Wav = 1 }
 
 public sealed class PresetRecord
 {
@@ -137,6 +138,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new PluginConfiguration { Synth = s }).ToList();
     public PreviewTemplate Template { get; set; } = new();
     public string PreviewDirectory { get; set; } = "";
+    public PreviewAudioFormat PreviewFormat { get; set; } = PreviewAudioFormat.Aac;
     public double StorageBudgetGb { get; set; } = 10;
     public int MaxAttempts { get; set; } = 2;
     public int MaxParallelRenders

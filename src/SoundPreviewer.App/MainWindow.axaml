@@ -301,10 +301,13 @@
          <StackPanel Grid.Column="2">
           <TextBlock Text="本地数据与预览" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
           <TextBlock Text="数据库、预览音频、标签和分类固定保存在程序旁的 Preview。旧版缓存会复制并校验到此处，原库和原音频保留作回退。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0"/>
+          <TextBlock Text="新预览保存格式" Classes="field-label"/>
+          <ComboBox x:Name="PreviewFormatBox" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="预览音频保存格式"><ComboBoxItem Content="AAC 压缩 · 128 kbps（推荐）"/><ComboBoxItem Content="WAV 无损"/></ComboBox>
+          <TextBlock Text="AAC 保留所选的 44.1 / 48 kHz 采样率和立体声。旧 WAV 可继续试听，保存格式不会要求重新生成已有预览。" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,6,0,2"/>
           <TextBlock Text="当前数据库与标签目录" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录" ToolTip.Tip="{Binding LibraryLocation}"/>
           <StackPanel Margin="0,4,0,0"><TextBlock Text="预览音频保存目录（固定）" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="固定预览音频保存目录"/></StackPanel>
-          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="打开 Preview 文件夹" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button Content="清空预览" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
+          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="打开 Preview 文件夹" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button x:Name="CompressPreviewsButton" Content="压缩已有 WAV" Click="CompressPreviews_Click" IsEnabled="{Binding CanCompressPreviews}" Padding="10,6" Margin="0,0,8,8" ToolTip.Tip="转成 AAC，保留采样率、收藏和标签；成功更新记录后才移除本工具自有的旧 WAV。外部音频与加载防错参照保持原样，可随时停止。"/><Button Content="清空预览" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
           <Button Content="导入旧版音色库" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="复制旧库及缓存到本程序 Preview；当前库先完整保留作备份，不合并或覆盖"/>
           <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <StackPanel><TextBlock Text="存储预算 (GB)" Classes="field-label"/><TextBox x:Name="BudgetBox"/></StackPanel>

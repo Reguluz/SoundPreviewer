@@ -5,6 +5,8 @@
     <AssemblyName>SoundPreviewer.Tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="../Fixtures/NativeAac/*" Link="Fixtures/NativeAac/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <ProjectReference Include="../../src/SoundPreviewer.Core/SoundPreviewer.Core.csproj" />
     <ProjectReference Include="../../src/SoundPreviewer.Worker/SoundPreviewer.Worker.csproj" />
   </ItemGroup>

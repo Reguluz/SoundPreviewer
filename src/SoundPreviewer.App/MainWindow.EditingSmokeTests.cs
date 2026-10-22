@@ -22,11 +22,20 @@ public partial class MainWindow
             MiddleNoteBox.Text = "C4";
             HighNoteBox.Text = "A6";
             ParallelRendering.SelectedItem = ParallelRenderChoices.Single(choice => choice.Value == 4);
+            SampleRateBox.SelectedIndex = 1;
+            PreviewFormatBox.SelectedIndex = 1;
             Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering = true;
             await RunTask(SaveSettingsCoreAsync);
             var persistedSettings = _store.LoadSettings();
             if (persistedSettings.MaxParallelRenders != 4 || !persistedSettings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).AllowParallelRendering)
                 throw new InvalidOperationException("并行设置没有通过界面保存。");
+            if (persistedSettings.PreviewFormat != PreviewAudioFormat.Wav || persistedSettings.Template.SampleRate != 48000)
+                throw new InvalidOperationException("WAV 保存格式或48 kHz采样率未保存。");
+            PreviewFormatBox.SelectedIndex = 0;
+            await RunTask(SaveSettingsCoreAsync);
+            persistedSettings = _store.LoadSettings();
+            if (persistedSettings.PreviewFormat != PreviewAudioFormat.Aac || persistedSettings.Template.SampleRate != 48000)
+                throw new InvalidOperationException("AAC 保存格式未保存，或更改格式改变了48 kHz采样率。");
             foreach (int limit in new[] { 0, 1, 2, 8, 16 })
             {
                 ParallelRendering.SelectedItem = ParallelRenderChoices.Single(choice => choice.Value == limit);

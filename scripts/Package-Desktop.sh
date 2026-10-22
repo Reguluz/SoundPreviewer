@@ -11,13 +11,13 @@ publish_dir="$project_dir/artifacts/publish-$runtime"
 release_dir="$project_dir/artifacts/releases"
 stage_dir="$project_dir/artifacts/package-$runtime"
 [[ ! -L "$project_dir/artifacts" && ! -L "$stage_dir" ]] || { echo 'Refusing a linked staging directory.' >&2; exit 2; }
-if [[ -d "$stage_dir" && -n "$(find "$stage_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
+if [[ -d "$stage_dir" && -n "$(find "$stage_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -iname '*.wav' -o -iname '*.m4a' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Existing package staging contains user data. Preserve or move the old directory first; no files were deleted.' >&2; exit 2
 fi
 for file in SoundPreviewer SoundPreviewer.Worker; do
     [[ -f "$publish_dir/$file" ]] || { echo "Publish first; missing $file" >&2; exit 1; }
 done
-if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.wav' -o -name '*.log' \) -print -quit)" ]]; then
+if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -iname '*.wav' -o -iname '*.m4a' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Publish output contains local user data; publish into a clean directory again.' >&2; exit 1
 fi
 rm -rf -- "$stage_dir"

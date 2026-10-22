@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
 using SoundPreviewer.Core.Storage;
 
@@ -144,8 +145,13 @@ public static class InstalledStorageService
         Set(plan.Settings, "PreviewDirectory", plan.Target);
     }
 
-    private static string? CopyAudio(string source, ImportPlan plan)
+    private static string? CopyAudio(string source, ImportPlan plan, bool baseline = false)
     {
+        if (baseline && !Path.GetExtension(source).Equals(".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            plan.Warnings.Add("基准引用不是 WAV 文件，已保留原记录及文件：" + source);
+            return null;
+        }
         if (plan.Mappings.TryGetValue(source, out string? known)) return known;
         if (!File.Exists(source))
         {
@@ -153,9 +159,9 @@ public static class InstalledStorageService
             return null;
         }
         EnsureNoLinks(source);
-        if (!Path.GetExtension(source).Equals(".wav", StringComparison.OrdinalIgnoreCase))
+        if (!PreviewAudioFile.IsSupportedExtension(source))
         {
-            plan.Warnings.Add("预览引用指向非 WAV 文件，已保留原记录及文件：" + source);
+            plan.Warnings.Add("预览引用指向不支持的音频文件，已保留原记录及文件：" + source);
             return null;
         }
         if (plan.InPlace && ApplicationPaths.IsWithin(source, plan.Target)) return plan.Mappings[source] = source;
@@ -209,7 +215,7 @@ public static class InstalledStorageService
                 if ((key.Equals("WavPath", StringComparison.OrdinalIgnoreCase) || key.Equals("OutputPath", StringComparison.OrdinalIgnoreCase)) &&
                     obj[key] is JsonValue value && value.TryGetValue<string>(out string? text) && Normalize(text, plan.Source) is string source)
                 {
-                    if (CopyAudio(source, plan) is string next) obj[key] = next;
+                    if (CopyAudio(source, plan, baseline: true) is string next) obj[key] = next;
                 }
                 else RewriteBaseline(obj[key], plan);
             }

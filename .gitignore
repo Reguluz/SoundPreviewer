@@ -10,6 +10,9 @@ TestResults/
 *.db-shm
 *.db-wal
 *.wav
+*.m4a
+!/tests/Fixtures/NativeAac/windows-mf-44100-stereo.m4a
+!/tests/Fixtures/NativeAac/windows-mf-48000-stereo.m4a
 *.log
 local-data/
 /Preview/

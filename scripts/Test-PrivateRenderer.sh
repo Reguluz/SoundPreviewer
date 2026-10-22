@@ -7,7 +7,7 @@ runtime="${1:-osx-arm64}"
 case "$runtime" in osx-arm64) architecture=arm64 ;; osx-x64) architecture=x64 ;; *) echo 'Unsupported runtime.' >&2; exit 2 ;; esac
 published="${2:-$project_dir/artifacts/publish-$runtime}"
 [[ -f "$published/Prepare-DawDreamer.sh" && -f "$published/Renderers/uv/uv" ]] || { echo 'Publish this platform and bundled uv first.' >&2; exit 2; }
-[[ -z "$(find "$published" \( -name Preview -o -name local-data -o -name library.db -o -name directories.json -o -name '*.wav' \) -print -quit)" ]] || { echo 'The published source contains personal data; refusing to copy it.' >&2; exit 2; }
+[[ -z "$(find "$published" \( -name Preview -o -name local-data -o -name library.db -o -name directories.json -o -iname '*.wav' -o -iname '*.m4a' \) -print -quit)" ]] || { echo 'The published source contains personal data; refusing to copy it.' >&2; exit 2; }
 mkdir -p -- "$project_dir/artifacts"
 diagnostics="$(mktemp -d "$project_dir/artifacts/private-renderer-smoke-$runtime-XXXXXXXX")"
 application="$diagnostics/application"

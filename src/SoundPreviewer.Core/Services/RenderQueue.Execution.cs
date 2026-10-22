@@ -49,6 +49,13 @@ public sealed partial class RenderQueue
         private bool prepared;
         private CancellationToken token;
 
+        private string PreviewExtension => settings.PreviewFormat switch
+        {
+            PreviewAudioFormat.Aac => ".m4a",
+            PreviewAudioFormat.Wav => ".wav",
+            _ => throw new ArgumentException("无法识别预览存储格式，请重新选择 AAC 或 WAV。")
+        };
+
         public Execution(LibraryStore store, AppSettings settings, IReadOnlyList<PresetRecord> originals,
             string workerPath, IProgress<QueueProgress> progress, CancellationToken token, bool force, IRenderResourceProbe resourceProbe)
         {
@@ -223,7 +230,7 @@ public sealed partial class RenderQueue
             if (summary.Unconfigured > 0)
                 Report(QueueStages.Preparing, $"已识别 {summary.Unconfigured} 项未配置渲染器。" + summary.Summary);
             foreach (var job in jobs.Values)
-                batchOutputs.Add(Path.GetFullPath(Path.Combine(settings.PreviewDirectory, job.Key + ".wav")));
+                batchOutputs.Add(Path.GetFullPath(Path.Combine(settings.PreviewDirectory, job.Key + PreviewExtension)));
             // Keep each synth's jobs adjacent without changing the first-seen synth
             // order or the original order within a synth. Same-key aliases remain
             // one job and therefore still share one render / commit boundary.
@@ -247,7 +254,7 @@ public sealed partial class RenderQueue
                 }
                 var reservation = await ReserveAsync(job).ConfigureAwait(false);
                 var plugin = Clone(job.Plugin);
-                completedAudio = Path.Combine(settings.PreviewDirectory, ".sp-render-" + Guid.NewGuid().ToString("N")[..16] + ".wav");
+                completedAudio = Path.Combine(settings.PreviewDirectory, ".sp-render-" + Guid.NewGuid().ToString("N")[..16] + PreviewExtension);
                 while (pending.Count > 0)
                 {
                     token.ThrowIfCancellationRequested();
@@ -461,13 +468,13 @@ public sealed partial class RenderQueue
                     {
                         Report(QueueStages.Preparing, "正在统计预览目录占用...", job.Items[0], true);
                         occupiedBytes = 0;
-                        foreach (string path in Directory.EnumerateFiles(settings.PreviewDirectory, "*.wav", SearchOption.TopDirectoryOnly))
+                        foreach (string path in Directory.EnumerateFiles(settings.PreviewDirectory, "*", SearchOption.TopDirectoryOnly).Where(PreviewAudioFile.IsSupportedExtension))
                         {
                             token.ThrowIfCancellationRequested();
                             occupiedBytes += new FileInfo(path).Length;
                         }
                     }
-                    string output = Path.Combine(settings.PreviewDirectory, job.Key + ".wav");
+                    string output = Path.Combine(settings.PreviewDirectory, job.Key + PreviewExtension);
                     long replaced = File.Exists(output) ? new FileInfo(output).Length : 0;
                     var oldCaches = new List<OwnedCache>();
                     if (references is not null)
@@ -531,8 +538,8 @@ public sealed partial class RenderQueue
         private void Commit(RenderJob job, List<QueueItem> pending, RenderResult result, Reservation reservation, double seconds)
         {
             string completedAudio = result.OutputPath;
-            string outputPath = Path.Combine(settings.PreviewDirectory, job.Key + ".wav");
-            string backup = Path.Combine(settings.PreviewDirectory, ".sp-old-" + Guid.NewGuid().ToString("N")[..16] + ".wav");
+            string outputPath = Path.Combine(settings.PreviewDirectory, job.Key + PreviewExtension);
+            string backup = Path.Combine(settings.PreviewDirectory, ".sp-old-" + Guid.NewGuid().ToString("N")[..16] + PreviewExtension);
             bool published = false, committed = false;
             List<PresetRecord> merged;
             try

@@ -160,7 +160,8 @@ public sealed partial class RenderQueue(LibraryStore store, IRenderResourceProbe
                 string.Equals(normalized, Normalize(nextPath), ApplicationPaths.PathComparison) || sourcePaths.Contains(normalized) ||
                 counts.GetValueOrDefault(normalized) != expectedReferences ||
                 !string.Equals(Path.GetDirectoryName(normalized), root, ApplicationPaths.PathComparison) ||
-                !string.Equals(Path.GetFileName(normalized), key + ".wav", ApplicationPaths.PathComparison)) return null;
+                !PreviewAudioFile.IsSupportedExtension(normalized) ||
+                !string.Equals(Path.GetFileNameWithoutExtension(normalized), key, ApplicationPaths.PathComparison)) return null;
             try
             {
                 var rootAttributes = File.GetAttributes(root);
@@ -204,13 +205,13 @@ public sealed partial class RenderQueue(LibraryStore store, IRenderResourceProbe
             var template = JsonSerializer.Deserialize<PreviewTemplate>(preset.TemplateJson, LibraryJson.Options)
                 ?? throw new InvalidDataException("预览缺少已保存的试听模板。");
             template.Validate();
-            var metrics = WaveFile.Validate(preset.PreviewPath, token);
+            var metrics = PreviewAudioFile.Validate(preset.PreviewPath, token);
             token.ThrowIfCancellationRequested();
             if (metrics.SampleRate != template.SampleRate) return false;
             WorkerProcessClient.ValidateNotes(new RenderResult { Metrics = metrics, Notes = preset.Notes, AdapterVersion = preset.AdapterVersion }, template);
             return true;
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or NotSupportedException)
         {
             return false;
         }

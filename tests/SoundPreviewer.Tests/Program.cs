@@ -67,6 +67,11 @@ internal static partial class Program
             ("Fingerprint and WAV operations honor cancellation without changing hashes", TestCancellationAsync),
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
             ("WAV 8/24/32 bit decoding and malformed chunk rejection", TestWaveFormatsAsync),
+            ("Native AAC preserves three-register stereo timing and 44.1/48 kHz without a bundled codec", TestCompressedPreviewCodecAsync),
+            ("Windows-produced AAC fixtures retain gapless timing on Windows and macOS", TestWindowsAacCrossPlatformAsync),
+            ("AAC queue defaults keep legacy WAV reuse and atomic replacement safety", TestCompressedPreviewQueueAsync),
+            ("Compressed preview cleanup and directory migration preserve sources and unowned audio", TestCompressedPreviewStorageAsync),
+            ("Explicit legacy preview compression preserves metadata and rolls back failed commits", TestPreviewCompressionServiceAsync),
             ("Concatenation and rate conversion preserve shape and duration", TestAudioTransformsAsync),
             ("Quick preview detects real onset, preserves internal pauses and bounds crops", TestQuickPreviewAudioAsync),
             ("Compact note maps preserve capture provenance and legacy previews", TestQuickPreviewNotesAsync),
@@ -1844,6 +1849,7 @@ internal static partial class Program
     {
         AppSettings Settings(string directory) => new()
         {
+            PreviewFormat = PreviewAudioFormat.Wav,
             PreviewDirectory = Path.Combine(directory, "previews"), MaxAttempts = 1,
             Template = new PreviewTemplate { QuickPreview = false, HoldSeconds = 0.1, TailSeconds = 0.02 },
             Plugins = [new PluginConfiguration { Synth = SynthKind.Vital, Backend = RenderBackend.ExternalWorker,
@@ -1974,7 +1980,7 @@ internal static partial class Program
         }
         double duration = request.Template.HoldSeconds + request.Template.TailSeconds;
         int frames = (int)Math.Round(request.Template.SampleRate * duration);
-        var audio = Tone(request.Template.SampleRate, 1, frames * 3 / (double)request.Template.SampleRate);
+        var audio = Tone(request.Template.SampleRate, mode == "stereo" ? 2 : 1, frames * 3 / (double)request.Template.SampleRate);
         if (mode == "alternate")
             for (int index = 0; index < audio.Samples.Length; index++) audio.Samples[index] *= 0.5f;
         if (mode.StartsWith("quick-delayed", StringComparison.Ordinal))

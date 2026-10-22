@@ -63,7 +63,7 @@ public static class PresetIndex
             var template = JsonSerializer.Deserialize<PreviewTemplate>(record.TemplateJson, LibraryJson.Options);
             if (template is null) return false;
             template.Validate();
-            var metrics = WaveFile.Validate(record.PreviewPath);
+            var metrics = PreviewAudioFile.Validate(record.PreviewPath);
             if (metrics.SampleRate != template.SampleRate) return false;
             WorkerProcessClient.ValidateNotes(new RenderResult { Metrics = metrics, Notes = record.Notes, AdapterVersion = record.AdapterVersion }, template);
             return true;

@@ -1,0 +1,54 @@
+{
+  "SchemaVersion": 1,
+  "Purpose": "TEST ONLY: Windows Media Foundation native AAC decoded by both Windows and macOS; synthetic audio only, never published with the application.",
+  "Encoder": "Windows Media Foundation AAC-LC via NAudio.Wasapi 2.2.1",
+  "BitRate": 128000,
+  "Runtime": ".NET 8 seeded Random(9917)",
+  "GenerationPlatform": "Microsoft Windows NT 10.0.26200.0",
+  "FramesPerRegion": "sampleRate / 2",
+  "RegionCount": 3,
+  "ReferenceGeneratorCSharp": "int frames = rate * 3 / 2;\nfloat[] samples = new float[frames * 2];\nvar random = new Random(9917);\nfor (int i = 0; i < frames; i++)\n{\n    double time = i / (double)rate;\n    double fade = Math.Min(1, i / 64.0) * Math.Min(1, (frames - i) / 64.0);\n    double localTime = i % (rate / 2) / (double)rate;\n    int frequency = i < rate / 2 ? 523 : i < rate ? 733 : 1031;\n    samples[i * 2] = (float)(fade * .25 *\n        (Math.Sin(2 * Math.PI * (frequency * localTime + 5000 * Math.Pow(localTime, 2))) +\n         .15 * (random.NextDouble() * 2 - 1)));\n    samples[i * 2 + 1] = (float)(fade * .2 * Math.Cos(2 * Math.PI * 351 * time));\n}\nvar source = new WaveData { SampleRate = rate, Channels = 2, Samples = samples };\nawait PreviewAudioFile.EncodeAsync(source, outputPath);",
+  "Correlation": {
+    "Channel": 0,
+    "RegionReferenceStart": "regionIndex * (sampleRate / 2) + 256",
+    "ReferenceFrames": 7744,
+    "StepFrames": 3,
+    "SearchShiftFrames": [
+      -4096,
+      4096
+    ],
+    "Score": "sum(original[i*2] * decoded[(i+shift)*2]) / sqrt(sum(original[i*2]^2) * sum(decoded[(i+shift)*2]^2)); include only in-range paired frames",
+    "BestShift": "argmax(score)",
+    "MinimumPeakCorrelation": 0.85,
+    "MaximumAbsoluteShiftSeconds": 0.001,
+    "MissingFramesOrDecodeErrors": "FAIL, never skip on Windows/macOS"
+  },
+  "Files": [
+    {
+      "File": "windows-mf-44100-stereo.m4a",
+      "SampleRate": 44100,
+      "Channels": 2,
+      "OriginalFrames": 66150,
+      "Bytes": 25537,
+      "Sha256": "e4558aec03b7896e08c16f8be431b88fd9c636e3830fb42aba099ffcd0eafabb",
+      "WindowsRegionOffsets": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "File": "windows-mf-48000-stereo.m4a",
+      "SampleRate": 48000,
+      "Channels": 2,
+      "OriginalFrames": 72000,
+      "Bytes": 25631,
+      "Sha256": "ef595bdd8f19f3c284e30c1f64a71e579bc4a8b89526affb6da8c7fadb2027e9",
+      "WindowsRegionOffsets": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

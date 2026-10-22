@@ -72,6 +72,7 @@ internal static partial class Program
                 plugin.PluginHash = Fingerprints.HashFile(plugin.PluginPath);
                 var settings = new AppSettings
                 {
+                    PreviewFormat = PreviewAudioFormat.Wav, // Retain the benchmark's original raw-audio snapshot/hash contract.
                     Plugins = [plugin], Template = manifest.Request.Template, PreviewDirectory = directory,
                     MaxParallelRenders = slots, MaxAttempts = 1, StorageBudgetGb = 1
                 };

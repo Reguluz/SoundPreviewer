@@ -13,7 +13,7 @@ $resources = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath
 $uvName = if ($Runtime -eq 'win-x64') { 'uv.exe' } else { 'uv' }
 $setupScript = if ($Runtime -eq 'win-x64') { 'Prepare-DawDreamer.ps1' } else { 'Prepare-DawDreamer.sh' }
 foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
-    'Renderers/requirements-serum2.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
+    'Renderers/requirements-serum2.txt', 'Licenses/NAudio.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
     'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $file) -PathType Leaf)) { throw "Published application resource is missing: $file" }
 }
@@ -43,7 +43,7 @@ try {
     if (-not $result.ClipboardPathChecked -or -not $result.LibrarySpaceChecked -or
         -not $result.SingleRowFiltersChecked -or -not $result.PlaybackProgressDockChecked -or
         -not $result.MultiSelectFiltersChecked -or -not $result.FilterRefreshPreservedChecked -or
-        -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked) {
+        -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked -or -not $result.CompressedPreviewChecked) {
         throw "Published application did not verify copy-path and compact library layout; see $dataDirectory"
     }
     if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {

@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $published $executable) -PathType Le
 # A fresh-start check must never copy a real library or personal settings into uploaded diagnostics.
 $userData = Get-ChildItem -LiteralPath $published -Recurse -Force | Where-Object {
     $_.Name -in @('Preview', 'local-data', 'directories.json', 'library-location.json', 'preset-categories.json') -or
-    $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.log')
+    $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log')
 } | Select-Object -First 1
 if ($userData) { throw "The application source contains user data; refusing a fresh-start copy: $($userData.FullName)" }
 

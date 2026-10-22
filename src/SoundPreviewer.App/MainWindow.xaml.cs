@@ -84,7 +84,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public PresetRow? Selected => _selected;
     public bool IsBusy => _isBusy;
     public bool IsIdle => !_isBusy && !_storageRelocated;
-    public bool CanStopTask => _isBusy && !_stopRequested && !_isStorageMaintenance;
+    public bool CanStopTask => _isBusy && !_stopRequested && (!_isStorageMaintenance || _isCompressingPreviews);
     public bool HasSelection => _selected is not null;
     public bool CanEditSelection => HasSelection && IsIdle;
     public bool CanAssignSynth => CanEditSelection && _selected?.Record.Status != PresetStatus.Missing;
@@ -423,7 +423,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             _flushTaskProgress?.Invoke();
             _taskTitle = "任务已停止";
-            _statusMessage = "已停止，已完成的预览已保留，可继续生成。";
+            _statusMessage = "已停止，已完成的结果已保留，可稍后继续。";
             Log(_statusMessage);
         }
         catch (RenderResourceLimitException ex)
@@ -566,7 +566,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var path = _selected.Record.PreviewPath;
         try
         {
-            var audio = await Task.Run(() => WaveFile.Read(path));
+            var audio = await Task.Run(() => PreviewAudioFile.Read(path));
             if (_isClosing || generation != _selectionGeneration) return;
             Waveform.SetAudio(audio);
             SeekSlider.Maximum = audio.DurationSeconds;
@@ -956,6 +956,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         TailBox.Text = t.TailSeconds.ToString(CultureInfo.InvariantCulture);
         BpmBox.Text = t.Bpm.ToString(CultureInfo.InvariantCulture);
         SampleRateBox.SelectedIndex = t.SampleRate == 48000 ? 1 : 0;
+        PreviewFormatBox.SelectedIndex = _settings.PreviewFormat == PreviewAudioFormat.Wav ? 1 : 0;
         PreviewDirectoryBox.Text = _settings.PreviewDirectory;
         BudgetBox.Text = _settings.StorageBudgetGb.ToString(CultureInfo.InvariantCulture);
         AttemptsBox.Text = _settings.MaxAttempts.ToString(CultureInfo.InvariantCulture);
@@ -1161,6 +1162,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             RenderReadinessService.ValidateSettings(Plugins);
             var candidate = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
             candidate.Template = template;
+            candidate.PreviewFormat = PreviewFormatBox.SelectedIndex == 1 ? PreviewAudioFormat.Wav : PreviewAudioFormat.Aac;
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
             candidate.Sources = Sources.ToList();
             candidate.PluginDirectories = PluginDirectories.ToList();

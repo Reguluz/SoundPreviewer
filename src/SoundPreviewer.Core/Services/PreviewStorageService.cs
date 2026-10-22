@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
 using SoundPreviewer.Core.Storage;
 
@@ -139,7 +140,7 @@ public static class PreviewStorageService
         foreach (var record in plan.Records)
         {
             if (Normalize(record.PreviewPath, libraryRoot) is not string path || !File.Exists(path)) continue;
-            if (!Path.GetExtension(path).Equals(".wav", StringComparison.OrdinalIgnoreCase) || Protected(path, plan))
+            if (!PreviewAudioFile.IsSupportedExtension(path) || Protected(path, plan))
             { plan.Warnings.Add("已保留受保护的来源或非预览文件：" + path); continue; }
             bool owned = IsOwnedLocation(path, plan);
             if (owned || IsHash(record.CacheKey)) plan.AudioFiles.Add(path);
@@ -159,8 +160,8 @@ public static class PreviewStorageService
         var retained = new HashSet<string>(ApplicationPaths.PathComparer);
         foreach (string root in plan.Roots.Where(Directory.Exists))
         {
-            foreach (string file in Directory.EnumerateFiles(root, "*.wav", SearchOption.TopDirectoryOnly))
-                if (!plan.AudioFiles.Contains(file) && !Protected(file, plan)) retained.Add(file);
+            foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly))
+                if (PreviewAudioFile.IsSupportedExtension(file) && !plan.AudioFiles.Contains(file) && !Protected(file, plan)) retained.Add(file);
             string baselines = Path.Combine(root, "InitializationBaselines");
             if (!Directory.Exists(baselines)) continue;
             if ((File.GetAttributes(baselines) & FileAttributes.ReparsePoint) != 0)

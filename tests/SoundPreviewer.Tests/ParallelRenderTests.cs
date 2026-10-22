@@ -355,6 +355,7 @@ internal static partial class Program
     private static async Task TestParallelBudgetAndBaselineAsync()
     {
         var budget = CreateParallelFixture("parallel-budget-reservation", 3);
+        budget.Settings.PreviewFormat = PreviewAudioFormat.Wav; // This fixture exercises raw-WAV byte reservations.
         double estimated = (budget.Settings.Template.HoldSeconds + budget.Settings.Template.TailSeconds) * 3 * budget.Settings.Template.SampleRate * 8 + 4096;
         budget.Settings.StorageBudgetGb = (estimated + 1024) / (1024 * 1024 * 1024.0);
         ReleaseParallel(budget);
@@ -406,6 +407,7 @@ internal static partial class Program
         foreach (bool replaceExisting in new[] { false, true })
         {
             var fixture = CreateParallelFixture("parallel-database-rollback-" + replaceExisting, 2);
+            fixture.Settings.PreviewFormat = PreviewAudioFormat.Wav; // Compare the exact WAV bytes reported by the test child.
             fixture.Presets[1].ContentHash = fixture.Presets[0].ContentHash;
             fixture.Store.UpsertMany(fixture.Presets);
             ReleaseParallel(fixture);

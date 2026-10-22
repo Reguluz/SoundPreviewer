@@ -8,6 +8,10 @@ $projectDirectory = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $published = if ($ApplicationDirectory) { [IO.Path]::GetFullPath($ApplicationDirectory) } else { Join-Path $projectDirectory "artifacts/publish-$Runtime" }
 $executable = if ($Runtime -eq 'win-x64') { 'SoundPreviewer.exe' } else { 'SoundPreviewer' }
 if (-not (Test-Path -LiteralPath (Join-Path $published $executable))) { throw 'Publish the application first.' }
+if (Get-ChildItem -LiteralPath $published -Recurse -Force | Where-Object {
+    $_.Name -in @('Preview', 'local-data', 'settings.json', 'directories.json', 'library-location.json', 'preset-categories.json') -or
+    $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log')
+}) { throw 'The application source contains user data; refusing an installed-storage copy.' }
 # A separate application copy exercises the normal installed-directory contract.
 # It cannot discover or write the developer's real library because the first launch
 # supplies a private legacy fixture and the second must reopen this copy's Preview.
@@ -20,7 +24,7 @@ $tests = Join-Path $projectDirectory 'tests/SoundPreviewer.Tests/bin/Release/net
 & dotnet $tests --create-installed-storage-fixture $legacy
 if ($LASTEXITCODE -ne 0) { throw 'Could not create the private legacy fixture.' }
 $originals = @{}
-Get-ChildItem -LiteralPath $legacy, "$legacy-audio" -File -Recurse | Where-Object { $_.Extension -in @('.db', '.wav', '.vital') } | ForEach-Object {
+Get-ChildItem -LiteralPath $legacy, "$legacy-audio" -File -Recurse | Where-Object { $_.Extension -in @('.db', '.wav', '.m4a', '.vital') } | ForEach-Object {
     $originals[$_.FullName] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
 }
 $preview = Join-Path $application 'Preview'

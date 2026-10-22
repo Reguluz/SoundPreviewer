@@ -91,13 +91,30 @@ public sealed class WorkerProcessClient
             result.NeedsReview |= result.Metrics.IsSilent || result.Metrics.HasClipping;
             if (beforeCommit is not null) await beforeCommit(result, audio, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            string committedAudio = stagedAudio;
+            if (PreviewAudioFile.IsCompressed(finalPath))
+            {
+                // Preset loading and default-sound checks above use the original PCM.
+                // Compression changes storage only; never compare lossy audio to a baseline.
+                committedAudio = Path.Combine(staging, "preview.m4a");
+                await PreviewAudioFile.EncodeAsync(audio, committedAudio, cancellationToken);
+                if (new FileInfo(committedAudio).Length > request.MaxOutputBytes)
+                    throw new InvalidDataException("压缩预览超出存储剩余额度，未提交音频。");
+                var decoded = PreviewAudioFile.Read(committedAudio, cancellationToken);
+                if (decoded.SampleRate != audio.SampleRate || decoded.Channels != audio.Channels || decoded.Frames != audio.Frames)
+                    throw new InvalidDataException("压缩预览的采样率、声道或长度发生变化，未提交音频。");
+                var metrics = WaveFile.Analyze(decoded, cancellationToken);
+                if (metrics.HasNonFinite) throw new InvalidDataException("压缩预览包含 NaN / Infinity，未提交音频。");
+                ValidateNotes(new RenderResult { Metrics = metrics, Notes = result.Notes, AdapterVersion = result.AdapterVersion }, request.Template);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             // After the atomic move, return success so the queue can persist this completed item even if cancellation arrives.
-            File.Move(stagedAudio, finalPath, overwrite: true);
+            File.Move(committedAudio, finalPath, overwrite: true);
             result.OutputPath = finalPath;
             return result;
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or TimeoutException or System.ComponentModel.Win32Exception)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or TimeoutException or NotSupportedException or System.ComponentModel.Win32Exception)
         {
             return new RenderResult { Message = error.Message };
         }
