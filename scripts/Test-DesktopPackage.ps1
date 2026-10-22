@@ -35,7 +35,18 @@ $process.StartInfo = $start
 try {
     [void]$process.Start()
     if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Published application smoke test timed out.' }
-    if ($process.ExitCode -ne 0) { throw "Published application smoke test failed; see $dataDirectory" }
+    if ($process.ExitCode -ne 0) {
+        $errorPath = Join-Path $dataDirectory 'ui-error.txt'
+        if (Test-Path -LiteralPath $errorPath -PathType Leaf) {
+            $diagnostic = Get-Content -LiteralPath $errorPath -Raw
+            Write-Host $diagnostic
+            if ($env:GITHUB_ACTIONS -eq 'true') {
+                $annotation = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+                Write-Host "::error title=Published UI regression failed::$annotation"
+            }
+        }
+        throw "Published application smoke test failed; see $dataDirectory"
+    }
     $result = Get-Content -LiteralPath (Join-Path $dataDirectory 'ui-smoke.json') -Raw | ConvertFrom-Json
     if (-not $result.PreviewShortcutChecked -or $result.PreviewShortcutHintViewports -ne 2) {
         throw "Published application did not verify the Space shortcut and visible hint; see $dataDirectory"

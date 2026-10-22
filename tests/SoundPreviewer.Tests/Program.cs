@@ -142,6 +142,11 @@ internal static partial class Program
                 {
                     failed++;
                     Console.Error.WriteLine($"FAIL {test.Name}\n{error}");
+                    if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+                    {
+                        string diagnostic = $"{test.Name}\n{error}".Replace("%", "%25").Replace("\r", "%0D").Replace("\n", "%0A");
+                        Console.WriteLine($"::error title=Library regression failed::{diagnostic}");
+                    }
                 }
             }
             Console.WriteLine($"{tests.Count - failed}/{tests.Count} checks passed. Synthetic audio/process fixtures test infrastructure only; plugin compatibility is not tested.");
