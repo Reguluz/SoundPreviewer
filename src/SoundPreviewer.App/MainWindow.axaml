@@ -4,29 +4,26 @@
  xmlns:local="using:SoundPreviewer.App"
  Title="SoundPreviewer · 合成器音色库" Width="1380" Height="900" MinWidth="1040" MinHeight="700"
  Opened="Window_Loaded" Closing="Window_Closing">
- <Grid Background="{DynamicResource WindowBackground}">
-  <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="118"/><RowDefinition Height="24"/></Grid.RowDefinitions>
-  <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="20,0">
+ <Grid Background="#F5F7F6">
+  <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="118"/><RowDefinition Height="22"/></Grid.RowDefinitions>
+  <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="16,0">
    <Grid>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-     <Border Background="{DynamicResource Accent}" Width="34" Height="34" CornerRadius="10" Margin="0,0,10,0">
-      <Path Data="M 3,9 L 3,15 M 8,4 L 8,20 M 13,0 L 13,24 M 18,6 L 18,18 M 23,10 L 23,14" Stroke="{DynamicResource AccentForeground}" StrokeThickness="2" Width="23" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-     </Border>
-     <TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontFamily="Segoe UI, PingFang SC, Microsoft YaHei UI" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center"/>
+     <TextBlock Text="♫" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="24" Foreground="{StaticResource Accent}" Margin="0,0,10,0" VerticalAlignment="Center"/>
+     <TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
     </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-     <Button x:Name="AppearanceButton" Classes="compact" Content="配色" Click="Appearance_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="切换主题与自定义界面颜色" AutomationProperties.Name="配色与外观" Margin="0,0,12,0"/>
      <Button Classes="compact" x:Name="ScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描系统、用户和自定义安装目录，识别已安装音源" AutomationProperties.Name="扫描已安装音源"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
      <Button Classes="compact" x:Name="ScanPresetsButton" Click="Scan_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="扫描已配置的预制目录，更新音色库" AutomationProperties.Name="扫描音色目录"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="扫描音色"/></StackPanel></Button>
      <CheckBox FontSize="12" x:Name="ForceGeneration" Content="全量重渲染（覆盖）" IsChecked="False" IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" Margin="0,0,16,0" ToolTip.Tip="仅重新生成当前筛选范围内的可用音色，包括已有预览；新结果验证成功后覆盖，停止或失败时保留旧预览。每次任务后自动取消勾选。" AutomationProperties.Name="覆盖重渲染当前筛选结果"/>
-     <Button x:Name="RenderCurrentFilterButton" Classes="compact primary" Click="Render_Click" IsEnabled="{Binding CanRenderFiltered}" ToolTip.Tip="仅生成当前筛选中未生成的音色，已有有效预览跳过；勾选覆盖后也只处理当前筛选结果。" AutomationProperties.Name="生成或继续当前筛选结果"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
+     <Button x:Name="RenderCurrentFilterButton" Classes="compact" Click="Render_Click" IsEnabled="{Binding CanRenderFiltered}" Background="{StaticResource Accent}" BorderBrush="{StaticResource Accent}" Foreground="White" ToolTip.Tip="仅生成当前筛选中未生成的音色，已有有效预览跳过；勾选覆盖后也只处理当前筛选结果。" AutomationProperties.Name="生成或继续当前筛选结果"><StackPanel Orientation="Horizontal"><TextBlock Text="▶" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="生成 / 继续"/></StackPanel></Button>
      <Button Classes="compact" x:Name="StopTaskButton" Click="StopTask_Click" IsEnabled="{Binding CanStopTask}" ToolTip.Tip="停止当前任务，保留已经完成的预览" Margin="0"><StackPanel Orientation="Horizontal"><TextBlock Text="■" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="停止"/></StackPanel></Button>
     </StackPanel>
    </Grid>
   </Border>
-  <TabControl x:Name="Pages" Grid.Row="1" Margin="20,6,20,0" BorderThickness="0" Background="Transparent">
+  <TabControl x:Name="Pages" Grid.Row="1" Margin="16,6,16,0" BorderThickness="0" Background="White">
    <TabItem x:Name="LibraryTab" Header="音色库">
-    <Grid x:Name="LibraryWorkspace" Background="Transparent">
+    <Grid x:Name="LibraryWorkspace" Background="White">
      <Grid.ColumnDefinitions><ColumnDefinition Width="3.5*"/><ColumnDefinition Width="*" MinWidth="228" MaxWidth="270"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="102"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <Grid x:Name="FilterStrip" Classes="filter-strip" Grid.ColumnSpan="2" Height="38" Margin="0,4,0,4">
@@ -42,9 +39,9 @@
       <Button Grid.Column="5" Classes="icon compact" Content="?" Width="26" Margin="0" ToolTip.Tip="{Binding #PresetFormatHint.Text}" AutomationProperties.Name="查看支持的音色文件格式"/>
       <TextBlock x:Name="PresetFormatHint" IsVisible="False" Text="独立音色：Vital .vital；Serum 1 .fxp；Serum 2 .SerumPreset；Sylenth1 .fxp。Vital .vitalbank 包内音色通过内嵌资源检查后可生成，旧条目请重新扫描；.fxb 音色库及 Spire 原生格式无法直接生成。具体原因请选中音色查看详情。"/>
      </Grid>
-     <Border x:Name="FilterOptionsBand" Grid.Row="1" Grid.ColumnSpan="2" Height="96" Padding="12,5" Margin="0,0,0,6" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="9">
+     <Border x:Name="FilterOptionsBand" Grid.Row="1" Grid.ColumnSpan="2" Height="96" Padding="8,5" Margin="0,0,0,6" Background="#F4F8F5" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,1">
       <Grid ColumnDefinitions="62,*">
-       <StackPanel Margin="0,4,6,0"><TextBlock Text="{Binding ActiveFilterLabel}" FontSize="12" FontWeight="SemiBold"/><TextBlock Text="可多选" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,5,0,0" ToolTip.Tip="同组满足任意一项；不同组同时满足。再次点击取消，选择“全部”清空该组。"/></StackPanel>
+       <StackPanel Margin="0,4,6,0"><TextBlock Text="{Binding ActiveFilterLabel}" FontSize="12" FontWeight="SemiBold"/><TextBlock Text="可多选" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,0" ToolTip.Tip="同组满足任意一项；不同组同时满足。再次点击取消，选择“全部”清空该组。"/></StackPanel>
        <ScrollViewer x:Name="FilterOptionsScroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <ItemsControl x:Name="FilterOptionsItems" ItemsSource="{Binding ActiveFilterOptions}">
          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -56,7 +53,7 @@
      <Grid x:Name="LibraryListPane" Grid.Row="2" Margin="0,0,12,0">
       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
       <Grid>
-       <DataGrid RowHeight="36" ColumnHeaderHeight="34" FontSize="13" x:Name="PresetGrid" CornerRadius="9" BorderBrush="{DynamicResource Line}" BorderThickness="1" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+       <DataGrid RowHeight="32" ColumnHeaderHeight="30" FontSize="13" x:Name="PresetGrid" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
         
         <DataGrid.ContextMenu><ContextMenu Opened="ColumnMenu_Opened"/></DataGrid.ContextMenu>
         <DataGrid.Columns>
@@ -64,9 +61,7 @@
          <DataGridTextColumn Header="音源" Binding="{Binding SynthLabel}" Width="85"/>
          <DataGridTextColumn Header="音色包 / 目录" Binding="{Binding Package}" Width="190" IsVisible="False"/>
          <DataGridTextColumn Header="类别" Binding="{Binding CategoryTagsLabel}" Width="110"/>
-         <DataGridTemplateColumn Header="状态" Width="105"><DataGridTemplateColumn.CellTemplate><DataTemplate>
-          <Border Classes="status-badge" Classes.failed="{Binding IsFailed}" Classes.generated="{Binding IsGenerated}" Classes.rendering="{Binding IsRendering}"><TextBlock Text="{Binding StatusLabel}"/></Border>
-         </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+         <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="105"/>
          <DataGridTextColumn Header="反馈" Binding="{Binding FeedbackLabel}" Width="72" IsVisible="False"/>
          <DataGridTextColumn Header="收藏" Binding="{Binding FavoriteLabel}" Width="66"/>
          <DataGridTextColumn Header="时长" Binding="{Binding DurationLabel}" Width="85" IsVisible="False"/>
@@ -85,22 +80,21 @@
        </DataGrid>
        <ScrollViewer x:Name="EmptyPresetState" IsVisible="{Binding EmptyVisibility}" Margin="0,36,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="16">
-        <TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="38" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" Margin="0,0,0,16"/>
-        <TextBlock Text="{Binding EmptyMessage}" FontSize="16" HorizontalAlignment="Center" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+        <TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" FontSize="38" Foreground="#A6B9AE" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+        <TextBlock Text="{Binding EmptyMessage}" FontSize="16" HorizontalAlignment="Center" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
         <Button Content="添加预制目录" Click="AddSourceFromLibrary_Click" Margin="0,20,0,0" IsEnabled="{Binding IsIdle}" IsVisible="{Binding EmptyLibraryVisibility}"/>
         <Button Content="清除筛选" Click="ClearFilters_Click" Margin="0,20,0,0" IsVisible="{Binding EmptyFilterVisibility}"/>
        </StackPanel>
        </ScrollViewer>
       </Grid>
-      <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" ToolTip.Tip="未勾选时仅显示每组音色的保留项；筛选不会带回重复副本。" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
+      <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="115"/></Grid.ColumnDefinitions><TextBlock Text="{Binding LibrarySummary}" ToolTip.Tip="{Binding LibrarySummary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><CheckBox x:Name="ShowDuplicates" Grid.Column="1" Content="显示重复项" ToolTip.Tip="未勾选时仅显示每组音色的保留项；筛选不会带回重复副本。" VerticalAlignment="Center" IsCheckedChanged="Filter_Changed" AutomationProperties.Name="显示重复项"/></Grid>
      </Grid>
-     <Border x:Name="LibraryDetailsPane" Classes="preset-details card" Grid.Row="2" Grid.Column="1" Padding="14,14,0,0" Margin="0,0,0,26">
+     <Border x:Name="LibraryDetailsPane" Classes="preset-details" Grid.Row="2" Grid.Column="1" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Padding="12,4,0,0">
       <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
        <StackPanel x:Name="PresetDetailsContent" Margin="0,0,12,0">
-        <TextBlock Text="音色详情" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,8"/>
-        <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
-        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,10"><TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{DynamicResource Accent}" VerticalAlignment="Center"/><Border Grid.Column="1" Classes="status-badge" Classes.failed="{Binding Selected.IsFailed}" Classes.generated="{Binding Selected.IsGenerated}" Classes.rendering="{Binding Selected.IsRendering}"><TextBlock Text="{Binding Selected.StatusLabel}"/></Border></Grid>
-        <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="{DynamicResource Warning}" Margin="0,0,0,8"/>
+        <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,4"><TextBlock Text="{Binding Selected.SynthLabel}" Foreground="{StaticResource Accent}"/><TextBlock Grid.Column="1" Text="{Binding Selected.StatusLabel}" FontWeight="SemiBold"/></Grid>
+        <TextBlock Text="{Binding Selected.Message}" TextWrapping="Wrap" Foreground="#97632E" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal">
          <Button x:Name="FavoriteButton" Classes="icon" Content="☆" Click="Favorite_Click" ToolTip.Tip="切换收藏" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="＋" Click="Like_Click" ToolTip.Tip="喜欢 / 取消喜欢" IsEnabled="{Binding CanEditSelection}"/>
@@ -110,21 +104,21 @@
          <Button x:Name="CopyPresetPathButton" Classes="compact" Content="复制文件地址" Click="CopyPresetPath_Click" IsEnabled="{Binding CanCopyPresetPath}" Margin="0,0,6,4" ToolTip.Tip="{Binding PresetCopyHint}" AutomationProperties.Name="复制原音色或音色库文件地址"/>
          <Button x:Name="LocatePresetButton" Classes="compact" Content="{Binding LocatePresetLabel}" Click="Locate_Click" IsEnabled="{Binding CanLocatePreset}" Margin="0,0,0,4" AutomationProperties.Name="定位原音色或音色库文件" ToolTip.Tip="{Binding LocatePresetToolTip}"/>
         </WrapPanel>
-        <TextBlock Text="{Binding PresetCopyHint}" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+        <TextBlock Text="{Binding PresetCopyHint}" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
         <Button Content="编辑标签与分类" Click="EditPresetMetadata_Click" IsEnabled="{Binding CanEditSelection}" Margin="0,8,0,0" Padding="10,6"/>
         <Expander x:Name="PresetMetadataExpander" Header="标签与分类" IsExpanded="False" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
          <StackPanel IsEnabled="{Binding CanEditSelection}">
           <TextBlock Text="分类" Classes="field-label"/><TextBox x:Name="PresetCategoriesEditor" AcceptsReturn="True" MinHeight="54" MaxHeight="100" TextWrapping="Wrap" AutomationProperties.Name="编辑音色分类"/>
           <TextBlock Text="标签" Classes="field-label"/><TextBox x:Name="PresetTagsEditor" AcceptsReturn="True" MinHeight="54" MaxHeight="100" TextWrapping="Wrap" AutomationProperties.Name="编辑音色标签"/>
-          <TextBlock Text="用逗号或换行分隔。保存为手工内容后，重新扫描和自动分类不会覆盖。" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,8"/>
+          <TextBlock Text="用逗号或换行分隔。保存为手工内容后，重新扫描和自动分类不会覆盖。" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,8"/>
           <WrapPanel><Button Content="保存修改" Click="SavePresetMetadata_Click" Padding="10,6"/><Button Content="恢复自动" Click="ResetPresetMetadata_Click" Padding="10,6" Margin="0"/></WrapPanel>
          </StackPanel>
         </Expander>
-        <TextBlock Text="最近任务" Classes="field-label"/><TextBlock Text="{Binding Selected.LastRenderOutcomeLabel}"/><TextBlock Text="{Binding Selected.LastRenderMessageLabel}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,6,0,0"/>
+        <TextBlock Text="最近任务" Classes="field-label"/><TextBlock Text="{Binding Selected.LastRenderOutcomeLabel}"/><TextBlock Text="{Binding Selected.LastRenderMessageLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
         <TextBlock Text="来源" Classes="field-label"/><TextBox Text="{Binding Selected.Record.SourcePath}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0"/>
-        <TextBlock Text="{Binding Selected.Record.InternalPath}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource Muted}"/>
+        <TextBlock Text="{Binding Selected.Record.InternalPath}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource Muted}"/>
         <TextBlock Text="文件 MD5" Classes="field-label"/><TextBox Text="{Binding Selected.Record.ContentMd5}" IsReadOnly="True" TextWrapping="Wrap" FontSize="12" BorderThickness="0" Background="Transparent" Padding="0"/>
-        <TextBlock Text="{Binding Selected.DuplicateLabel}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,6,0,0"/>
+        <TextBlock Text="{Binding Selected.DuplicateLabel}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
         <Button Content="查看保留项" Click="ViewCanonical_Click" IsEnabled="{Binding CanViewCanonical}" IsVisible="{Binding CanonicalVisibility}" Margin="0,6,0,0"/>
         <TextBlock Text="识别依据" Classes="field-label"/><TextBlock Text="{Binding Selected.Record.DetectionReason}" TextWrapping="Wrap"/>
 
@@ -132,7 +126,7 @@
         <ComboBox x:Name="AssignmentSynthChoice" ItemsSource="{Binding SynthChoices}" DisplayMemberBinding="{Binding Label}" SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Selected.Record.Synth, Mode=OneWay}" IsEnabled="{Binding CanAssignSynth}" AutomationProperties.Name="确认音色所属音源"/>
         <Button Content="确认音源标签" Click="AssignSynth_Click" IsEnabled="{Binding CanAssignSynth}" Margin="0,8,0,0"/>
         <TextBlock Text="预览" Classes="field-label"/><TextBlock Text="{Binding Selected.AudioLabel}" TextWrapping="Wrap"/>
-        <TextBlock Text="{Binding Selected.QualityLabel}" Foreground="{DynamicResource Warning}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding Selected.QualityLabel}" Foreground="#97632E" Margin="0,6,0,0" TextWrapping="Wrap"/>
         <TextBlock Text="音源版本" Classes="field-label"/><TextBlock Text="{Binding Selected.Record.PluginVersion}"/>
         <Button Content="确认预览对应此音色" Click="Confirm_Click" IsEnabled="{Binding CanConfirm}" Margin="0,20,0,0"/>
         <Button Content="重新生成此音色" Click="RenderSelected_Click" IsEnabled="{Binding CanRenderSelection}" Margin="0,8,0,0"/>
@@ -142,7 +136,7 @@
     </Grid>
    </TabItem>
    <TabItem x:Name="TasksTab" Header="运行记录">
-    <Grid Background="{DynamicResource Surface}" Margin="0,16,0,0">
+    <Grid Background="White" Margin="0,16,0,0">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
       <Button Content="重试失败任务" Click="Retry_Click" IsEnabled="{Binding CanRetryTasks}" ToolTip.Tip="重试当前失败或最近生成失败的音色，成功前保留已有预览"/>
@@ -150,7 +144,7 @@
       <Button Content="打开本地数据目录" Click="OpenData_Click"/>
      </StackPanel>
      <TextBlock Grid.Row="1" Text="运行记录" FontWeight="SemiBold" VerticalAlignment="Center"/>
-     <ListBox Grid.Row="2" ItemsSource="{Binding Logs}" BorderThickness="0" Background="{DynamicResource SurfaceAlt}" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+     <ListBox Grid.Row="2" ItemsSource="{Binding Logs}" BorderThickness="0" Background="#F3F6F4" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
       <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
     </Grid>
@@ -158,7 +152,7 @@
    <TabItem x:Name="SettingsTab" Header="音源与设置">
     <Grid Margin="0,10,0,0">
      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <TabControl x:Name="SettingsPages" BorderThickness="0" Background="{DynamicResource Surface}">
+     <TabControl x:Name="SettingsPages" BorderThickness="0" Background="White">
       <TabItem x:Name="DirectorySettingsTab" Header="目录">
        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid Height="{Binding Viewport.Height, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" MinHeight="390">
@@ -184,11 +178,11 @@
            </DataGrid.Columns>
           </DataGrid>
          </Grid>
-         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
+         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{StaticResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
          <Grid Grid.Column="2" Margin="0,10,0,0">
           <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="240"/></Grid.RowDefinitions>
           <TextBlock Text="音源安装目录" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <TextBlock Grid.Row="1" Text="首次使用已预填系统和用户的安装位置，可追加自定义目录。空列表扫描时恢复默认位置。" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,4,0,0"/>
+          <TextBlock Grid.Row="1" Text="首次使用已预填系统和用户的安装位置，可追加自定义目录。空列表扫描时恢复默认位置。" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
           <WrapPanel Grid.Row="2" Margin="0,6,0,10">
            <Button Click="AddPluginDirectory_Click" IsEnabled="{Binding IsIdle}" Padding="10,6" Margin="0,0,8,8"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="添加安装目录"/></StackPanel></Button>
            <Button x:Name="DirectoryScanPluginsButton" Click="ScanPlugins_Click" IsEnabled="{Binding IsIdle}" Padding="10,6" Margin="0,0,8,8"><StackPanel Orientation="Horizontal"><TextBlock Text="⌕" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="扫描音源"/></StackPanel></Button>
@@ -224,7 +218,7 @@
            <DataGridTextColumn Header="文件" Binding="{Binding Record.FilePath}" Width="*" MinWidth="300"/>
           </DataGrid.Columns>
          </DataGrid>
-         <TextBlock Grid.Row="2" Text="{Binding SelectedItem.Record.Reason, ElementName=DiscoveredPluginGrid}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,4" MaxHeight="54"/>
+         <TextBlock Grid.Row="2" Text="{Binding SelectedItem.Record.Reason, ElementName=DiscoveredPluginGrid}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,8,0,4" MaxHeight="54"/>
         </Grid>
        </ScrollViewer>
       </TabItem>
@@ -235,9 +229,9 @@
          <Expander x:Name="RendererSettings" Header="生成方式（高级）" IsExpanded="True" Margin="0,12,0,0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
           <StackPanel Margin="0,0,0,10">
-           <WrapPanel><Button x:Name="PrepareRendererButton" Content="一键准备生成环境" Click="PrepareDawDreamer_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,10,6"/><TextBlock Text="首次联网准备，无需安装 Python；完成后可离线生成。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,0,6"/></WrapPanel>
-           <TextBlock Text="{Binding RendererSetupLocation}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,6"/>
-           <TextBlock Text="先扫描并关联音源，再准备生成环境。Serum 1 / Serum 2 和兼容的 Sylenth1 可使用私有 DawDreamer；Windows 32 位 Sylenth1 使用内置外部宿主。现有自选生成方式和 Python 路径会保留。Sushi 仅供本地研究，普通包未捆绑。未配置完整的行也可保存，生成前会分别检查。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
+           <WrapPanel><Button x:Name="PrepareRendererButton" Content="一键准备生成环境" Click="PrepareDawDreamer_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,10,6"/><TextBlock Text="首次联网准备，无需安装 Python；完成后可离线生成。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,0,6"/></WrapPanel>
+           <TextBlock Text="{Binding RendererSetupLocation}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,0,6"/>
+           <TextBlock Text="先扫描并关联音源，再准备生成环境。Serum 1 / Serum 2 和兼容的 Sylenth1 可使用私有 DawDreamer；Windows 32 位 Sylenth1 使用内置外部宿主。现有自选生成方式和 Python 路径会保留。Sushi 仅供本地研究，普通包未捆绑。未配置完整的行也可保存，生成前会分别检查。" TextWrapping="Wrap" Foreground="{StaticResource Muted}"/>
           </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,0,0,10">
            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
@@ -248,8 +242,8 @@
             <TextBlock Text="内存预算" VerticalAlignment="Center"/>
             <ComboBox x:Name="MemoryBudgetBox" ItemsSource="{Binding MemoryBudgetChoices}" DisplayMemberBinding="{Binding Label}" IsEnabled="{Binding IsIdle}" MinWidth="210" AutomationProperties.Name="生成总内存预算，1 到 16 GiB"/>
            </StackPanel>
-           <TextBlock Text="自动按机型选择并行数量，或手动设为 1 / 2 / 4 / 8 / 16 条。总内存预算可选 1–16 GiB，默认 4 GiB，包含程序和全部生成进程。先单条校准，预计占用接近预算前 256 MiB 时暂停新增任务；实占超限则停止并保留已完成结果。保存后用于后续生成。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12"/>
-           <TextBlock Text="默认允许同一音源同时生成，可在下表关闭；明确关闭的选择会保留，更新或重新关联音源不会自动更改。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0"/>
+           <TextBlock Text="自动按机型选择并行数量，或手动设为 1 / 2 / 4 / 8 / 16 条。总内存预算可选 1–16 GiB，默认 4 GiB，包含程序和全部生成进程。先单条校准，预计占用接近预算前 256 MiB 时暂停新增任务；实占超限则停止并保留已完成结果。保存后用于后续生成。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+           <TextBlock Text="默认允许同一音源同时生成，可在下表关闭；明确关闭的选择会保留，更新或重新关联音源不会自动更改。若插件不稳定，请选 1 条；首次使用或更新 Vital 后请先单独生成一次。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"/>
           </StackPanel>
           <DataGrid x:Name="PluginGrid" Grid.Row="2" ItemsSource="{Binding Plugins}" MinHeight="260" RowHeight="42" IsReadOnly="False" IsEnabled="{Binding IsIdle}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>
@@ -264,11 +258,11 @@
           </DataGrid>
           </Grid>
          </Expander>
-         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
-         <TabControl Grid.Column="2" Margin="0,8,0,0" Background="{DynamicResource Surface}" BorderThickness="0">
+         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{StaticResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
+         <TabControl Grid.Column="2" Margin="0,8,0,0" Background="White" BorderThickness="0">
           <TabItem Header="加载防错检查">
            <Grid RowDefinitions="Auto,*">
-           <TextBlock Text="记录音源刚启动时的声音，避免把加载失败后的默认声音误存为目标音色。支持的音源会自动建立参照。内置 Sylenth1 宿主若因随机相位无法稳定比对声音，将逐音色核验加载后的状态与目标一致；未通过核验仍不能保存。不支持此检查的生成方式会单独说明。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,10"/>
+           <TextBlock Text="记录音源刚启动时的声音，避免把加载失败后的默认声音误存为目标音色。支持的音源会自动建立参照。内置 Sylenth1 宿主若因随机相位无法稳定比对声音，将逐音色核验加载后的状态与目标一致；未通过核验仍不能保存。不支持此检查的生成方式会单独说明。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,10"/>
            <DataGrid x:Name="InitializationGrid" Grid.Row="1" ItemsSource="{Binding InitBaselines}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="音源加载防错声音参照" ScrollViewer.HorizontalScrollBarVisibility="Auto">
             <DataGrid.Columns>
              <DataGridTextColumn Header="音源" Binding="{Binding Synth}" Width="85"/>
@@ -293,7 +287,7 @@
          <StackPanel>
           <TextBlock Text="三音区试听模板" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14"/>
           <CheckBox x:Name="QuickPreviewMode" Content="快速预览" IsChecked="True" IsEnabled="{Binding IsIdle}" Margin="0,0,0,8" ToolTip.Tip="慢起音自动延长采集，再按设定的每音时长截取，不提高原始音量"/>
-          <StackPanel IsEnabled="{Binding #QuickPreviewMode.IsChecked}" Margin="0,0,0,8"><TextBlock Text="每个音区的快速预览时长（秒）" Classes="field-label"/><TextBox x:Name="QuickPreviewSecondsBox" Text="0.5" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="快速预览每音时长"/><TextBlock Text="默认 0.5 秒，可设 0.1–4 秒；三个音区依次播放。" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel>
+          <StackPanel IsEnabled="{Binding #QuickPreviewMode.IsChecked}" Margin="0,0,0,8"><TextBlock Text="每个音区的快速预览时长（秒）" Classes="field-label"/><TextBox x:Name="QuickPreviewSecondsBox" Text="0.5" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="快速预览每音时长"/><TextBlock Text="默认 0.5 秒，可设 0.1–4 秒；三个音区依次播放。" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel>
           <Grid IsEnabled="{Binding IsIdle}">
            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -306,14 +300,14 @@
            <StackPanel Grid.Row="2"><TextBlock Text="BPM" Classes="field-label"/><TextBox x:Name="BpmBox"/></StackPanel>
            <StackPanel Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="3"><TextBlock Text="采样率 (Hz)" Classes="field-label"/><ComboBox x:Name="SampleRateBox"><ComboBoxItem Content="44100"/><ComboBoxItem Content="48000"/></ComboBox></StackPanel>
           </Grid>
-          <WrapPanel Margin="0,16,0,0"><Button Content="采用 Vital 原生参数" Click="VitalDefaults_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,8,8"/><TextBlock Text="力度 0.7 · 整秒按键 · 尾音 30%" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,0,8"/></WrapPanel>
+          <WrapPanel Margin="0,16,0,0"><Button Content="采用 Vital 原生参数" Click="VitalDefaults_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,8,8"/><TextBlock Text="力度 0.7 · 整秒按键 · 尾音 30%" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,0,8"/></WrapPanel>
          </StackPanel>
          <StackPanel Grid.Column="2">
           <TextBlock Text="本地数据与预览" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,2"/>
-          <TextBlock Text="数据库、预览音频、标签和分类固定保存在程序旁的 Preview。旧版缓存会复制并校验到此处，原库和原音频保留作回退。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/>
+          <TextBlock Text="数据库、预览音频、标签和分类固定保存在程序旁的 Preview。旧版缓存会复制并校验到此处，原库和原音频保留作回退。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0"/>
           <TextBlock Text="新预览保存格式" Classes="field-label"/>
           <ComboBox x:Name="PreviewFormatBox" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="预览音频保存格式"><ComboBoxItem Content="AAC 压缩 · 128 kbps（推荐）"/><ComboBoxItem Content="WAV 无损"/></ComboBox>
-          <TextBlock Text="AAC 保留所选的 44.1 / 48 kHz 采样率和立体声。旧 WAV 可继续试听，保存格式不会要求重新生成已有预览。" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,6,0,2"/>
+          <TextBlock Text="AAC 保留所选的 44.1 / 48 kHz 采样率和立体声。旧 WAV 可继续试听，保存格式不会要求重新生成已有预览。" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,6,0,2"/>
           <TextBlock Text="当前数据库与标签目录" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="当前音色库数据目录" ToolTip.Tip="{Binding LibraryLocation}"/>
           <StackPanel Margin="0,4,0,0"><TextBlock Text="预览音频保存目录（固定）" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="固定预览音频保存目录"/></StackPanel>
@@ -337,66 +331,66 @@
          <Button Click="ApplyCategoryRules_Click" IsEnabled="{Binding IsIdle}" Padding="10,6"><StackPanel Orientation="Horizontal"><TextBlock Text="✓" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,6,0"/><TextBlock Text="重新应用已保存规则"/></StackPanel></Button>
         </WrapPanel>
         <TextBox x:Name="RulesEditor" Grid.Row="2" AcceptsReturn="True" AcceptsTab="True" FontFamily="Menlo, Consolas, monospace" FontSize="13" TextWrapping="NoWrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" IsReadOnly="{Binding IsBusy}" VerticalContentAlignment="Top" AutomationProperties.Name="分类规则 JSON"/>
-        <TextBlock x:Name="ClassificationStatus" Grid.Row="3" Text="{Binding CategoryRulesStatus}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,0" MaxHeight="48"/>
+        <TextBlock x:Name="ClassificationStatus" Grid.Row="3" Text="{Binding CategoryRulesStatus}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,8,0,0" MaxHeight="48"/>
        </Grid>
       </TabItem>
      </TabControl>
-     <Grid Grid.Row="1" Height="36" Margin="0,8,0,4" IsVisible="{Binding !#ClassificationSettingsTab.IsSelected}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button Grid.Column="1" Click="SaveSettings_Click" Classes="primary" Margin="0" Padding="14,6" IsEnabled="{Binding IsIdle}"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="保存设置"/></StackPanel></Button></Grid>
+     <Grid Grid.Row="1" Height="36" Margin="0,8,0,4" IsVisible="{Binding !#ClassificationSettingsTab.IsSelected}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button Grid.Column="1" Click="SaveSettings_Click" Background="{StaticResource Accent}" Foreground="White" Margin="0" Padding="14,6" IsEnabled="{Binding IsIdle}"><StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" Margin="0,0,7,0"/><TextBlock Text="保存设置"/></StackPanel></Button></Grid>
     </Grid>
    </TabItem>
   </TabControl>
-  <Border x:Name="PlaybackBar" Grid.Row="2" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="84" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,6">
+  <Border x:Name="PlaybackBar" Grid.Row="2" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="84" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="16,6">
    
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
     <StackPanel VerticalAlignment="Center">
      <TextBlock Text="{Binding NowPlaying}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
      <StackPanel Orientation="Horizontal">
-      <Button x:Name="PlayPreviewButton" Classes="icon primary" Content="▶" Width="32" Height="28" Margin="0,0,5,0" Click="Play_Click" ToolTip.Tip="播放 / 暂停" IsEnabled="{Binding CanPlay}"/>
+      <Button x:Name="PlayPreviewButton" Classes="icon" Content="▶" Width="32" Height="28" Margin="0,0,5,0" Click="Play_Click" ToolTip.Tip="播放 / 暂停" IsEnabled="{Binding CanPlay}"/>
       <Button Classes="icon" Content="■" Width="32" Height="28" Margin="0,0,5,0" Click="Stop_Click" ToolTip.Tip="停止播放" IsEnabled="{Binding CanPlay}"/>
       <Button Content="中" Click="PlayNote_Click" Tag="Middle" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听中音区" IsEnabled="{Binding CanPlay}"/>
       <Button Content="高" Click="PlayNote_Click" Tag="High" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听高音区" IsEnabled="{Binding CanPlay}"/>
       <Button Content="低" Click="PlayNote_Click" Tag="Low" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="试听低音区" IsEnabled="{Binding CanPlay}"/>
      </StackPanel>
-     <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="{DynamicResource SurfaceAlt}" CornerRadius="4" Padding="5,1" Margin="0,4,0,0" HorizontalAlignment="Left" AutomationProperties.Name="空格键从头播放当前音色预览">
-      <TextBlock Text="空格键 · 从头播放当前预览" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
+     <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="#EAF0EC" CornerRadius="4" Padding="5,1" Margin="0,4,0,0" HorizontalAlignment="Left" AutomationProperties.Name="空格键从头播放当前音色预览">
+      <TextBlock Text="空格键 · 从头播放当前预览" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
      </Border>
     </StackPanel>
     <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="18"/></Grid.RowDefinitions>
-     <Border CornerRadius="7" ClipToBounds="True"><local:WaveformView x:Name="Waveform" BackgroundBrush="{DynamicResource SurfaceAlt}" WaveBrush="{DynamicResource Accent}" LineBrush="{DynamicResource Line}" PlayheadBrush="{DynamicResource Warning}"/></Border>
+     <local:WaveformView x:Name="Waveform"/>
      <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1" IsEnabled="{Binding CanPlay}" AutomationProperties.Name="播放位置"/>
     </Grid>
     <StackPanel Grid.Column="2" VerticalAlignment="Center">
-     <TextBlock x:Name="TimeLabel" Text="00:00 / 00:00" FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" Margin="0,0,0,5"/>
+     <TextBlock x:Name="TimeLabel" Text="00:00 / 00:00" FontSize="12" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" Margin="0,0,0,5"/>
      <DockPanel><TextBlock Text="♪" FontFamily="Arial, PingFang SC, Microsoft YaHei UI" VerticalAlignment="Center" Margin="0,0,8,0"/><Slider x:Name="VolumeSlider" Minimum="0" Maximum="1" AutomationProperties.Name="试听音量"/></DockPanel>
     </StackPanel>
    </Grid>
   </Border>
-  <Border x:Name="TaskStatusBand" Grid.Row="3" Height="118" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,6" AutomationProperties.Name="固定生成进度与最近运行记录">
+  <Border x:Name="TaskStatusBand" Grid.Row="3" Height="118" Background="#F0F4F2" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="16,6" AutomationProperties.Name="固定生成进度与最近运行记录">
    <Grid ColumnDefinitions="2.3*,16,*" RowDefinitions="24,20,18,18,18,4">
     <Grid ColumnDefinitions="*,Auto">
      <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
      <StackPanel x:Name="TaskProgressMetadata" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-      <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,0,8,0"/>
+      <TextBlock Text="{Binding TaskElapsed}" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,0,8,0"/>
       <Button Content="打开新音色库" FontSize="11" Click="OpenRelocatedLibrary_Click" IsVisible="{Binding RelocatedLibraryVisibility}" Margin="0,0,5,0" Padding="6,2" Height="22" MinHeight="22"/>
       <Button x:Name="ViewGeneratedButton" Content="查看已生成" FontSize="11" Click="ViewGenerated_Click" IsVisible="{Binding GeneratedResultsVisibility}" ToolTip.Tip="查看已生成的预览，包含待试听确认项" Margin="0,0,5,0" Padding="6,2" Height="22" MinHeight="22"/>
       <Button Classes="icon" Content="⚙" Click="ViewTaskSettings_Click" ToolTip.Tip="打开音源与生成设置" IsVisible="{Binding TaskSettingsVisibility}" Width="24" Height="22" Margin="0"/>
      </StackPanel>
     </Grid>
     <TextBlock x:Name="TaskCountersText" Grid.Row="1" Text="{Binding TaskProgressText}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding TaskProgressText}"/>
-    <TextBlock x:Name="TaskSelectionDetails" Grid.Row="2" Text="{Binding TaskSelectionText}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Muted}" ToolTip.Tip="{Binding TaskSelectionText}"/>
+    <TextBlock x:Name="TaskSelectionDetails" Grid.Row="2" Text="{Binding TaskSelectionText}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskSelectionText}"/>
     <TextBlock x:Name="TaskProgressDetails" Grid.Row="3" Text="{Binding StatusMessage}" FontSize="11" MaxHeight="18" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>
-    <TextBlock x:Name="TaskResourceDetails" Grid.Row="4" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" FontSize="11" MaxHeight="18" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Muted}" ToolTip.Tip="{Binding TaskMemoryText}"/>
-    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="5" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="4" Foreground="{DynamicResource Accent}" Background="{DynamicResource Line}" AutomationProperties.Name="任务总体进度"/>
-    <Grid Grid.Column="2" ColumnDefinitions="*,Auto"><TextBlock Text="最近运行记录" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/><Button Grid.Column="1" Content="全部记录 ↗" FontSize="11" Click="ViewTasks_Click" Height="22" MinHeight="22" Padding="5,1" Margin="0" ToolTip.Tip="打开完整运行记录"/></Grid>
+    <TextBlock x:Name="TaskResourceDetails" Grid.Row="4" Text="{Binding TaskMemoryText}" IsVisible="{Binding TaskMemoryVisible}" FontSize="11" MaxHeight="18" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Muted}" ToolTip.Tip="{Binding TaskMemoryText}"/>
+    <ProgressBar x:Name="GenerationProgressBar" Grid.Row="5" Value="{Binding ProgressValue, Mode=OneWay}" IsIndeterminate="{Binding IsProgressIndeterminate}" Maximum="100" Height="4" Foreground="{StaticResource Accent}" Background="#D5DFD8" AutomationProperties.Name="任务总体进度"/>
+    <Grid Grid.Column="2" ColumnDefinitions="*,Auto"><TextBlock Text="最近运行记录" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/><Button Grid.Column="1" Content="全部记录 ↗" FontSize="11" Click="ViewTasks_Click" Height="22" MinHeight="22" Padding="5,1" Margin="0" ToolTip.Tip="打开完整运行记录"/></Grid>
     <ListBox x:Name="RecentLogList" Classes="recent-log" Grid.Column="2" Grid.Row="1" Grid.RowSpan="5" ItemsSource="{Binding RecentLogs}" FontSize="11" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="最近运行记录">
      <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}"/></DataTemplate></ListBox.ItemTemplate>
     </ListBox>
    </Grid>
   </Border>
-  <Border Grid.Row="4" Background="{DynamicResource SurfaceAlt}" Padding="16,0">
+  <Border Grid.Row="4" Background="#EAF0EC" Padding="16,0">
    <DockPanel>
-    <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Muted}" Margin="16,0,0,0"/>
+    <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Muted}" Margin="16,0,0,0"/>
     <TextBlock x:Name="StatusFooterText" Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>
    </DockPanel>
   </Border>
