@@ -69,17 +69,18 @@ public partial class MainWindow
             // and version fields in different rows must not block this valid settings save.
             await SaveSettingsCoreAsync(CancellationToken.None);
             var stored = _store.LoadSettings();
-            var runtime = CreateExecutionSettings(stored);
-            if (runtime.Plugins.Any(plugin => plugin.Backend != RenderBackend.Unconfigured) ||
+            var runtime = CreateExecutionSettings(stored, out var readiness);
+            if (JsonSerializer.Serialize(runtime.Plugins, LibraryJson.Options) != JsonSerializer.Serialize(stored.Plugins, LibraryJson.Options) ||
+                readiness.Any(state => state.CanAttemptRender) ||
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Backend != RenderBackend.DawDreamer)
-                throw new InvalidOperationException("未配置完整的宿主进入执行，或执行前检查覆盖了保存的渲染方式。");
+                throw new InvalidOperationException("执行快照没有保留已选生成方式及路径，或将不可用配置错误标为可运行。");
             if (stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).ExecutablePath != offline ||
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).ExecutableHash != "TEST-ONLY-last-known-executable" ||
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).PluginHash != "TEST-ONLY-last-known-plugin" ||
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum2).Backend != RenderBackend.DawDreamer ||
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Spire).Backend != RenderBackend.DawDreamer ||
                 RenderReadinessService.Evaluate(stored).Any(state => state.CanAttemptRender))
-                throw new InvalidOperationException("未配置完整的音源阻止保存、路径丢失或错误显示为可生成。");
+                throw new InvalidOperationException("暂不可用的音源阻止保存、路径丢失或错误显示为可生成。");
             return true;
         }
         finally

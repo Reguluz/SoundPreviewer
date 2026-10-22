@@ -14,6 +14,7 @@ public partial class App
 {
     private Mutex? _sourceMutex;
     public static IReadOnlyList<string> StorageStartupMessages { get; private set; } = [];
+    public static bool StoragePreparationWindowShown { get; private set; }
 
     private void BeginInstalledStartup(IClassicDesktopStyleApplicationLifetime desktop, string[] args, int dataIndex)
     {
@@ -56,7 +57,14 @@ public partial class App
             else if (desktop.MainWindow is { } owner) _ = Dialogs.ShowAsync(owner, eventArgs.Exception.Message, "操作未完成");
         };
 
-        var message = new TextBlock { Text = "正在检查旧版记录与缓存…", TextWrapping = TextWrapping.Wrap };
+        if (!import && InstalledStorageService.TryOpenPreparedLibrary(application, source, out var existing))
+        {
+            OpenInstalledLibrary(desktop, args, existing!, sourceWarnings, show: false);
+            return;
+        }
+
+        StoragePreparationWindowShown = true;
+        var message = new TextBlock { Text = "正在准备本地音色库…", TextWrapping = TextWrapping.Wrap };
         var loading = new Window
         {
             Title = "SoundPreviewer · 准备本地音色库", Width = 540, SizeToContent = SizeToContent.Height,
@@ -83,26 +91,7 @@ public partial class App
                     return InstalledStorageService.Prepare(application, userData, source, progress, replaceTarget: import);
                 });
                 retained = prepared.RetainedDirectory;
-                ApplicationPaths.ConfigureDataDirectory(prepared.Directory);
-                DataDirectory = ApplicationPaths.DataDirectory;
-                var messages = new List<string> { "预览与数据固定保存到：" + DataDirectory };
-                if (!ApplicationPaths.SamePath(source, target)) messages.Add("已从旧库复制并校验；原库与原音频保留在原位置：" + source);
-                if (retained is not null) messages.Add("导入前的本地 Preview 完整保留在：" + retained);
-                messages.AddRange(sourceWarnings);
-                messages.AddRange(prepared.Warnings);
-                StorageStartupMessages = messages;
-                ReleaseMutex(ref _sourceMutex);
-                var importIndex = Array.IndexOf(args, "--import-settings");
-                if (importIndex >= 0 && importIndex + 1 < args.Length)
-                {
-                    ImportedSettings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(args[importIndex + 1]), LibraryJson.Options)
-                        ?? throw new InvalidDataException("设置文件无效。");
-                    ImportedSettings.PreviewDirectory = DataDirectory;
-                }
-                _rememberLibraryOnOpen = !SmokeTest;
-                var main = new MainWindow();
-                desktop.MainWindow = main;
-                main.Show();
+                OpenInstalledLibrary(desktop, args, prepared, sourceWarnings, show: true);
             }
             catch (Exception error)
             {
@@ -115,6 +104,35 @@ public partial class App
             finally { finished = true; loading.Close(); }
         };
         desktop.MainWindow = loading;
+    }
+
+    private void OpenInstalledLibrary(IClassicDesktopStyleApplicationLifetime desktop, string[] args,
+        InstalledStorageResult prepared, IReadOnlyList<string> sourceWarnings, bool show)
+    {
+        ApplicationPaths.ConfigureDataDirectory(prepared.Directory);
+        DataDirectory = ApplicationPaths.DataDirectory;
+        var messages = new List<string> { "预览与数据固定保存到：" + DataDirectory };
+        if (!ApplicationPaths.SamePath(prepared.SourceDirectory, prepared.Directory))
+            messages.Add("已从旧库复制并校验；原库与原音频保留在原位置：" + prepared.SourceDirectory);
+        if (prepared.RetainedDirectory is not null)
+            messages.Add("导入前的本地 Preview 完整保留在：" + prepared.RetainedDirectory);
+        messages.AddRange(sourceWarnings);
+        messages.AddRange(prepared.Warnings);
+        StorageStartupMessages = messages;
+        ReleaseMutex(ref _sourceMutex);
+        var importIndex = Array.IndexOf(args, "--import-settings");
+        if (importIndex >= 0 && importIndex + 1 < args.Length)
+        {
+            ImportedSettings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(args[importIndex + 1]), LibraryJson.Options)
+                ?? throw new InvalidDataException("设置文件无效。");
+            ImportedSettings.PreviewDirectory = DataDirectory;
+        }
+        // The locator is written only by LibraryOpened after the main window has
+        // successfully loaded this library, on both the direct and migration paths.
+        _rememberLibraryOnOpen = !SmokeTest;
+        var main = new MainWindow();
+        desktop.MainWindow = main;
+        if (show) main.Show();
     }
 
     private static Mutex AcquireLibraryLock(string directory)

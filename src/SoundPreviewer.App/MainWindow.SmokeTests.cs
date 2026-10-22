@@ -32,11 +32,13 @@ public partial class MainWindow
             throw new InvalidOperationException("分类规则未能从已有配置或程序内置默认值加载。");
         var progressSample = new QueueProgress(7, 20, "", "", null)
         {
-            Generated = 2, Reused = 1, Failed = 1, Unconfigured = 2, RetryLimited = 1,
+            Generated = 2, Reused = 1, Failed = 1, Unconfigured = 2, Unavailable = 1, RetryLimited = 1,
             ActiveCount = 1, MaxConcurrency = 8, AllowedConcurrency = 3, EffectiveConcurrency = 1,
             MemoryBudgetBytes = RenderResourcePolicy.MemoryLimitBytes, WorkingSetBytes = 536870912
         };
         if (!FormatRenderProgress(progressSample).Contains("成功 3（新生成 2 / 复用 1） · 失败 1", StringComparison.Ordinal) ||
+            !FormatRenderProgress(progressSample).Contains("未选择生成方式 2", StringComparison.Ordinal) ||
+            !FormatRenderProgress(progressSample).Contains("暂不可用 1", StringComparison.Ordinal) ||
             !FormatRenderProgress(progressSample).Contains("运行 1/1", StringComparison.Ordinal) ||
             !FormatRenderResources(progressSample).Contains("当前并行上限 1 条（设定 8，内存允许 3）", StringComparison.Ordinal) ||
             !FormatRenderResources(progressSample).Contains("实占 512 / 4096 MiB", StringComparison.Ordinal))
@@ -148,12 +150,14 @@ public partial class MainWindow
         if (unconfigured is not null)
         {
             var pending = Enumerable.Range(0, 10000).Select(index => new PresetRecord { Id = $"TEST-ONLY-progress-{index}", Name = $"TEST ONLY progress {index}", Synth = unconfigured.Synth, Status = PresetStatus.Pending }).ToList();
+            string storedBefore = JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options);
             await Generate(pending);
             if (!IsIdle || !TaskStatusBand.IsVisible || GenerationProgressBar.IsIndeterminate || ProgressValue != 100 ||
-                TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未配置", StringComparison.Ordinal) || !TaskSettingsVisibility ||
-                !TaskProgressText.Contains("成功 0（新生成 0 / 复用 0） · 失败 0 · 未配置 10000", StringComparison.Ordinal) ||
+                TaskTitle != "本次没有生成预览" || !StatusMessage.Contains("未选择生成方式", StringComparison.Ordinal) || !TaskSettingsVisibility ||
+                !TaskProgressText.Contains("成功 0（新生成 0 / 复用 0） · 失败 0 · 未选择生成方式 10000", StringComparison.Ordinal) ||
                 !TaskSelectionText.Contains("本次所选 10000 条 · 去重 10000 个 · 处理队列 10000 个", StringComparison.Ordinal) ||
-                TaskSelectionDetails.Text != TaskSelectionText)
+                TaskSelectionDetails.Text != TaskSelectionText ||
+                JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options) != storedBefore)
                 throw new InvalidOperationException("无渲染器的大批量任务没有保留明确结果。");
             generationFeedbackChecked = true;
         }
@@ -266,12 +270,14 @@ public partial class MainWindow
             CompressedPreviewChecked = compressedPreviewChecked.Checked,
             CompressedPreviewPlaybackChecked = compressedPreviewChecked.PlaybackChecked,
             CurrentFilterGenerationChecked = filteredGenerationChecked,
+            RendererUnavailableReasonsChecked = filteredGenerationChecked,
             PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
             SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, MultiSelectFiltersChecked = true, FilterRefreshPreservedChecked = true,
             FivePreviewStatusesChecked = true, DirectoryConfigurationChecked = true,
             CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
             StartupWarnings = App.StorageStartupMessages,
+            StoragePreparationWindowShown = App.StoragePreparationWindowShown,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
             QueueSelectionCountsChecked = true, ProgressLayoutStableChecked = true,
             LibrarySpaceChecked = true, SingleRowFiltersChecked = true, FixedFilterOptionsChecked = true, PlaybackProgressDockChecked = true,

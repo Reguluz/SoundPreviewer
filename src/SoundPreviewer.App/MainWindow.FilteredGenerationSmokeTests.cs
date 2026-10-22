@@ -117,9 +117,52 @@ public partial class MainWindow
             if (!Logs.Any(entry => entry.EndsWith("仅生成当前筛选中未生成的音色，已有有效预览跳过。", StringComparison.Ordinal)) ||
                 !Logs.Any(entry => entry.EndsWith("仅覆盖重渲染当前筛选结果，逐项保留旧预览直到新结果完成。", StringComparison.Ordinal)))
                 throw new InvalidOperationException("生成任务没有说明当前筛选范围及覆盖语义。");
+
+            // An offline configured host must keep its identity and give a concrete reason,
+            // while valid previews remain reusable without launching that host.
+            var vital = _settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Vital);
+            vital.Backend = RenderBackend.ExternalWorker;
+            vital.ExecutablePath = Path.Combine(App.DataDirectory, prefix, "TEST ONLY missing Vital renderer");
+            vital.PluginPath = Path.Combine(App.DataDirectory, prefix, "TEST ONLY offline Vital plugin");
+            vital.Version = "TEST ONLY previous version";
+            vital.ExecutableHash = "TEST ONLY retained host identity";
+            vital.PluginHash = "TEST ONLY retained plugin identity";
+            var unselected = _settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1);
+            unselected.Backend = RenderBackend.ExternalWorker;
+            unselected.ExecutablePath = Path.Combine(App.DataDirectory, prefix, "TEST ONLY missing unselected Serum renderer");
+            string configuredJson = JsonSerializer.Serialize(_settings.Plugins, LibraryJson.Options);
+            var execution = CreateExecutionSettings(_settings, out var readiness);
+            var vitalReadiness = readiness.Single(state => state.Synth == SynthKind.Vital);
+            if (vitalReadiness.CanAttemptRender || vitalReadiness.Status != "程序缺失" ||
+                JsonSerializer.Serialize(execution.Plugins, LibraryJson.Options) != configuredJson)
+                throw new InvalidOperationException("不可用配置在执行快照中丢失了生成方式、路径或指纹。");
+            PopulateSettings();
+            var previousLogs = Logs.ToHashSet(StringComparer.Ordinal);
+            await ClickAndWait(RenderCurrentFilterButton, force: false);
+            CheckResult(reused: 4, unconfigured: 0, unavailable: 3);
+            var diagnosed = _store.LoadPresets().ToDictionary(record => record.Id);
+            foreach (var original in new[] { pending, missing, corrupt })
+            {
+                var actual = diagnosed[original.Id];
+                if (actual.Attempts != original.Attempts || actual.Status != original.Status || actual.CacheKey != original.CacheKey ||
+                    actual.PreviewPath != original.PreviewPath || actual.LastRenderOutcome != "已配置，暂不可用" ||
+                    !actual.LastRenderMessage.Contains(vitalReadiness.Status, StringComparison.Ordinal) ||
+                    !actual.LastRenderMessage.Contains(vital.ExecutablePath, StringComparison.Ordinal))
+                    throw new InvalidOperationException("不可用宿主的具体原因未持久化，或跳过任务改变了尝试次数、状态及旧缓存。");
+            }
+            if (!diagnosed[pending.Id].Message.Contains(vitalReadiness.Status, StringComparison.Ordinal) ||
+                JsonSerializer.Serialize(_settings.Plugins, LibraryJson.Options) != configuredJson ||
+                JsonSerializer.Serialize(_store.LoadSettings().Plugins, LibraryJson.Options) != configuredJson ||
+                TaskProgressDetails.Text != StatusMessage || !TaskSettingsVisibility ||
+                StatusMessage.IndexOf("Vital", StringComparison.Ordinal) is < 0 or > 20 ||
+                StatusMessage.IndexOf(vitalReadiness.Status, StringComparison.Ordinal) is < 0 or > 45 ||
+                !StatusMessage.Contains(vital.ExecutablePath, StringComparison.Ordinal) ||
+                Logs.Where(entry => !previousLogs.Contains(entry)).Any(entry => entry.Contains("Serum", StringComparison.Ordinal)))
+                throw new InvalidOperationException("已配置暂不可用的原因没有在当前结果前部显示、配置被改写，或无关音源产生了告警。");
+            CaptureSmokeImage("ui-renderer-unavailable.png");
             foreach (var (path, hash) in hashes)
                 if (!File.Exists(path) || Fingerprints.HashFile(path) != hash)
-                    throw new InvalidOperationException("未配置渲染器时，生成任务改动了已有预览或损坏文件。");
+                    throw new InvalidOperationException("生成方式未选择或暂不可用时，任务改动了已有预览或损坏文件。");
             SearchBox.Text = prefix + "-no-match";
             await SettleLayoutAsync();
             if (!PresetsView.IsEmpty || RenderCurrentFilterButton.IsEnabled || RenderFilteredButton.IsEnabled)
@@ -140,10 +183,13 @@ public partial class MainWindow
                 if (!IsIdle) throw new InvalidOperationException("隔离筛选生成任务未及时结束。");
                 await SettleLayoutAsync();
             }
-            void CheckResult(int reused, int unconfigured)
+            void CheckResult(int reused, int unconfigured, int unavailable = 0)
             {
-                if (!StatusMessage.StartsWith("当前筛选：", StringComparison.Ordinal) ||
-                    !TaskProgressText.Contains($"成功 {reused}（新生成 0 / 复用 {reused}） · 失败 0 · 未配置 {unconfigured}", StringComparison.Ordinal) ||
+                string counters = $"成功 {reused}（新生成 0 / 复用 {reused}） · 失败 0";
+                if (unconfigured > 0) counters += $" · 未选择生成方式 {unconfigured}";
+                if (unavailable > 0) counters += $" · 暂不可用 {unavailable}";
+                if (!StatusMessage.Contains("当前筛选：", StringComparison.Ordinal) ||
+                    !TaskProgressText.Contains(counters, StringComparison.Ordinal) ||
                     !TaskSelectionText.StartsWith("当前筛选 · 本次所选 7 条 · 去重 7 个 · 处理队列 7 个", StringComparison.Ordinal) ||
                     Filters() != filterSnapshot || PresetsView.Count != 7 ||
                     JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == unrelated.Id), LibraryJson.Options) != unrelatedJson)

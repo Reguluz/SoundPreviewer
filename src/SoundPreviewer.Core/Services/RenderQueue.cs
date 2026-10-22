@@ -35,6 +35,7 @@ public sealed record QueueProgress(int Completed, int Total, string PresetName, 
     public int Reused { get; init; }
     public int Failed { get; init; }
     public int Unconfigured { get; init; }
+    public int Unavailable { get; init; }
     public int RetryLimited { get; init; }
     public int Succeeded => Generated + Reused;
 }
@@ -44,15 +45,20 @@ public sealed class RenderResourceLimitException(string message, QueueResult sum
     public QueueResult Summary { get; } = summary;
 }
 
+public sealed record RendererUnavailable(SynthKind Synth, string Status, string Detail, int Count);
+
 public sealed class QueueResult
 {
     private readonly Dictionary<SynthKind, int> unconfiguredSynths = new();
+    private readonly Dictionary<(SynthKind Synth, string Status, string Detail), int> unconfiguredRenderers = new();
+    private readonly Dictionary<(SynthKind Synth, string Status, string Detail), int> unavailableRenderers = new();
     public int Requested { get; internal set; }
     public int Eligible { get; internal set; }
     public int Generated { get; internal set; }
     public int Reused { get; internal set; }
     public int Failed { get; internal set; }
     public int Unconfigured { get; internal set; }
+    public int Unavailable { get; internal set; }
     public int RetryLimited { get; internal set; }
     public int Excluded { get; internal set; }
     public int ExcludedDuplicates { get; private set; }
@@ -69,26 +75,46 @@ public sealed class QueueResult
     public long MemoryBudgetBytes { get; internal set; }
     public long PeakWorkingSetBytes { get; internal set; }
     public bool ResourceStopped { get; internal set; }
-    public int Processed => Generated + Reused + Failed + Unconfigured + RetryLimited;
+    public int Processed => Generated + Reused + Failed + Unconfigured + Unavailable + RetryLimited;
     public int Remaining => Math.Max(0, Eligible - Processed);
     public IReadOnlyDictionary<SynthKind, int> UnconfiguredSynths => unconfiguredSynths;
+    public IReadOnlyList<RendererUnavailable> UnconfiguredRenderers => RendererGroups(unconfiguredRenderers);
+    public IReadOnlyList<RendererUnavailable> UnavailableRenderers => RendererGroups(unavailableRenderers);
     public string Summary
     {
         get
         {
             if (Eligible == 0) return "没有可生成项目：" + Selection.Description + "。";
             string prefix = Generated == 0 && Reused == 0 ? "本次没有生成预览。" : "";
-            string missing = Unconfigured == 0 ? "" : " 尚未配置渲染器：" + string.Join("、", unconfiguredSynths.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key} {pair.Value} 项")) + "。";
-            return prefix + $"新生成 {Generated} 项，复用 {Reused} 项，失败 {Failed} 项，未配置 {Unconfigured} 项，重试上限 {RetryLimited} 项。" +
-                Selection.Description + "。" + missing;
+            string missing = Unconfigured == 0 ? "" : " 未选择生成方式：" + DescribeRenderers(UnconfiguredRenderers);
+            string unavailable = Unavailable == 0 ? "" : " 已配置，暂不可用：" + DescribeRenderers(UnavailableRenderers);
+            return prefix + $"新生成 {Generated} 项，复用 {Reused} 项，失败 {Failed} 项，未选择生成方式 {Unconfigured} 项，已配置暂不可用 {Unavailable} 项，重试上限 {RetryLimited} 项。" +
+                Selection.Description + "。" + missing + unavailable;
         }
     }
 
-    internal void AddUnconfigured(SynthKind synth)
+    internal void AddUnconfigured(SynthKind synth, string status, string detail)
     {
         Unconfigured++;
         unconfiguredSynths[synth] = unconfiguredSynths.GetValueOrDefault(synth) + 1;
+        var key = (synth, status, detail);
+        unconfiguredRenderers[key] = unconfiguredRenderers.GetValueOrDefault(key) + 1;
     }
+
+    internal void AddUnavailable(SynthKind synth, string status, string detail)
+    {
+        Unavailable++;
+        var key = (synth, status, detail);
+        unavailableRenderers[key] = unavailableRenderers.GetValueOrDefault(key) + 1;
+    }
+
+    private static IReadOnlyList<RendererUnavailable> RendererGroups(Dictionary<(SynthKind Synth, string Status, string Detail), int> groups) =>
+        groups.OrderBy(pair => pair.Key.Synth).ThenBy(pair => pair.Key.Status, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.Detail, StringComparer.Ordinal)
+            .Select(pair => new RendererUnavailable(pair.Key.Synth, pair.Key.Status, pair.Key.Detail, pair.Value)).ToList();
+
+    private static string DescribeRenderers(IReadOnlyList<RendererUnavailable> renderers) => string.Join("；", renderers.Select(item =>
+        $"{item.Synth} {item.Count} 项 · {item.Status}：{item.Detail}")) + "。";
 
     internal void AddExcluded(PresetRecord preset, bool repeatedSelection)
     {
@@ -104,9 +130,10 @@ public sealed class QueueResult
 public sealed partial class RenderQueue(LibraryStore store, IRenderResourceProbe? resourceProbe = null)
 {
     public Task<QueueResult> RunAsync(AppSettings settings, IReadOnlyList<PresetRecord> presets, string workerPath,
-        IProgress<QueueProgress> progress, CancellationToken cancellationToken, bool forceRegenerate = false) =>
+        IProgress<QueueProgress> progress, CancellationToken cancellationToken, bool forceRegenerate = false,
+        IReadOnlyList<RenderReadiness>? readiness = null) =>
         new Execution(store, settings, presets, workerPath, progress, cancellationToken, forceRegenerate,
-            resourceProbe ?? new SystemRenderResourceProbe()).RunAsync();
+            resourceProbe ?? new SystemRenderResourceProbe(), readiness).RunAsync();
 
     public Task<InitBaselineState> GenerateInitializationBaselineAsync(AppSettings settings, PluginConfiguration plugin,
         string workerPath, IProgress<QueueProgress> progress, CancellationToken cancellationToken) =>

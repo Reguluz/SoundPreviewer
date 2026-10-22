@@ -35,6 +35,12 @@ $originals[$legacyDirectoryConfiguration] = (Get-FileHash -LiteralPath $legacyDi
 $manualPluginDirectory = Join-Path $diagnostics 'TEST ONLY manual plugin directory'
 $results = @()
 foreach ($phase in @('migrate', 'reopen')) {
+    $previousBackups = @{}
+    if ($phase -eq 'reopen') {
+        Get-ChildItem -LiteralPath (Join-Path $preview 'Backups') -Filter 'library-before-install-*.db' -File | ForEach-Object {
+            $previousBackups[$_.Name] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }
+    }
     foreach ($name in @('ui-smoke.json', 'ui-error.txt', 'ui-startup-error.txt', 'ui-exit.json')) {
         $previous = Join-Path $preview $name
         if (Test-Path -LiteralPath $previous -PathType Leaf) { Remove-Item -LiteralPath $previous }
@@ -55,6 +61,19 @@ foreach ($phase in @('migrate', 'reopen')) {
     }
     finally { $process.Dispose() }
     $result = Get-Content -LiteralPath (Join-Path $preview 'ui-smoke.json') -Raw | ConvertFrom-Json
+    if ($null -eq $result.PSObject.Properties['StoragePreparationWindowShown'] -or
+        [bool]$result.StoragePreparationWindowShown -ne ($phase -eq 'migrate')) {
+        throw "Installed storage $phase did not verify that only a real migration opens the preparation window: $diagnostics"
+    }
+    if ($phase -eq 'reopen') {
+        $currentBackups = @(Get-ChildItem -LiteralPath (Join-Path $preview 'Backups') -Filter 'library-before-install-*.db' -File)
+        if ($currentBackups.Count -ne $previousBackups.Count) { throw 'Reopening a prepared library created another migration backup.' }
+        foreach ($backup in $currentBackups) {
+            if ($previousBackups[$backup.Name] -ne (Get-FileHash -LiteralPath $backup.FullName -Algorithm SHA256).Hash) {
+                throw 'Reopening a prepared library changed a retained migration backup.'
+            }
+        }
+    }
     if (-not $result.InstalledStorageChecked -or -not $result.ExistingPreviewsLocal -or -not $result.GeneratedViewChecked -or $result.StoredPreviewRecords -ne 2 -or -not $result.TemplatePersistenceChecked -or
         -not $result.MetadataPersistenceChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or
         -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or
@@ -86,7 +105,8 @@ foreach ($phase in @('migrate', 'reopen')) {
             throw "The original legacy fixture was changed: $file"
         }
     }
-    $results += @{ Phase = $phase; FixedPreviewDirectory = $preview; Presets = $result.Presets; OriginalFilesPreserved = $true }
+    $results += @{ Phase = $phase; FixedPreviewDirectory = $preview; Presets = $result.Presets; OriginalFilesPreserved = $true;
+        StoragePreparationWindowShown = [bool]$result.StoragePreparationWindowShown; NoRepeatedMigrationBackup = $phase -eq 'reopen' }
     Copy-Item -LiteralPath (Join-Path $preview 'ui-smoke.json') -Destination (Join-Path $diagnostics "$phase-ui-smoke.json")
 }
 $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $diagnostics 'result.json') -Encoding utf8

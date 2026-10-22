@@ -78,7 +78,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string CategoryRulesStatus => _categoryRulesStatus;
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
-    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未配置", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
+    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未选择生成方式", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
     public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
@@ -313,8 +313,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await Task.Run(() => RefreshBinaryHashes(settings, token, preparation), token);
         _settings.Plugins = settings.Plugins;
         await Task.Run(() => _store.SaveSettings(_settings), token);
-        var executionSettings = CreateExecutionSettings(settings, state =>
-            Log($"{Labels.Synth(state.Synth)} 暂不能生成：{state.Detail}"));
+        var executionSettings = CreateExecutionSettings(settings, out var readiness);
         var rows = Presets.ToDictionary(p => p.Record.Id);
         var changedRows = new ConcurrentDictionary<string, byte>();
         QueueProgress? pendingProgress = null;
@@ -362,7 +361,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         QueueResult result;
         try
         {
-            result = await Task.Run(() => new RenderQueue(_store).RunAsync(executionSettings, records, workerPath, progress, token, forceRegenerate), token);
+            result = await Task.Run(() => new RenderQueue(_store).RunAsync(executionSettings, records, workerPath, progress, token, forceRegenerate, readiness), token);
         }
         finally
         {
@@ -391,15 +390,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             catch (Exception error) { Log("任务记录未能刷新：" + error.Message); }
         }
-        _needsRendererSetup = result.Unconfigured > 0 || result.Failed > 0;
-        _taskTitle = result.Generated > 0
-            ? result.Failed + result.Unconfigured + result.RetryLimited > 0 ? "预览任务结束，部分项目未生成" : "预览生成完成"
-            : result.Reused > 0 ? "已有预览已保留" : "本次没有生成预览";
-        _statusMessage = (currentFilterOnly ? "当前筛选：" : "") + result.Summary;
+        _needsRendererSetup = result.Unconfigured > 0 || result.Unavailable > 0 || result.Failed > 0;
+        _taskTitle = result.Failed + result.Unconfigured + result.Unavailable + result.RetryLimited > 0
+            ? result.Generated + result.Reused > 0 ? "预览任务结束，部分项目未生成" : "本次没有生成预览"
+            : result.Generated > 0 ? "预览生成完成" : result.Reused > 0 ? "已有预览已保留" : "本次没有生成预览";
+        var firstBlocked = result.UnavailableRenderers.FirstOrDefault() ?? result.UnconfiguredRenderers.FirstOrDefault();
+        string reason = firstBlocked is null ? "" : $"{Labels.Synth(firstBlocked.Synth)} · {firstBlocked.Status}：{firstBlocked.Detail} · ";
+        _statusMessage = (currentFilterOnly ? "当前筛选：" : "") + reason + result.Summary;
         _taskProgressText = FormatRenderProgress(new QueueProgress(result.Processed, result.Eligible, "", "", null)
         {
             Generated = result.Generated, Reused = result.Reused, Failed = result.Failed,
-            Unconfigured = result.Unconfigured, RetryLimited = result.RetryLimited
+            Unconfigured = result.Unconfigured, Unavailable = result.Unavailable, RetryLimited = result.RetryLimited
         });
         _taskSelectionText = (currentFilterOnly ? "当前筛选 · " : "") + result.Selection.Description;
         RefreshCompatibility();
@@ -454,7 +455,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _taskProgressText = FormatRenderProgress(new QueueProgress(ex.Summary.Processed, ex.Summary.Eligible, "", "", null)
             {
                 Generated = ex.Summary.Generated, Reused = ex.Summary.Reused, Failed = ex.Summary.Failed,
-                Unconfigured = ex.Summary.Unconfigured, RetryLimited = ex.Summary.RetryLimited
+                Unconfigured = ex.Summary.Unconfigured, Unavailable = ex.Summary.Unavailable, RetryLimited = ex.Summary.RetryLimited
             });
             _taskSelectionText = ex.Summary.Selection.Description;
             _taskMemoryText = $"总内存采样峰值 {ex.Summary.PeakWorkingSetBytes / 1048576d:0} MiB / {ex.Summary.MemoryBudgetBytes / 1048576d:0} MiB；已完成的预览保留，可降低并行后继续。";
@@ -1105,7 +1106,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var result = await new PluginScanService().ScanAsync(PluginDirectories.ToList(), token);
             var merged = MergePluginScanResults(result, _settings.DiscoveredPlugins);
             var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
-            PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
+            PluginSelectionService.ApplyPreparedDawDreamer(Plugins, App.DataDirectory, merged);
             _settings.PluginDirectories = PluginDirectories.ToList();
             _settings.DiscoveredPlugins = merged;
             _settings.Plugins = ClonePlugins();
@@ -1129,7 +1130,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var configuration = Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth)
                 ?? throw new ArgumentException("此插件尚不属于支持的音源类型。");
             PluginSelectionService.Assign(configuration, row.Record, X86HostPath);
-            PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);
+            PluginSelectionService.ApplyPreparedDawDreamer(Plugins, App.DataDirectory, _settings.DiscoveredPlugins);
             _settings.Plugins = ClonePlugins();
             _store.SaveSettings(_settings);
             await InvalidateChangedPreviewsAsync();

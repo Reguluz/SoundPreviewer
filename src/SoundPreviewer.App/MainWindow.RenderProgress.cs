@@ -9,7 +9,8 @@ public partial class MainWindow
         string text = $"已处理 {progress.Completed} / {progress.Total}";
         if (progress.Total > 0) text += $" ({progress.Completed * 100d / progress.Total:0}%)";
         text += $" · 成功 {progress.Succeeded}（新生成 {progress.Generated} / 复用 {progress.Reused}） · 失败 {progress.Failed}";
-        if (progress.Unconfigured > 0) text += $" · 未配置 {progress.Unconfigured}";
+        if (progress.Unconfigured > 0) text += $" · 未选择生成方式 {progress.Unconfigured}";
+        if (progress.Unavailable > 0) text += $" · 暂不可用 {progress.Unavailable}";
         if (progress.RetryLimited > 0) text += $" · 达重试限制 {progress.RetryLimited}";
         if (progress.ActiveCount > 0 || progress.EffectiveConcurrency > 0)
             text += $" · 运行 {progress.ActiveCount}/{progress.EffectiveConcurrency}";

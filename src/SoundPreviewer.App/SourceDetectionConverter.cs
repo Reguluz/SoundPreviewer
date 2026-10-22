@@ -20,7 +20,7 @@ public sealed class BackendLabelConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
     {
-        RenderBackend.Unconfigured => "未配置", RenderBackend.VitalCli => "Vital 原生",
+        RenderBackend.Unconfigured => "未选择生成方式", RenderBackend.VitalCli => "Vital 原生",
         RenderBackend.ExternalWorker => "外部工作进程", RenderBackend.DawDreamer => "DawDreamer",
         RenderBackend.Sushi => "Sushi（本地研究）", _ => ""
     };

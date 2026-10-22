@@ -30,6 +30,7 @@ public sealed partial class RenderQueue
         private readonly IProgress<QueueProgress> progress;
         private readonly CancellationToken callerToken;
         private readonly bool force;
+        private readonly IReadOnlyDictionary<SynthKind, RenderReadiness> readiness;
         private readonly object gate = new();
         private readonly QueueResult summary;
         private readonly Stopwatch elapsed = Stopwatch.StartNew();
@@ -57,7 +58,8 @@ public sealed partial class RenderQueue
         };
 
         public Execution(LibraryStore store, AppSettings settings, IReadOnlyList<PresetRecord> originals,
-            string workerPath, IProgress<QueueProgress> progress, CancellationToken token, bool force, IRenderResourceProbe resourceProbe)
+            string workerPath, IProgress<QueueProgress> progress, CancellationToken token, bool force, IRenderResourceProbe resourceProbe,
+            IReadOnlyList<RenderReadiness>? readiness = null)
         {
             this.store = store;
             originalSettings = settings;
@@ -67,6 +69,8 @@ public sealed partial class RenderQueue
             this.progress = progress;
             callerToken = token;
             this.force = force;
+            this.readiness = readiness?.GroupBy(state => state.Synth).ToDictionary(group => group.Key, group => group.First() with { })
+                ?? new Dictionary<SynthKind, RenderReadiness>();
             this.resourceProbe = resourceProbe;
             targetConcurrency = RenderResourcePolicy.ResolveMaxConcurrency(this.settings.MaxParallelRenders, resourceProbe.Hardware);
             summary = new()
@@ -167,6 +171,7 @@ public sealed partial class RenderQueue
             var jobs = new Dictionary<string, RenderJob>(StringComparer.Ordinal);
             var ids = new HashSet<string>(StringComparer.Ordinal);
             var candidates = new List<QueueItem>();
+            var skipped = new List<QueueItem>();
             foreach (var original in originals)
             {
                 token.ThrowIfCancellationRequested();
@@ -186,7 +191,10 @@ public sealed partial class RenderQueue
                 token.ThrowIfCancellationRequested();
                 var preset = item.Record;
                 bool unconfigured = !plugins.TryGetValue(preset.Synth, out var plugin) || plugin.Backend == RenderBackend.Unconfigured;
-                if (unconfigured && (force || !HasPreviewMetadata(preset))) { summary.AddUnconfigured(preset.Synth); continue; }
+                readiness.TryGetValue(preset.Synth, out var state);
+                bool unavailable = !unconfigured && state?.CanAttemptRender == false;
+                if ((unconfigured || unavailable) && (force || !HasPreviewMetadata(preset)))
+                { SkipRenderer(item, plugin, state, unconfigured, skipped); continue; }
                 Report(QueueStages.Validating, "正在核对已有预览及试听配置...", item, true);
                 bool hasPreview = HasValidPreview(preset, token);
                 if (hasPreview && !force)
@@ -201,7 +209,7 @@ public sealed partial class RenderQueue
                     Report(QueueStages.Validating, "已生成有效预览，默认跳过。", item);
                     continue;
                 }
-                if (unconfigured) { summary.AddUnconfigured(preset.Synth); continue; }
+                if (unconfigured || unavailable) { SkipRenderer(item, plugin, state, unconfigured, skipped); continue; }
                 settings.Template.Validate();
                 string error = !File.Exists(plugin!.ExecutablePath) ? $"{preset.Synth} 渲染程序不存在。" :
                     plugin.TimeoutSeconds is < 5 or > 3600 ? "进程超时须为 5 到 3600 秒。" :
@@ -228,8 +236,15 @@ public sealed partial class RenderQueue
                 }
                 job.Items.Add(item);
             }
-            if (summary.Unconfigured > 0)
-                Report(QueueStages.Preparing, $"已识别 {summary.Unconfigured} 项未配置渲染器。" + summary.Summary);
+            if (skipped.Count > 0)
+            {
+                token.ThrowIfCancellationRequested();
+                var merged = store.MergeRenderStates(skipped.Select(item => (item.Record, item.Identity, false)).ToList(),
+                    existingRecordsOnly: true);
+                for (int index = 0; index < skipped.Count; index++)
+                    LibraryStore.CopyRenderFields(skipped[index].Original, merged[index]);
+                Report(QueueStages.Preparing, summary.Summary);
+            }
             foreach (var job in jobs.Values)
                 batchOutputs.Add(Path.GetFullPath(Path.Combine(settings.PreviewDirectory, job.Key + PreviewExtension)));
             // Keep each synth's jobs adjacent without changing the first-seen synth
@@ -689,6 +704,24 @@ public sealed partial class RenderQueue
             Report(QueueStages.Validating, error, item);
         }
 
+        private void SkipRenderer(QueueItem item, PluginConfiguration? plugin, RenderReadiness? state, bool unconfigured,
+            List<QueueItem> skipped)
+        {
+            string status = state?.Status ?? "未选择生成方式";
+            string detail = state?.Detail ?? "尚未选择可运行的预览生成方式，请选择对应音源的生成方式。";
+            if (!string.IsNullOrWhiteSpace(plugin?.ExecutablePath)) detail += " 程序路径：" + plugin.ExecutablePath;
+            if (!string.IsNullOrWhiteSpace(plugin?.PluginPath)) detail += " 插件路径：" + plugin.PluginPath;
+            string outcome = unconfigured ? "未选择生成方式" : "已配置，暂不可用";
+            item.Record.LastRenderOutcome = outcome;
+            item.Record.LastRenderMessage = outcome + " · " + status + "：" + detail;
+            // Retain an existing preview's confirmation text and all cached audio fields.
+            if (item.Record.Status is not (PresetStatus.Ready or PresetStatus.NeedsReview) && !File.Exists(item.Record.PreviewPath))
+                item.Record.Message = item.Record.LastRenderMessage;
+            if (unconfigured) summary.AddUnconfigured(item.Record.Synth, status, detail);
+            else summary.AddUnavailable(item.Record.Synth, status, detail);
+            skipped.Add(item);
+        }
+
         private void Persist(QueueItem item)
         {
             var merged = store.MergeRenderState(item.Record, item.Identity);
@@ -712,7 +745,7 @@ public sealed partial class RenderQueue
                     PreparingCount = terminal ? 0 : Math.Max(0, memoryLeases.Count - activeWorkers),
                     ConcurrencyMessage = terminal ? "" : concurrency.Reason,
                     Generated = summary.Generated, Reused = summary.Reused, Failed = summary.Failed,
-                    Unconfigured = summary.Unconfigured, RetryLimited = summary.RetryLimited
+                    Unconfigured = summary.Unconfigured, Unavailable = summary.Unavailable, RetryLimited = summary.RetryLimited
                 });
             }
         }

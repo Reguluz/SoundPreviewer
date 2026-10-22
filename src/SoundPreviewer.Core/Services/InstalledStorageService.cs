@@ -13,6 +13,73 @@ public sealed record InstalledStorageResult(string Directory, string SourceDirec
 /// <summary>Imports historical libraries into Preview beside the application without changing their originals.</summary>
 public static class InstalledStorageService
 {
+    // Established installation-local libraries need no database snapshot or copy pass.
+    // Inspect only stored paths: ordinary rendering and personal metadata edits do not
+    // invalidate this check, while an older version can still introduce external audio.
+    public static bool TryOpenPreparedLibrary(string applicationDirectory, string sourceDirectory,
+        out InstalledStorageResult? prepared)
+    {
+        prepared = null;
+        string application = Path.TrimEndingDirectorySeparator(Path.GetFullPath(applicationDirectory));
+        string target = Path.Combine(application, "Preview");
+        string source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceDirectory));
+        if (!ApplicationPaths.SamePath(source, target)) return false;
+        string databasePath = Path.Combine(target, "library.db");
+        if (!File.Exists(databasePath)) return false;
+        EnsureNoLinks(application);
+        EnsureNoLinks(databasePath);
+        // This is the active installation's writable library, never an external import
+        // source. A writable connection also opens closed WAL databases on macOS.
+        using var database = new NativeSqlite(databasePath);
+        if (database.QueryStrings("PRAGMA user_version;").Single() != LibraryStore.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture))
+            return false;
+        string? settingsJson = database.QueryStrings("SELECT json FROM settings WHERE key='application';").SingleOrDefault();
+        if (settingsJson is null || JsonNode.Parse(settingsJson) is not JsonObject settings ||
+            !ApplicationPaths.SamePath(Text(settings, "PreviewDirectory") ?? "", target)) return false;
+        foreach (string json in database.QueryStrings("SELECT json FROM presets;"))
+            if (JsonNode.Parse(json) is not JsonObject preset || NeedsPathPreparation(Text(preset, "PreviewPath"), target))
+                return false;
+        if (Node(settings, "Plugins") is JsonArray plugins)
+            foreach (var plugin in plugins.OfType<JsonObject>())
+            {
+                string? path = Text(plugin, "InitBaselinePath");
+                if (NeedsPathPreparation(path, target)) return false;
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+                if (new FileInfo(path).Length > 4 * 1024 * 1024) return false;
+                var metadata = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+                if (metadata is null || Text(metadata, "Kind") != InitBaselineService.BaselineKind ||
+                    BaselineNeedsPreparation(metadata, target)) return false;
+            }
+        prepared = new(target, source, 0, []);
+        return true;
+    }
+
+    private static bool NeedsPathPreparation(string? path, string target)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (!Path.IsPathFullyQualified(path)) return true;
+        string fullPath = Path.GetFullPath(path);
+        EnsureNoLinks(fullPath);
+        // Keep missing historical mappings intact. If their disk returns later, the
+        // next startup sees an available external file and safely imports it then.
+        return !ApplicationPaths.IsWithin(fullPath, target) && File.Exists(fullPath);
+    }
+
+    private static bool BaselineNeedsPreparation(JsonNode? node, string target)
+    {
+        if (node is JsonObject obj)
+            foreach (var (key, value) in obj)
+            {
+                if ((key.Equals("WavPath", StringComparison.OrdinalIgnoreCase) || key.Equals("OutputPath", StringComparison.OrdinalIgnoreCase)) &&
+                    value is JsonValue text && text.TryGetValue<string>(out string? path) && NeedsPathPreparation(path, target)) return true;
+                if (BaselineNeedsPreparation(value, target)) return true;
+            }
+        else if (node is JsonArray array)
+            foreach (var item in array)
+                if (BaselineNeedsPreparation(item, target)) return true;
+        return false;
+    }
+
     public static string GetSourceDirectory(string applicationDirectory, string userDataDirectory, string? sourceDirectory = null,
         ICollection<string>? warnings = null)
     {
@@ -48,6 +115,7 @@ public static class InstalledStorageService
         EnsureNoLinks(application);
         EnsureNoLinks(target);
         EnsureNoLinks(source);
+        if (inPlace && TryOpenPreparedLibrary(application, source, out var prepared)) return prepared!;
         if (File.Exists(target)) throw new IOException("程序旁的 Preview 路径被文件占用，未改用其他保存位置：" + target);
         if (!inPlace)
         {
@@ -72,7 +140,7 @@ public static class InstalledStorageService
                 published = true;
                 return new(target, source, 0, warnings);
             }
-            progress?.Report("正在将旧音色库安全复制到程序旁 Preview；原库和原音频保留。");
+            progress?.Report(inPlace ? "正在整理旧版缓存路径；原记录与原音频保留。" : "正在将旧音色库安全复制到程序旁 Preview；原库和原音频保留。");
             EnsureNoLinks(sourceDatabase);
             string backupRelative = Path.Combine("Backups", "library-before-install-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8] + ".db");
             string backup = Path.Combine(stage, backupRelative);

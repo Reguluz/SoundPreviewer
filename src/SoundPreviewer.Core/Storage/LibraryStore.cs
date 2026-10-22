@@ -228,7 +228,7 @@ public sealed class LibraryStore
         MergeRenderStates([(rendered, identity, false)])[0];
 
     internal List<PresetRecord> MergeRenderStates(IReadOnlyList<(PresetRecord Rendered, PresetRecord Identity, bool AudioOnly)> updates,
-        IReadOnlyList<PresetRecord>? requiredPreviewIdentities = null)
+        IReadOnlyList<PresetRecord>? requiredPreviewIdentities = null, bool existingRecordsOnly = false)
     {
         lock (gate)
         {
@@ -239,9 +239,17 @@ public sealed class LibraryStore
             {
                 VerifyPreviewIdentities(database, requiredPreviewIdentities);
                 var merged = new List<PresetRecord>();
+                var persisted = new List<PresetRecord>();
                 foreach (var (rendered, identity, audioOnly) in updates)
                 {
                     string? json = database.QueryStrings("SELECT json FROM presets WHERE id=?;", identity.Id).SingleOrDefault();
+                    // A preflight skip can explain a transient caller input, but must
+                    // never turn it into a new library entry or revive a deleted entry.
+                    if (json is null && existingRecordsOnly)
+                    {
+                        merged.Add(rendered);
+                        continue;
+                    }
                     var latest = JsonSerializer.Deserialize<PresetRecord>(json ?? JsonSerializer.Serialize(identity, LibraryJson.Options), LibraryJson.Options)
                         ?? throw new InvalidDataException("音色记录缺少元数据。");
                     if (requiredPreviewIdentities is not null && (json is null || latest.Status == PresetStatus.Rendering))
@@ -256,8 +264,9 @@ public sealed class LibraryStore
                             latest.Status = PresetStatus.NeedsReview;
                     }
                     merged.Add(latest);
+                    persisted.Add(latest);
                 }
-                WritePresets(database, merged);
+                WritePresets(database, persisted);
                 VerifyPreviewIdentities(database, requiredPreviewIdentities);
                 database.Execute("COMMIT;");
                 return merged;

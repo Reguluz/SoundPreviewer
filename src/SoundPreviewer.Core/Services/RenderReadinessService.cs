@@ -69,11 +69,11 @@ public static class RenderReadinessService
                 !candidates.Any(plugin => plugin.Architecture == PluginArchitecture.X64);
             if (!mac && (selectedX86 || onlyX86))
                 return Result("需要32位宿主", "已识别到 32 位音源。DawDreamer 桥接不能加载它；Sylenth1 VST2 可在包含独立 x86 宿主的版本中重新扫描并关联，其他插件需配置兼容的外部宿主。不要求必须寻找 64 位音源包。");
-            return Result("未配置", candidates.Count > 0 || !string.IsNullOrWhiteSpace(configuration.PluginPath)
+            return Result("未选择生成方式", candidates.Count > 0 || !string.IsNullOrWhiteSpace(configuration.PluginPath)
                 ? "已发现或关联音源文件，但尚未配置可运行的渲染宿主；扫描识别不等于能够生成音频。"
                 : "尚未发现已支持的音源文件，也未配置渲染宿主；请先检查共享插件目录的扫描结果。");
         }
-        if (!Enum.IsDefined(configuration.Backend)) return Result("未配置", "未知的渲染后端，请重新选择。");
+        if (!Enum.IsDefined(configuration.Backend)) return Result("设置无效", "未知的渲染后端，请重新选择。");
         if (configuration.Backend == RenderBackend.VitalCli && configuration.Synth != SynthKind.Vital)
             return Result("格式未适配", "Vital 原生渲染后端只能处理 Vital，不能用来加载其他音源。");
         if (configuration.Backend == RenderBackend.Sushi)
@@ -139,7 +139,7 @@ public static class RenderReadinessService
         if (mac && Path.GetExtension(configuration.ExecutablePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
             return Result("平台不兼容", "macOS 不能直接运行 Windows .exe，请配置本平台渲染程序或 Vital.app 内的 Contents/MacOS 可执行文件。");
         if (string.IsNullOrWhiteSpace(configuration.Version)) return Result("版本缺失", "尚未填写或识别实际音源版本，不能建立可靠的渲染记录。");
-        if (configuration.TimeoutSeconds is < 5 or > 3600) return Result("未配置", "进程超时必须为 5 到 3600 秒，请修正渲染设置。");
+        if (configuration.TimeoutSeconds is < 5 or > 3600) return Result("设置无效", "进程超时必须为 5 到 3600 秒，请修正渲染设置。");
         if (configuration.Backend == RenderBackend.VitalCli)
         {
             if (selected is not null && !PluginSelectionService.IsCompatible(selected, target, architecture))
