@@ -80,6 +80,7 @@ internal static partial class Program
             ("Content hashing, feedback preservation and missing-source protection", TestIncrementalScanAsync),
             ("Persisted MD5 duplicates, canonical promotion and legacy index migration", TestMd5IndexAsync),
             ("Cross-source duplicates retain local representatives and resolve one canonical render", TestCrossSourceDuplicateViewAsync),
+            ("Verified duplicate preview mappings preserve source state and playable cross-path copies", TestDuplicatePreviewSynchronizationAsync),
             ("Vital banks retain internal identities and invalidate resource changes", TestBankScanningAsync),
             ("Vital bank embedded resources preview privately with legacy hashes and bounded reads", TestVitalBankEmbeddedPreviewAsync),
             ("Mixed roots identify unique suffixes and verified VST IDs", TestMixedRootDetectionAsync),

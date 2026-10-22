@@ -124,6 +124,7 @@ public sealed partial class RenderQueue
                     running.Remove(finished);
                     await finished.ConfigureAwait(false);
                 }
+                DuplicatePreviewService.Synchronize(store, token);
                 monitorCancellation.Cancel();
                 await monitor.ConfigureAwait(false);
                 ThrowIfResourceStopped();

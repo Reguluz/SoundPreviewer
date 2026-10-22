@@ -25,8 +25,11 @@ if ($Runtime -eq 'win-x64') {
     }
 }
 $dataDirectory = Join-Path $projectDirectory "artifacts/ui-smoke-$Runtime-$([Guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $dataDirectory | Out-Null
 $start = [Diagnostics.ProcessStartInfo]::new([IO.Path]::GetFullPath($ApplicationPath))
 $start.UseShellExecute = $false
+$start.RedirectStandardError = $true
+$start.RedirectStandardOutput = $true
 $start.ArgumentList.Add('--smoke-test')
 $start.ArgumentList.Add('--data-directory')
 $start.ArgumentList.Add($dataDirectory)
@@ -34,15 +37,23 @@ $process = [Diagnostics.Process]::new()
 $process.StartInfo = $start
 try {
     [void]$process.Start()
+    $appError = $process.StandardError.ReadToEndAsync()
+    $appOutput = $process.StandardOutput.ReadToEndAsync()
     if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Published application smoke test timed out.' }
+    [IO.File]::WriteAllText((Join-Path $dataDirectory 'ui-process-stderr.txt'), $appError.GetAwaiter().GetResult())
+    [IO.File]::WriteAllText((Join-Path $dataDirectory 'ui-process-stdout.txt'), $appOutput.GetAwaiter().GetResult())
     if ($process.ExitCode -ne 0) {
-        $errorPath = Join-Path $dataDirectory 'ui-error.txt'
-        if (Test-Path -LiteralPath $errorPath -PathType Leaf) {
-            $diagnostic = Get-Content -LiteralPath $errorPath -Raw
-            Write-Host $diagnostic
-            if ($env:GITHUB_ACTIONS -eq 'true') {
-                $annotation = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-                Write-Host "::error title=Published UI regression failed::$annotation"
+        foreach ($errorName in @('ui-error.txt', 'ui-startup-error.txt', 'ui-process-stderr.txt')) {
+            $errorPath = Join-Path $dataDirectory $errorName
+            if (Test-Path -LiteralPath $errorPath -PathType Leaf) {
+                $diagnostic = Get-Content -LiteralPath $errorPath -Raw
+                if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
+                    Write-Host $diagnostic
+                    if ($env:GITHUB_ACTIONS -eq 'true') {
+                        $annotation = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+                        Write-Host "::error title=Published UI regression failed::$annotation"
+                    }
+                }
             }
         }
         throw "Published application smoke test failed; see $dataDirectory"
@@ -54,7 +65,8 @@ try {
     if (-not $result.ClipboardPathChecked -or -not $result.LibrarySpaceChecked -or
         -not $result.SingleRowFiltersChecked -or -not $result.PlaybackProgressDockChecked -or
         -not $result.MultiSelectFiltersChecked -or -not $result.FilterRefreshPreservedChecked -or
-        -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked -or -not $result.CompressedPreviewChecked) {
+        -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked -or -not $result.CompressedPreviewChecked -or
+        -not $result.CurrentFilterGenerationChecked) {
         throw "Published application did not verify copy-path and compact library layout; see $dataDirectory"
     }
     if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {

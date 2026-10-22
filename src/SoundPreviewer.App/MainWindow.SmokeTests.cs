@@ -159,6 +159,7 @@ public partial class MainWindow
         }
         var editingChecked = await CheckEditingPersistenceAsync();
         var rendererSettingsChecked = await CheckRendererSettingsIsolationAsync();
+        bool filteredGenerationChecked = await CheckFilteredGenerationAsync();
         bool compressedPreviewChecked = await CheckCompressedPreviewAsync();
         PluginConfiguration? editedBackendModel = null;
         var originalBackend = RenderBackend.Unconfigured;
@@ -263,6 +264,7 @@ public partial class MainWindow
             DataLibraryViewports = editingChecked.Metadata ? 2 : 0,
             RendererSettingsChecked = rendererSettingsChecked,
             CompressedPreviewChecked = compressedPreviewChecked,
+            CurrentFilterGenerationChecked = filteredGenerationChecked,
             PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
             SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, MultiSelectFiltersChecked = true, FilterRefreshPreservedChecked = true,

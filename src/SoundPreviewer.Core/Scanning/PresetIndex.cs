@@ -55,17 +55,21 @@ public static class PresetIndex
     private static bool HasStoredPreview(PresetRecord record) =>
         !string.IsNullOrWhiteSpace(record.CacheKey) && !string.IsNullOrWhiteSpace(record.TemplateJson) && record.Notes is { Count: > 0 } && File.Exists(record.PreviewPath);
 
-    internal static bool HasRecoverablePreview(PresetRecord record)
+    internal static bool HasRecoverablePreview(PresetRecord record) => HasRecoverablePreview(record, CancellationToken.None);
+
+    internal static bool HasRecoverablePreview(PresetRecord record, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!HasStoredPreview(record)) return false;
         try
         {
             var template = JsonSerializer.Deserialize<PreviewTemplate>(record.TemplateJson, LibraryJson.Options);
             if (template is null) return false;
             template.Validate();
-            var metrics = PreviewAudioFile.Validate(record.PreviewPath);
+            var metrics = PreviewAudioFile.Validate(record.PreviewPath, cancellationToken);
             if (metrics.SampleRate != template.SampleRate) return false;
             WorkerProcessClient.ValidateNotes(new RenderResult { Metrics = metrics, Notes = record.Notes, AdapterVersion = record.AdapterVersion }, template);
+            cancellationToken.ThrowIfCancellationRequested();
             return true;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException or JsonException)

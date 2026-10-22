@@ -187,7 +187,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Height = ClientSize.Height;
             RefreshClientLayout();
             var restored = await Task.Run(() => _store.RecoverInterrupted(preserveMissingPreviewMappings: true));
-            var records = await Task.Run(_store.LoadPresets);
+            var records = await Task.Run(() =>
+            {
+                DuplicatePreviewService.Synchronize(_store);
+                return _store.LoadPresets();
+            });
             if (_isClosing) return;
             if (_categoryService.Load().Success)
             {
@@ -245,27 +249,37 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 record.Feedback = latest.Record.Feedback;
                 record.FeedbackUtc = latest.Record.FeedbackUtc;
             }
-        await Task.Run(() => _store.UpsertMany(result.Presets), token);
-        SetPresets(result.Presets);
+        var storedRecords = await Task.Run(() =>
+        {
+            _store.UpsertMany(result.Presets);
+            DuplicatePreviewService.Synchronize(_store, token);
+            return _store.LoadPresets();
+        }, token);
+        SetPresets(storedRecords);
         foreach (var warning in result.Warnings) Log(warning);
         _taskTitle = "目录扫描完成";
         _statusMessage = $"新增 {result.Added}，内容变更 {result.Changed}，MD5 重复副本 {result.Presets.Count(p => p.DuplicateOfId.Length > 0)}，读取警告 {result.Warnings.Count}，耗时 {scanWatch.Elapsed.TotalSeconds:0.0} 秒。";
         Log(_statusMessage);
     });
 
-    private async void Render_Click(object sender, RoutedEventArgs e)
-    {
-        var force = ForceGeneration.IsChecked == true;
-        ForceGeneration.IsChecked = false;
-        await Generate(Presets.Select(p => p.Record).ToList(), force);
-    }
+    private async void Render_Click(object sender, RoutedEventArgs e) => await GenerateCurrentFilterAsync();
     private async void RenderSelected_Click(object sender, RoutedEventArgs e)
     {
         if (!CanRenderSelection || _selected is null) return;
         await Generate([_duplicateView.ResolveCanonical(_selected.Record)], forceRegenerate: true);
     }
-    private async void RenderFiltered_Click(object sender, RoutedEventArgs e) =>
-        await Generate(_duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record)));
+    private async void RenderFiltered_Click(object sender, RoutedEventArgs e) => await GenerateCurrentFilterAsync();
+
+    private async Task GenerateCurrentFilterAsync()
+    {
+        if (!IsIdle || _isClosing) return;
+        // Filter before resolving cross-directory duplicates, so a matching copy includes its sound only.
+        var records = _duplicateView.ResolveCanonicalSelection(PresetsView.Cast<PresetRow>().Select(row => row.Record).ToList());
+        var force = ForceGeneration.IsChecked == true;
+        ForceGeneration.IsChecked = false;
+        // The queue validates existing WAV/M4A previews before reusing them, including stale status records.
+        await Generate(records, force, currentFilterOnly: true);
+    }
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
         var failed = Presets.Where(row => row.Record.DuplicateOfId.Length == 0 &&
@@ -273,13 +287,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (failed.Count > 0) await Generate(failed, forceRegenerate: true);
     }
 
-    private async Task Generate(IReadOnlyList<PresetRecord> records, bool forceRegenerate = false) => await RunTask(async token =>
+    private async Task Generate(IReadOnlyList<PresetRecord> records, bool forceRegenerate = false, bool currentFilterOnly = false) => await RunTask(async token =>
     {
-        if (records.Count == 0) throw new InvalidOperationException("尚无可生成的音色，请先扫描目录。");
+        if (records.Count == 0) throw new InvalidOperationException(currentFilterOnly ? "当前筛选中没有可生成的音色，请调整筛选或先扫描目录。" : "尚无可生成的音色，请先扫描目录。");
         _taskTitle = "正在准备生成预览";
         _statusMessage = "正在检查音源与渲染程序…";
         NotifyTaskProgress();
-        Log(forceRegenerate ? "开始全量重生成，逐项保留旧预览直到新结果完成。" : "继续生成，默认跳过已有完整预览与 MD5 重复副本。");
+        Log(currentFilterOnly
+            ? forceRegenerate ? "仅覆盖重渲染当前筛选结果，逐项保留旧预览直到新结果完成。" : "仅生成当前筛选中未生成的音色，已有有效预览跳过。"
+            : forceRegenerate ? "开始全量重生成，逐项保留旧预览直到新结果完成。" : "继续生成，默认跳过已有完整预览与 MD5 重复副本。");
         if (_selected is not null && records.Any(p => p.Id == _selected.Record.Id))
         {
             StopPlayback();
@@ -317,7 +333,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _progressIndeterminate = p.IsIndeterminate;
             _taskProgressText = FormatRenderProgress(p);
             _taskMemoryText = FormatRenderResources(p);
-            _taskSelectionText = p.Selection?.Description ?? "正在统计本次队列…";
+            _taskSelectionText = (currentFilterOnly ? "当前筛选 · " : "") + (p.Selection?.Description ?? "正在统计本次队列…");
             if (!_stopRequested)
             {
                 _taskTitle = p.Stage == "完成" ? "预览任务已结束" : $"正在{p.Stage}";
@@ -357,7 +373,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             try
             {
                 var previousRendered = _selected?.Record.RenderedUtc;
-                SetPresets(await Task.Run(_store.LoadPresets));
+                SetPresets(await Task.Run(() =>
+                {
+                    DuplicatePreviewService.Synchronize(_store);
+                    return _store.LoadPresets();
+                }));
                 var storedSettings = await Task.Run(_store.LoadSettings);
                 foreach (var plugin in _settings.Plugins)
                     plugin.InitBaselinePath = storedSettings.Plugins.FirstOrDefault(saved => saved.Synth == plugin.Synth)?.InitBaselinePath ?? "";
@@ -375,17 +395,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _taskTitle = result.Generated > 0
             ? result.Failed + result.Unconfigured + result.RetryLimited > 0 ? "预览任务结束，部分项目未生成" : "预览生成完成"
             : result.Reused > 0 ? "已有预览已保留" : "本次没有生成预览";
-        _statusMessage = result.Summary;
+        _statusMessage = (currentFilterOnly ? "当前筛选：" : "") + result.Summary;
         _taskProgressText = FormatRenderProgress(new QueueProgress(result.Processed, result.Eligible, "", "", null)
         {
             Generated = result.Generated, Reused = result.Reused, Failed = result.Failed,
             Unconfigured = result.Unconfigured, RetryLimited = result.RetryLimited
         });
-        _taskSelectionText = result.Selection.Description;
+        _taskSelectionText = (currentFilterOnly ? "当前筛选 · " : "") + result.Selection.Description;
         RefreshCompatibility();
         await RefreshInitBaselinesAsync();
-        if (result.Generated + result.Reused > 0) ShowGeneratedPreviews();
-        Log(result.Summary);
+        if (!currentFilterOnly && result.Generated + result.Reused > 0) ShowGeneratedPreviews();
+        Log(_statusMessage);
         Log($"本次队列用时 {result.ElapsedSeconds:0.00} 秒，最多同时运行 {result.PeakActiveCount} 个任务。");
         _taskMemoryText = $"本次总内存采样峰值 {result.PeakWorkingSetBytes / 1048576d:0} MiB / {result.MemoryBudgetBytes / 1048576d:0} MiB · 并行目标 {result.ResolvedConcurrency} 条";
         Log(_taskMemoryText);
@@ -698,12 +718,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 throw new ArgumentException("请先选择此预制所属的音源。");
             var row = _selected;
             ScanService.AssignSynth(row.Record, choice.Value);
-            PresetIndex.RebuildDuplicates(Presets.Select(p => p.Record).ToList(), Sources.ToList());
-            _store.UpsertMany(Presets.Select(p => p.Record));
-            foreach (var preset in Presets) preset.Refresh();
-            RefreshFilterChoices();
-            RefreshCompatibility();
-            NotifyAll();
+            var records = Presets.Select(p => p.Record).ToList();
+            PresetIndex.RebuildDuplicates(records, Sources.ToList());
+            _store.UpsertMany(records);
+            SetPresets(await Task.Run(() =>
+            {
+                DuplicatePreviewService.Synchronize(_store);
+                return _store.LoadPresets();
+            }));
             await LoadSelectedPreview();
             Log($"已确认音源标签：{row.Name} → {Labels.Synth(choice.Value)}。");
         }

@@ -227,7 +227,8 @@ public sealed class LibraryStore
     internal PresetRecord MergeRenderState(PresetRecord rendered, PresetRecord identity) =>
         MergeRenderStates([(rendered, identity, false)])[0];
 
-    internal List<PresetRecord> MergeRenderStates(IReadOnlyList<(PresetRecord Rendered, PresetRecord Identity, bool AudioOnly)> updates)
+    internal List<PresetRecord> MergeRenderStates(IReadOnlyList<(PresetRecord Rendered, PresetRecord Identity, bool AudioOnly)> updates,
+        IReadOnlyList<PresetRecord>? requiredPreviewIdentities = null)
     {
         lock (gate)
         {
@@ -236,15 +237,16 @@ public sealed class LibraryStore
             database.Execute("BEGIN IMMEDIATE;");
             try
             {
+                VerifyPreviewIdentities(database, requiredPreviewIdentities);
                 var merged = new List<PresetRecord>();
                 foreach (var (rendered, identity, audioOnly) in updates)
                 {
                     string? json = database.QueryStrings("SELECT json FROM presets WHERE id=?;", identity.Id).SingleOrDefault();
                     var latest = JsonSerializer.Deserialize<PresetRecord>(json ?? JsonSerializer.Serialize(identity, LibraryJson.Options), LibraryJson.Options)
                         ?? throw new InvalidDataException("音色记录缺少元数据。");
-                    if (latest.ContentHash != identity.ContentHash || latest.Synth != identity.Synth || latest.SourceId != identity.SourceId ||
-                        latest.SourcePath != identity.SourcePath || latest.InternalPath != identity.InternalPath || latest.BankSlot != identity.BankSlot ||
-                        latest.DuplicateOfId != identity.DuplicateOfId || latest.FileSize != identity.FileSize || latest.LastWriteUtc != identity.LastWriteUtc)
+                    if (requiredPreviewIdentities is not null && (json is null || latest.Status == PresetStatus.Rendering))
+                        throw new InvalidOperationException("复用预览期间副本已删除或开始生成；未更改其预览。");
+                    if (!SameRenderSource(latest, identity))
                         throw new InvalidOperationException("生成期间音色来源已变化；已保留新记录，未挂接旧任务的预览。");
                     if (!audioOnly) CopyRenderFields(latest, rendered);
                     else if (latest.PreviewPath == identity.PreviewPath && latest.CacheKey == identity.CacheKey)
@@ -256,10 +258,35 @@ public sealed class LibraryStore
                     merged.Add(latest);
                 }
                 WritePresets(database, merged);
+                VerifyPreviewIdentities(database, requiredPreviewIdentities);
                 database.Execute("COMMIT;");
                 return merged;
             }
             catch { database.Execute("ROLLBACK;"); throw; }
+        }
+    }
+
+    private static bool SameRenderSource(PresetRecord first, PresetRecord second) =>
+        first.ContentHash == second.ContentHash && first.Synth == second.Synth && first.SourceId == second.SourceId &&
+        first.SourcePath == second.SourcePath && first.InternalPath == second.InternalPath && first.BankSlot == second.BankSlot &&
+        first.DuplicateOfId == second.DuplicateOfId && first.FileSize == second.FileSize && first.LastWriteUtc == second.LastWriteUtc;
+
+    internal static string AudioFieldsIdentity(PresetRecord record) => JsonSerializer.Serialize(new
+    {
+        record.PreviewPath, record.CacheKey, record.RenderedUtc, record.Metrics, record.Notes,
+        record.AdapterVersion, record.PluginVersion, record.TemplateJson
+    }, LibraryJson.Options);
+
+    private static void VerifyPreviewIdentities(NativeSqlite database, IReadOnlyList<PresetRecord>? required)
+    {
+        if (required is null) return;
+        foreach (var identity in required)
+        {
+            string? json = database.QueryStrings("SELECT json FROM presets WHERE id=?;", identity.Id).SingleOrDefault();
+            var latest = json is null ? null : JsonSerializer.Deserialize<PresetRecord>(json, LibraryJson.Options);
+            if (latest is null || latest.Status == PresetStatus.Rendering || !SameRenderSource(latest, identity) ||
+                AudioFieldsIdentity(latest) != AudioFieldsIdentity(identity))
+                throw new InvalidOperationException("复用预览期间保留项的来源或预览已变化；未更改副本记录。");
         }
     }
 

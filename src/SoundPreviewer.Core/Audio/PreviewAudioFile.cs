@@ -233,53 +233,19 @@ public static partial class PreviewAudioFile
 
     private static Decoded ReadMacDecodedWave(string path, int rate, int channels, int frames, CancellationToken token)
     {
-        // afconvert produces IEEE float WAV. Inspect its bounded native output
-        // before allocating, including the small amount of possible AAC padding.
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // Reuse the shared RIFF parser, including WAVE_FORMAT_EXTENSIBLE float,
+        // after bounding this private native output before any sample allocation.
         long maximumPcmBytes = (frames + (long)MaximumPaddingFrames) * channels * sizeof(float);
-        if (stream.Length < 44 || stream.Length > maximumPcmBytes + 65536)
+        long fileBytes = new FileInfo(path).Length;
+        if (fileBytes < 44 || fileBytes > maximumPcmBytes + 65536)
             throw new InvalidDataException("AAC 原生解码输出超过可信时长限制。");
-        using var reader = new BinaryReader(stream);
-        if (reader.ReadUInt32() != 0x46464952) throw new InvalidDataException("AAC 原生解码未返回 RIFF WAV。");
-        long end = reader.ReadUInt32() + 8L;
-        if (end > stream.Length || end < 44 || reader.ReadUInt32() != 0x45564157)
-            throw new InvalidDataException("AAC 原生解码 WAV 文件头无效。");
-        bool formatFound = false;
-        long dataOffset = -1, dataBytes = 0;
-        while (stream.Position + 8 <= end)
-        {
-            token.ThrowIfCancellationRequested();
-            uint tag = reader.ReadUInt32();
-            long size = reader.ReadUInt32(), next = stream.Position + size + (size & 1);
-            if (next > end) throw new InvalidDataException("AAC 原生解码 WAV 数据截断。");
-            if (tag == 0x20746d66)
-            {
-                if (formatFound || size < 16 || reader.ReadUInt16() != 3 || reader.ReadUInt16() != channels ||
-                    reader.ReadInt32() != rate || reader.ReadUInt32() != rate * channels * sizeof(float) ||
-                    reader.ReadUInt16() != channels * sizeof(float) || reader.ReadUInt16() != 32)
-                    throw new InvalidDataException("AAC 解码改变了采样率、声道或 IEEE 浮点格式。");
-                formatFound = true;
-            }
-            else if (tag == 0x61746164)
-            {
-                if (dataOffset >= 0) throw new InvalidDataException("AAC 原生解码包含多个音频数据块。");
-                dataOffset = stream.Position;
-                dataBytes = size;
-            }
-            stream.Position = next;
-        }
-        if (!formatFound || dataOffset < 0 || dataBytes % (channels * sizeof(float)) != 0 ||
-            dataBytes < frames * (long)channels * sizeof(float) || dataBytes > maximumPcmBytes)
-            throw new InvalidDataException("AAC 解码时长与原始预览不一致。");
-        var samples = new float[checked(frames * channels)];
-        stream.Position = dataOffset;
-        for (int i = 0; i < samples.Length; i++)
-        {
-            if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
-            samples[i] = reader.ReadSingle();
-            if (!float.IsFinite(samples[i])) throw new InvalidDataException("AAC 解码包含非有限采样值。");
-        }
-        return new(new WaveData { SampleRate = rate, Channels = channels, Samples = samples }, (int)(dataBytes / (channels * sizeof(float))));
+        var decoded = WaveFile.Read(path, token);
+        if (decoded.SampleRate != rate || decoded.Channels != channels || decoded.Frames < frames || decoded.Frames > frames + MaximumPaddingFrames)
+            throw new InvalidDataException($"AAC 解码与原始预览不一致：实际 {decoded.SampleRate} Hz / {decoded.Channels} 声道 / {decoded.Frames} 帧，原始 {rate} Hz / {channels} 声道 / {frames} 帧。");
+        if (WaveFile.Analyze(decoded, token).HasNonFinite) throw new InvalidDataException("AAC 解码包含非有限采样值。");
+        token.ThrowIfCancellationRequested();
+        var samples = decoded.Frames == frames ? decoded.Samples : decoded.Samples[..checked(frames * channels)];
+        return new(new WaveData { SampleRate = rate, Channels = channels, Samples = samples }, decoded.Frames);
     }
 
     private static string CreateScratch(string path)
