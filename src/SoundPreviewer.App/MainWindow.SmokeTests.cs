@@ -79,6 +79,9 @@ public partial class MainWindow
         }
         var menu = new ContextMenu();
         ColumnMenu_Opened(menu, new RoutedEventArgs());
+        if (!PresetGrid.Columns.Where(value => value.IsVisible).OrderBy(value => value.DisplayIndex)
+            .Select(value => value.Header as string).SequenceEqual(new[] { "音色名称", "音源", "类别", "状态", "收藏", "尝试", "最近任务" }))
+            throw new InvalidOperationException("音色列表默认可见列及顺序发生变化。");
         if (menu.Items.Count != PresetGrid.Columns.Count) throw new InvalidOperationException("列选择菜单与表格列不一致。");
         var column = PresetGrid.Columns.First(value => value.IsVisible);
         var item = menu.Items.OfType<MenuItem>().First(value => Equals(value.Header, column.Header));
@@ -668,7 +671,7 @@ public partial class MainWindow
         var content = (Control)Content!;
         var screen = Screens.ScreenFromWindow(this);
         Control[] controls = [AppBrandName, AppearanceButton, ForceGeneration, ScanPluginsButton, ScanPresetsButton, BuildVersionLabel,
-            StatusFooterText, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
+            StatusFooterText, MainToolbar, StatusFooter, PresetFormatHint, PresetGrid, TaskStatusBand, TaskProgressTitle, TaskProgressMetadata,
             TaskProgressDetails, TaskResourceDetails, GenerationProgressBar, Pages, CopyPresetPathButton, PresetDetailsScroll, LocatePresetButton,
             LibraryWorkspace, LibraryListPane, LibraryDetailsPane, FilterStrip, PlaybackBar, PlayPreviewButton,
             SearchBox, FilterTabs, FilterOptionsBand, FilterOptionsScroll, FilterOptionsItems, RecentLogList,

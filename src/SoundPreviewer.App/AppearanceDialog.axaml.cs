@@ -32,9 +32,9 @@ internal partial class AppearanceDialog : Window
         for (int index = 0; index < ThemeManager.ColorFields.Length; index++)
         {
             var (key, label) = ThemeManager.ColorFields[index];
-            var input = new TextBox { Name = "Color" + key, MinWidth = 132, MaxLength = 7, Watermark = "#RRGGBB", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            var input = new TextBox { Name = "Color" + key, MinWidth = 132, MaxLength = 7, Watermark = "#RRGGBB", FontSize = 12, FontFamily = new FontFamily("Consolas, Cascadia Mono, monospace"), VerticalAlignment = VerticalAlignment.Center };
             AutomationProperties.SetName(input, label + " HEX 色值");
-            var swatch = new Button { Name = "Pick" + key, Width = 32, Height = 32, MinHeight = 32, Padding = new Thickness(0), CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 10, 0) };
+            var swatch = new Button { Name = "Pick" + key, Width = 32, Height = 32, MinHeight = 32, Padding = new Thickness(0), CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 0, 10, 0) };
             swatch.Bind(BorderBrushProperty, new DynamicResourceExtension("Line"));
             AutomationProperties.SetName(swatch, "选择" + label);
             ToolTip.SetTip(swatch, "选择" + label);
@@ -87,9 +87,22 @@ internal partial class AppearanceDialog : Window
         LightMode.IsChecked = appearance.Mode == "light";
         DarkMode.IsChecked = appearance.Mode == "dark";
         SystemMode.IsChecked = appearance.Mode == "system";
+        SilverPreset.IsChecked = appearance.Preset == "silver";
         SagePreset.IsChecked = appearance.Preset == "sage";
         LavenderPreset.IsChecked = appearance.Preset == "lavender";
         BluePreset.IsChecked = appearance.Preset == "blue";
+        foreach (var (key, swatch, highlight) in new[]
+        {
+            ("silver", SilverPresetSwatch, SilverPresetHighlight),
+            ("sage", SagePresetSwatch, SagePresetHighlight),
+            ("lavender", LavenderPresetSwatch, LavenderPresetHighlight),
+            ("blue", BluePresetSwatch, BluePresetHighlight)
+        })
+        {
+            var preset = ThemeManager.Preset(key, appearance.Mode);
+            swatch.Background = new SolidColorBrush(Color.Parse(preset.Accent));
+            highlight.Background = new SolidColorBrush(Color.Parse(preset.SelectionBackground));
+        }
         foreach (var (key, field) in _fields)
         {
             string value = (string)typeof(AppearanceSettings).GetProperty(key)!.GetValue(appearance)!;
@@ -149,7 +162,7 @@ internal partial class AppearanceDialog : Window
 
     private void ResetDefaults_Click(object? sender, RoutedEventArgs e)
     {
-        var defaults = ThemeManager.ChangePreset(_working, "sage");
+        var defaults = ThemeManager.ChangePreset(_working, "silver");
         Populate(ThemeManager.SwitchMode(defaults, "light"));
         Preview();
     }

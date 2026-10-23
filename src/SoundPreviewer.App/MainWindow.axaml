@@ -6,10 +6,10 @@
  Opened="Window_Loaded" Closing="Window_Closing">
  <Grid Background="{DynamicResource WindowBackground}">
   <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="118"/><RowDefinition Height="24"/></Grid.RowDefinitions>
-  <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="20,0">
+  <Border x:Name="MainToolbar" Background="{DynamicResource HeaderBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="20,0">
    <Grid>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-     <Border Background="{DynamicResource SelectionBackground}" Width="36" Height="36" CornerRadius="12" Margin="0,0,10,0">
+     <Border Background="{DynamicResource SelectionBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Width="36" Height="36" CornerRadius="7" Margin="0,0,10,0">
       <Path Data="M 3,9 L 3,15 M 8,4 L 8,20 M 13,0 L 13,24 M 18,6 L 18,18 M 23,10 L 23,14" Stroke="{DynamicResource Accent}" StrokeThickness="2" Width="23" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
      </Border>
      <TextBlock x:Name="AppBrandName" Text="SoundPreviewer" FontFamily="Segoe UI, PingFang SC, Microsoft YaHei UI" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -42,13 +42,13 @@
       <Button Grid.Column="5" Classes="icon compact" Content="?" Width="26" Margin="0" ToolTip.Tip="{Binding #PresetFormatHint.Text}" AutomationProperties.Name="查看支持的音色文件格式"/>
       <TextBlock x:Name="PresetFormatHint" IsVisible="False" Text="独立音色：Vital .vital；Serum 1 .fxp；Serum 2 .SerumPreset；Sylenth1 .fxp。Vital .vitalbank 包内音色通过内嵌资源检查后可生成，旧条目请重新扫描；.fxb 音色库及 Spire 原生格式无法直接生成。具体原因请选中音色查看详情。"/>
      </Grid>
-     <Border x:Name="FilterOptionsBand" Grid.Row="1" Grid.ColumnSpan="2" Height="96" Padding="12,5" Margin="0,0,0,6" Background="{DynamicResource SurfaceAlt}" BorderThickness="0" CornerRadius="20">
+     <Border x:Name="FilterOptionsBand" Grid.Row="1" Grid.ColumnSpan="2" Height="96" Padding="12,5" Margin="0,0,0,6" Background="{DynamicResource OptionsBandBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7">
       <Grid ColumnDefinitions="62,*">
        <StackPanel Margin="0,4,6,0"><TextBlock Text="{Binding ActiveFilterLabel}" FontSize="12" FontWeight="SemiBold"/><TextBlock Text="可多选" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,5,0,0" ToolTip.Tip="同组满足任意一项；不同组同时满足。再次点击取消，选择“全部”清空该组。"/></StackPanel>
        <ScrollViewer x:Name="FilterOptionsScroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <ItemsControl x:Name="FilterOptionsItems" ItemsSource="{Binding ActiveFilterOptions}">
          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-         <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Classes="filter-option" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="FilterOption_Click" ToolTip.Tip="{Binding ToolTip}" AutomationProperties.Name="{Binding Label}"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="{Binding DisplayLabel}" TextTrimming="CharacterEllipsis" MaxWidth="230" VerticalAlignment="Center"/><Border Classes="filter-count" CornerRadius="9" Padding="5,0" Margin="5,0,0,0"><TextBlock Text="{Binding CountLabel}" FontSize="11" VerticalAlignment="Center"/></Border></StackPanel></ToggleButton></DataTemplate></ItemsControl.ItemTemplate>
+         <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Classes="filter-option" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="FilterOption_Click" ToolTip.Tip="{Binding ToolTip}" AutomationProperties.Name="{Binding Label}"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="{Binding DisplayLabel}" TextTrimming="CharacterEllipsis" MaxWidth="230" VerticalAlignment="Center"/><Border Classes="filter-count" CornerRadius="3" Padding="5,0" Margin="5,0,0,0"><TextBlock Text="{Binding CountLabel}" FontSize="11" VerticalAlignment="Center"/></Border></StackPanel></ToggleButton></DataTemplate></ItemsControl.ItemTemplate>
         </ItemsControl>
        </ScrollViewer>
       </Grid>
@@ -56,7 +56,7 @@
      <Grid x:Name="LibraryListPane" Grid.Row="2" Margin="0,0,12,0">
       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
       <Grid>
-       <DataGrid RowHeight="34" ColumnHeaderHeight="34" FontSize="13" x:Name="PresetGrid" CornerRadius="20" BorderThickness="0" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+       <DataGrid RowHeight="34" ColumnHeaderHeight="34" FontSize="13" x:Name="PresetGrid" CornerRadius="7" BorderThickness="1" BorderBrush="{DynamicResource Line}" ItemsSource="{Binding PresetsView}" IsReadOnly="True" SelectionChanged="Preset_SelectionChanged" DoubleTapped="Preset_DoubleClick" FrozenColumnCount="1" CanUserReorderColumns="True" CanUserResizeColumns="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
         
         <DataGrid.ContextMenu><ContextMenu Opened="ColumnMenu_Opened"/></DataGrid.ContextMenu>
         <DataGrid.Columns>
@@ -347,7 +347,7 @@
     </Grid>
    </TabItem>
   </TabControl>
-  <Border x:Name="PlaybackBar" Grid.Row="2" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="84" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="22" Margin="20,4,20,4" Padding="14,6">
+  <Border x:Name="PlaybackBar" Grid.Row="2" IsVisible="{Binding !#SettingsTab.IsSelected}" Height="84" Background="{DynamicResource HeaderBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7" Margin="20,4,20,4" Padding="14,6">
    
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
@@ -365,7 +365,7 @@
      </Border>
     </StackPanel>
     <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="18"/></Grid.RowDefinitions>
-     <Border CornerRadius="16" ClipToBounds="True"><local:WaveformView x:Name="Waveform" BackgroundBrush="{DynamicResource Surface}" WaveBrush="{DynamicResource Accent}" LineBrush="{DynamicResource Line}" PlayheadBrush="{DynamicResource Accent}"/></Border>
+     <Border CornerRadius="5" ClipToBounds="True"><local:WaveformView x:Name="Waveform" BackgroundBrush="{DynamicResource HoverBackground}" WaveBrush="{DynamicResource Accent}" LineBrush="{DynamicResource Line}" PlayheadBrush="{DynamicResource Accent}"/></Border>
      <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1" IsEnabled="{Binding CanPlay}" AutomationProperties.Name="播放位置"/>
     </Grid>
     <StackPanel Grid.Column="2" VerticalAlignment="Center">
@@ -374,7 +374,7 @@
     </StackPanel>
    </Grid>
   </Border>
-  <Border x:Name="TaskStatusBand" Grid.Row="3" Height="118" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="20" Margin="20,0" Padding="14,6" AutomationProperties.Name="固定生成进度与最近运行记录">
+  <Border x:Name="TaskStatusBand" Grid.Row="3" Height="118" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7" Margin="20,0" Padding="14,6" AutomationProperties.Name="固定生成进度与最近运行记录">
    <Grid ColumnDefinitions="2.3*,16,*" RowDefinitions="24,20,18,18,18,4">
     <Grid ColumnDefinitions="*,Auto">
      <TextBlock x:Name="TaskProgressTitle" Text="{Binding TaskTitle}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
@@ -396,7 +396,7 @@
     </ListBox>
    </Grid>
   </Border>
-  <Border Grid.Row="4" Background="{DynamicResource SurfaceAlt}" Padding="16,0">
+  <Border x:Name="StatusFooter" Grid.Row="4" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,0">
    <DockPanel>
     <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{Binding AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Muted}" Margin="16,0,0,0"/>
     <TextBlock x:Name="StatusFooterText" Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"/>

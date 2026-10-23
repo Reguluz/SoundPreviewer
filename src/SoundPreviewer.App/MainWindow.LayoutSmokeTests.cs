@@ -9,14 +9,19 @@ namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
-    private sealed record LibraryLayoutSnapshot(Rect Pages, Rect Table, Rect List, Rect Details, Rect Filters, Rect Options, Rect Playback, Rect Progress);
+    private sealed record LibraryLayoutSnapshot(Rect Pages, Rect Table, Rect List, Rect Details, Rect Filters, Rect Options, Rect Playback, Rect Progress, Rect Toolbar, Rect Footer);
 
     private LibraryLayoutSnapshot CaptureLibraryLayout() => new(SmokeBounds(Pages), SmokeBounds(PresetGrid),
-        SmokeBounds(LibraryListPane), SmokeBounds(LibraryDetailsPane), SmokeBounds(FilterStrip), SmokeBounds(FilterOptionsBand), SmokeBounds(PlaybackBar), SmokeBounds(TaskStatusBand));
+        SmokeBounds(LibraryListPane), SmokeBounds(LibraryDetailsPane), SmokeBounds(FilterStrip), SmokeBounds(FilterOptionsBand), SmokeBounds(PlaybackBar), SmokeBounds(TaskStatusBand), SmokeBounds(MainToolbar), SmokeBounds(StatusFooter));
 
     private void CheckLibraryWorkspaceGeometry()
     {
         var area = new Rect(((Control)Content!).Bounds.Size);
+        var toolbar = SmokeBounds(MainToolbar);
+        var footer = SmokeBounds(StatusFooter);
+        if (Math.Abs(toolbar.Height - 64) > .5 || Math.Abs(toolbar.Top) > .5 ||
+            Math.Abs(footer.Height - 24) > .5 || Math.Abs(footer.Bottom - area.Bottom) > .5)
+            throw SmokeLayoutFailure("顶部工具栏与页脚未保持64和24像素的固定区域。");
         var workspace = SmokeBounds(LibraryWorkspace);
         var list = SmokeBounds(LibraryListPane);
         var details = SmokeBounds(LibraryDetailsPane);
@@ -46,7 +51,7 @@ public partial class MainWindow
         var playback = SmokeBounds(PlaybackBar);
         var progress = SmokeBounds(TaskStatusBand);
         if (!PlaybackBar.IsEffectivelyVisible || !TaskStatusBand.IsEffectivelyVisible ||
-            playback.Height is < 64 or > 90 || progress.Height is < 100 or > 130 ||
+            Math.Abs(playback.Height - 84) > .5 || Math.Abs(progress.Height - 118) > .5 ||
             playback.Top < SmokeBounds(Pages).Bottom - 1 || progress.Top < playback.Bottom - 1 ||
             !area.Inflate(1).Contains(playback) || !area.Inflate(1).Contains(progress) ||
             !progress.Inflate(1).Contains(SmokeBounds(GenerationProgressBar)))
@@ -65,7 +70,8 @@ public partial class MainWindow
         if (!Same(expected.Pages, actual.Pages) || !Same(expected.Table, actual.Table) ||
             !Same(expected.List, actual.List) || !Same(expected.Details, actual.Details) ||
             !Same(expected.Filters, actual.Filters) || !Same(expected.Options, actual.Options) ||
-            !Same(expected.Playback, actual.Playback) || !Same(expected.Progress, actual.Progress))
+            !Same(expected.Playback, actual.Playback) || !Same(expected.Progress, actual.Progress) ||
+            !Same(expected.Toolbar, actual.Toolbar) || !Same(expected.Footer, actual.Footer))
             throw SmokeLayoutFailure("空闲、生成、停止或切换筛选改变了列表与底部播放进度区域的位置。");
 
         static bool Same(Rect left, Rect right) => Math.Abs(left.X - right.X) <= .5 && Math.Abs(left.Y - right.Y) <= .5 &&

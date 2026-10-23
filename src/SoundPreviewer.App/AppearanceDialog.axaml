@@ -3,15 +3,27 @@
         x:Class="SoundPreviewer.App.AppearanceDialog"
         Title="主题与配色" Width="460" Height="810" MinWidth="420" MinHeight="560"
         MaxHeight="940" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        Background="{DynamicResource Surface}">
+        Background="{DynamicResource WindowBackground}">
+ <Window.Styles>
+  <Style Selector="TextBlock.appearance-section">
+   <Setter Property="FontSize" Value="12"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+  </Style>
+  <Style Selector="ToggleButton.appearance-preset">
+   <Setter Property="Height" Value="80"/>
+   <Setter Property="CornerRadius" Value="6"/>
+   <Setter Property="Padding" Value="6"/>
+  </Style>
+ </Window.Styles>
  <Grid RowDefinitions="Auto,*,Auto" Margin="24,20">
   <StackPanel Spacing="6" Margin="0,0,0,18">
-   <TextBlock Text="主题与配色" FontSize="23" FontWeight="SemiBold"/>
+   <TextBlock Text="主题与配色" FontSize="21" FontWeight="SemiBold"/>
    <TextBlock Text="选择喜欢的色调" Foreground="{DynamicResource Muted}"/>
   </StackPanel>
   <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
    <StackPanel Spacing="18" Margin="0,0,8,8">
-    <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="20" Padding="4">
+    <Border Background="{DynamicResource OptionsBandBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7" Padding="4">
      <UniformGrid Columns="3">
       <ToggleButton x:Name="LightMode" Tag="light" Content="浅色" Classes="filter-tab" Margin="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="Mode_Click" AutomationProperties.Name="浅色主题"/>
       <ToggleButton x:Name="DarkMode" Tag="dark" Content="深色" Classes="filter-tab" Margin="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="Mode_Click" AutomationProperties.Name="深色主题"/>
@@ -19,34 +31,37 @@
      </UniformGrid>
     </Border>
     <StackPanel Spacing="10">
-     <TextBlock Text="预设配色" Foreground="{DynamicResource Muted}"/>
-     <UniformGrid Columns="3">
-      <ToggleButton x:Name="SagePreset" Tag="sage" Click="Preset_Click" Classes="filter-option" Height="92" Margin="0,0,8,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="苔绿配色">
-       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border Width="40" Height="40" CornerRadius="20" Background="#53694D"><Ellipse Width="17" Height="17" Fill="#A9C39C" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="苔绿" HorizontalAlignment="Center"/></StackPanel>
+     <TextBlock Text="预设配色" Classes="appearance-section"/>
+     <UniformGrid Columns="4">
+      <ToggleButton x:Name="SilverPreset" Tag="silver" Click="Preset_Click" Classes="filter-option appearance-preset" Margin="0,0,6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="银青配色">
+       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border x:Name="SilverPresetSwatch" Width="36" Height="28" CornerRadius="4"><Border x:Name="SilverPresetHighlight" Width="12" Height="18" CornerRadius="2" Margin="0,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="银青" HorizontalAlignment="Center" FontSize="12"/></StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="LavenderPreset" Tag="lavender" Click="Preset_Click" Classes="filter-option" Height="92" Margin="0,0,8,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="雾紫配色">
-       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border Width="40" Height="40" CornerRadius="20" Background="#746087"><Ellipse Width="17" Height="17" Fill="#C7B5DD" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="雾紫" HorizontalAlignment="Center"/></StackPanel>
+      <ToggleButton x:Name="SagePreset" Tag="sage" Click="Preset_Click" Classes="filter-option appearance-preset" Margin="0,0,6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="苔绿配色">
+       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border x:Name="SagePresetSwatch" Width="36" Height="28" CornerRadius="4"><Border x:Name="SagePresetHighlight" Width="12" Height="18" CornerRadius="2" Margin="0,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="苔绿" HorizontalAlignment="Center" FontSize="12"/></StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="BluePreset" Tag="blue" Click="Preset_Click" Classes="filter-option" Height="92" Margin="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="海蓝配色">
-       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border Width="40" Height="40" CornerRadius="20" Background="#376681"><Ellipse Width="17" Height="17" Fill="#A0CFEC" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="海蓝" HorizontalAlignment="Center"/></StackPanel>
+      <ToggleButton x:Name="LavenderPreset" Tag="lavender" Click="Preset_Click" Classes="filter-option appearance-preset" Margin="0,0,6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="雾紫配色">
+       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border x:Name="LavenderPresetSwatch" Width="36" Height="28" CornerRadius="4"><Border x:Name="LavenderPresetHighlight" Width="12" Height="18" CornerRadius="2" Margin="0,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="雾紫" HorizontalAlignment="Center" FontSize="12"/></StackPanel>
+      </ToggleButton>
+      <ToggleButton x:Name="BluePreset" Tag="blue" Click="Preset_Click" Classes="filter-option appearance-preset" Margin="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" AutomationProperties.Name="海蓝配色">
+       <StackPanel Spacing="8" HorizontalAlignment="Center"><Border x:Name="BluePresetSwatch" Width="36" Height="28" CornerRadius="4"><Border x:Name="BluePresetHighlight" Width="12" Height="18" CornerRadius="2" Margin="0,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Border><TextBlock Text="海蓝" HorizontalAlignment="Center" FontSize="12"/></StackPanel>
       </ToggleButton>
      </UniformGrid>
     </StackPanel>
     <Border Height="1" Background="{DynamicResource Line}"/>
     <StackPanel Spacing="10">
-     <TextBlock Text="自定义颜色" Foreground="{DynamicResource Muted}"/>
+     <TextBlock Text="自定义颜色" Classes="appearance-section"/>
      <TextBlock Text="点击色块选色，或直接输入 #RRGGBB。修改会实时预览。" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource Muted}"/>
      <StackPanel Name="ColorFieldsPanel" Spacing="9"/>
-     <Border Name="PickerPanel" IsVisible="False" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="14" Padding="14">
+     <Border Name="PickerPanel" IsVisible="False" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7" Padding="14">
       <StackPanel Spacing="7">
        <Grid ColumnDefinitions="Auto,*,Auto">
-        <Border Name="PickerSwatch" Width="24" Height="24" CornerRadius="6"/>
+        <Border Name="PickerSwatch" Width="24" Height="24" CornerRadius="4" BorderBrush="{DynamicResource Line}" BorderThickness="1"/>
         <TextBlock Grid.Column="1" Name="PickerLabel" Margin="9,0" VerticalAlignment="Center" FontWeight="SemiBold"/>
         <Button Grid.Column="2" Content="完成" Classes="compact" Margin="0" Click="ClosePicker_Click"/>
        </Grid>
        <TextBlock Text="色相" FontSize="11" Foreground="{DynamicResource Muted}"/>
        <Grid>
-        <Border Height="14" VerticalAlignment="Center" CornerRadius="7"><Border.Background><LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%"><GradientStop Offset="0" Color="#FF0000"/><GradientStop Offset="0.167" Color="#FFFF00"/><GradientStop Offset="0.333" Color="#00FF00"/><GradientStop Offset="0.5" Color="#00FFFF"/><GradientStop Offset="0.667" Color="#0000FF"/><GradientStop Offset="0.833" Color="#FF00FF"/><GradientStop Offset="1" Color="#FF0000"/></LinearGradientBrush></Border.Background></Border>
+        <Border Height="14" VerticalAlignment="Center" CornerRadius="3"><Border.Background><LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%"><GradientStop Offset="0" Color="#FF0000"/><GradientStop Offset="0.167" Color="#FFFF00"/><GradientStop Offset="0.333" Color="#00FF00"/><GradientStop Offset="0.5" Color="#00FFFF"/><GradientStop Offset="0.667" Color="#0000FF"/><GradientStop Offset="0.833" Color="#FF00FF"/><GradientStop Offset="1" Color="#FF0000"/></LinearGradientBrush></Border.Background></Border>
         <Slider Name="HueSlider" Minimum="0" Maximum="360" Value="0" AutomationProperties.Name="色相"/>
        </Grid>
        <TextBlock Text="饱和度" FontSize="11" Foreground="{DynamicResource Muted}"/>
@@ -61,17 +76,19 @@
     </StackPanel>
     <Border Height="1" Background="{DynamicResource Line}"/>
     <StackPanel Spacing="10">
-     <TextBlock Text="实时预览" Foreground="{DynamicResource Muted}"/>
-     <Border Background="{DynamicResource WindowBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="16" Padding="14">
-      <StackPanel Spacing="12">
-       <Grid ColumnDefinitions="*,Auto">
+     <TextBlock Text="实时预览" Classes="appearance-section"/>
+     <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="7" ClipToBounds="True">
+      <StackPanel Spacing="0">
+       <Border Background="{DynamicResource HeaderBackground}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="12">
+        <Grid ColumnDefinitions="*,Auto">
         <StackPanel VerticalAlignment="Center" Spacing="3"><TextBlock Text="SoundPreviewer" FontWeight="SemiBold"/><TextBlock Text="合成器音色库" Foreground="{DynamicResource Muted}" FontSize="11"/></StackPanel>
         <Button Grid.Column="1" Classes="primary compact" Content="▶  生成 / 继续" Margin="0" IsHitTestVisible="False"/>
-       </Grid>
-       <UniformGrid Columns="3">
-        <Border Background="{DynamicResource SuccessBackground}" CornerRadius="12" Padding="5" Margin="0,0,6,0"><TextBlock Text="已生成" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource Success}"/></Border>
-        <Border Background="{DynamicResource NeutralBackground}" CornerRadius="12" Padding="5" Margin="0,0,6,0"><TextBlock Text="待生成" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource NeutralForeground}"/></Border>
-        <Border Background="{DynamicResource DangerBackground}" CornerRadius="12" Padding="5"><TextBlock Text="生成失败" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource Danger}"/></Border>
+        </Grid>
+       </Border>
+       <UniformGrid Columns="3" Margin="12">
+        <Border Background="{DynamicResource SuccessBackground}" CornerRadius="4" Padding="5" Margin="0,0,6,0"><TextBlock Text="已生成" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource Success}"/></Border>
+        <Border Background="{DynamicResource NeutralBackground}" CornerRadius="4" Padding="5" Margin="0,0,6,0"><TextBlock Text="待生成" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource NeutralForeground}"/></Border>
+        <Border Background="{DynamicResource DangerBackground}" CornerRadius="4" Padding="5"><TextBlock Text="生成失败" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource Danger}"/></Border>
        </UniformGrid>
       </StackPanel>
      </Border>
@@ -81,7 +98,7 @@
   <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto" Margin="0,13,0,0">
    <TextBlock Name="ValidationMessage" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,0,0,8"/>
    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto">
-    <Button Name="ResetDefaultsButton" Content="恢复默认" Classes="compact" Click="ResetDefaults_Click" Margin="0"/>
+    <Button Name="ResetDefaultsButton" Content="恢复默认" Classes="compact" Click="ResetDefaults_Click" Margin="0" ToolTip.Tip="恢复银青浅色主题"/>
     <Button Grid.Column="2" Name="SaveButton" Content="✓  应用配色" Classes="primary" Click="Save_Click" IsDefault="True" MinWidth="130" Margin="0"/>
    </Grid>
    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,10,0,0">

@@ -33,6 +33,7 @@ internal static class ThemeManager
 
     private static string PresetKey(string? key) => key switch
     {
+        "silver" => "silver",
         "lavender" or "indigo" => "lavender",
         "blue" => "blue",
         _ => "sage"
@@ -47,6 +48,13 @@ internal static class ThemeManager
         key = PresetKey(key);
         var palette = (key, dark) switch
         {
+            ("silver", false) => new AppearanceSettings(),
+            ("silver", true) => new AppearanceSettings
+            {
+                Accent = "#79C1D1", WindowBackground = "#171D22", Surface = "#20282E", SurfaceAlt = "#29333B",
+                TextPrimary = "#E6EDF2", Muted = "#A8B7C3", Line = "#44515C",
+                SelectionBackground = "#244852", HoverBackground = "#2B3C45"
+            },
             ("lavender", false) => new AppearanceSettings
             {
                 Accent = "#746087", WindowBackground = "#FCF8FE", SurfaceAlt = "#F3EDF7",
@@ -77,7 +85,12 @@ internal static class ThemeManager
                 TextPrimary = "#E7EDE0", Muted = "#AEBBA5", Line = "#404D3B",
                 SelectionBackground = "#3D5335", HoverBackground = "#303D2B"
             },
-            _ => new AppearanceSettings()
+            _ => new AppearanceSettings
+            {
+                Accent = "#53694D", WindowBackground = "#F8FAF4", SurfaceAlt = "#F0F3EA",
+                TextPrimary = "#1A2118", Muted = "#66705F", Line = "#E0E5DC",
+                SelectionBackground = "#D9E8CC", HoverBackground = "#EAF0E3"
+            }
         };
         palette.Preset = key;
         palette.IsDark = dark;
@@ -99,7 +112,7 @@ internal static class ThemeManager
 
     internal static AppearanceSettings Normalize(AppearanceSettings? appearance)
     {
-        if (appearance is null) return Preset("sage");
+        if (appearance is null) return Preset("silver");
         var result = Copy(appearance);
         result.Preset = PresetKey(result.Preset);
         result.Mode = result.Mode is "light" or "dark" or "system" ? result.Mode : "light";
@@ -189,13 +202,25 @@ internal static class ThemeManager
         foreach (var (key, _) in ColorFields)
             SetBrush(key, Color.Parse((string)typeof(AppearanceSettings).GetProperty(key)!.GetValue(palette)!));
         var accent = Color.Parse(palette.Accent);
+        var surface = Color.Parse(palette.Surface);
+        var surfaceAlt = Color.Parse(palette.SurfaceAlt);
+        // Surface depth follows the user's palette in every mode. These are
+        // derived brushes, so existing custom colors need no settings migration.
+        SetGradient("HeaderBackground", surface, Blend(surface, Color.Parse(palette.WindowBackground), 0.35));
+        SetGradient("ControlBackground", surface, Blend(surface, surfaceAlt, 0.3));
+        SetGradient("OptionsBandBackground", Blend(surfaceAlt, surface, 0.2), surfaceAlt);
+        SetBrush("SurfaceHighlight", Blend(surface, Colors.White, palette.IsDark ? 0.16 : 0.6));
         SetBrush("AccentForeground", AccentText(accent));
-        SetBrush("Warning", Color.Parse(palette.IsDark ? "#F2C978" : "#8A620C"));
-        SetBrush("Success", Color.Parse(palette.IsDark ? "#A0D9AD" : "#316843"));
-        SetBrush("Danger", Color.Parse(palette.IsDark ? "#FFB4B8" : "#B62838"));
-        SetBrush("SuccessBackground", Color.Parse(palette.IsDark ? "#263F2D" : "#E0F0DA"));
-        SetBrush("WarningBackground", Color.Parse(palette.IsDark ? "#43391F" : "#FBF0D5"));
-        SetBrush("DangerBackground", Color.Parse(palette.IsDark ? "#4B252B" : "#FCE1E3"));
+        var warning = Color.Parse(palette.IsDark ? "#F2C978" : "#94632B");
+        var success = Color.Parse(palette.IsDark ? "#A0D9AD" : "#397665");
+        var danger = Color.Parse(palette.IsDark ? "#FFB4B8" : "#AC515B");
+        SetBrush("Warning", warning);
+        SetBrush("Success", success);
+        SetBrush("Danger", danger);
+        double statusTint = palette.IsDark ? 0.14 : 0.1;
+        SetBrush("SuccessBackground", Blend(surface, success, statusTint));
+        SetBrush("WarningBackground", Blend(surface, warning, statusTint));
+        SetBrush("DangerBackground", Blend(surface, danger, statusTint));
         SetBrush("NeutralBackground", Color.Parse(palette.SurfaceAlt));
         SetBrush("NeutralForeground", Color.Parse(palette.Muted));
 
@@ -214,7 +239,18 @@ internal static class ThemeManager
         application.RequestedThemeVariant = palette.Mode == "system" ? ThemeVariant.Default : palette.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
 
         void SetBrush(string key, Color color) => application.Resources[key] = new SolidColorBrush(color);
+        void SetGradient(string key, Color top, Color bottom) => application.Resources[key] = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops = [new GradientStop(top, 0), new GradientStop(bottom, 1)]
+        };
     }
+
+    private static Color Blend(Color first, Color second, double amount) => Color.FromRgb(
+        (byte)Math.Round(first.R + (second.R - first.R) * amount),
+        (byte)Math.Round(first.G + (second.G - first.G) * amount),
+        (byte)Math.Round(first.B + (second.B - first.B) * amount));
 
     private static void SystemColorsChanged(object? sender, PlatformColorValues values)
     {

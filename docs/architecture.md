@@ -1,6 +1,6 @@
 # SoundPreviewer 架构
 
-更新日期：2026-10-23，当前为 0.9.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
+更新日期：2026-10-23，当前为 0.10.0 开发版。项目依据 [项目计划](项目计划.md)，采用 C#、.NET 8 与 Avalonia 实现 Windows / macOS 共用桌面应用。原规划中的 Python / PySide6 是候选方案；当前 Python 限于可选插件宿主适配器。直接在 `main` 开发；patch 用于小修，minor 用于较大功能，major 须用户明确确认。`version-policy.json` 与 CI 限制批准的 major，`0.x` 发布始终为 prerelease。
 
 当前交付包含可运行的音色库界面、索引、任务调度与渲染协议。真实合成器加载和演奏仍需逐版本验收；能够编译、通过基础设施测试或识别预制文件，都不能证明插件兼容。
 
