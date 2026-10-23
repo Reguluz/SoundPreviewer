@@ -28,17 +28,14 @@ internal static partial class PresetDetection
 
     public static List<string> Tags(SynthKind synth, string path)
     {
-        string extension = Path.GetExtension(path);
-        if (extension.Equals(".SerumPreset", StringComparison.OrdinalIgnoreCase)) extension = ".SerumPreset";
-        else extension = extension.ToLowerInvariant();
-        return [SynthName(synth), extension];
+        return [];
     }
 
     public static List<string> MergeTags(IEnumerable<string>? existing, SynthKind synth, string path)
     {
         var automaticNames = Enum.GetValues<SynthKind>().Select(SynthName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var custom = (existing ?? []).Where(tag => !string.IsNullOrWhiteSpace(tag) && !automaticNames.Contains(tag) && !SupportsAny(tag));
-        return Tags(synth, path).Concat(custom).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return custom.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public static VstEnvelope ReadEnvelope(Stream stream, long length, bool bank)

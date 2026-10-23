@@ -47,7 +47,7 @@ internal static partial class Program
         {
             Equal(SynthKind.Spire, preset.Synth, "Spire's dedicated suffix takes priority over an unrelated Vital directory name.");
             Equal(PresetStatus.Unsupported, preset.Status, "Indexing an unverified proprietary payload cannot enable rendering.");
-            True(preset.Tags.Contains("Spire"), "Spire classification is reflected in automatic tags.");
+            True(preset.Tags.Count == 0, "Synth classification is separate from subjective tags, which start empty.");
             True(preset.Message.Contains("尚未适配", StringComparison.Ordinal), "The compatibility boundary is shown on every indexed proprietary preset.");
             True(preset.BankSlot is null && preset.InternalPath.Length == 0, "Opaque banks never invent child preset slots.");
             Equal("", preset.PreviewPath, "Indexing never creates synthetic preview audio.");

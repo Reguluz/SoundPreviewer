@@ -58,7 +58,7 @@ internal static partial class Program
         PresetMetadataService.ResetCategories(record);
         True(record.CategoryTags.SequenceEqual(["Pad"]), "Reset restores the latest automatic classification rather than the stale pre-edit result.");
         PresetMetadataService.ResetTags(record);
-        True(record.Tags.SequenceEqual(["Vital", ".vital"]) && record.ManualTags is null, "Reset restores automatic format tags and releases the manual override.");
+        True(record.Tags.Count == 0 && record.ManualTags is null, "Reset restores empty automatic tags and releases the manual override.");
 
         PresetMetadataService.SetTags(record, []);
         PresetMetadataService.SetCategories(record, []);

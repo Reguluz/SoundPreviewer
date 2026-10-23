@@ -91,6 +91,8 @@ internal static partial class Program
             ("Manual synth assignment preserves identity and invalidates only derived data", TestManualClassificationAsync),
             ("Editable name category rules preserve metadata and survive invalid edits", TestPresetCategoriesAsync),
             ("Manual labels and categories persist across rules, scans and legacy storage", TestManualPresetMetadataAsync),
+            ("Numeric metadata catalogs preserve aliases, translated references and Chord classification", TestMetadataCatalogAsync),
+            ("Community language JSON translates static and parameterized UI messages", TestLanguagesAsync),
             ("Initialization comparison rejects only strict three-note similarity", TestInitAudioComparisonAsync),
             ("Startup baselines validate identities and reject before audio replacement", TestInitBaselineWorkflowAsync),
             ("Sylenth state metadata rewrites preserve every parameter and permanent failures do not retry", TestSylenthPresetStateAsync),

@@ -17,6 +17,7 @@ fi
 for file in SoundPreviewer SoundPreviewer.Worker; do
     [[ -f "$publish_dir/$file" ]] || { echo "Publish first; missing $file" >&2; exit 1; }
 done
+pwsh -NoProfile -File "$project_dir/scripts/Test-UserGuide.ps1" -GuideDirectory "$publish_dir/操作说明"
 if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -iname '*.wav' -o -iname '*.m4a' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Publish output contains local user data; publish into a clean directory again.' >&2; exit 1
 fi
@@ -42,7 +43,7 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$app_dir/Contents/Info.plist"
 cat > "$stage_dir/安装说明.txt" <<'README'
-SoundPreviewer 预发行版
+SoundPreviewer
 
 请先将 SoundPreviewer.app 复制到您有写入权限的独立文件夹，
 例如 ~/Applications/SoundPreviewer，再从本机打开。
@@ -52,6 +53,9 @@ DMG 是只读磁盘，请勿直接在其中启动应用。
 个人目录、分类规则与定位配置统一保存到 app 旁的 Config 文件夹。
 升级时退出应用并替换 SoundPreviewer.app，保留 Preview、Config 以及旧版根目录配置。
 移动应用时，请将这些文件一起保留。
+
+点击软件窗口右下角「操作说明」可离线阅读完整说明。
+说明文件位于 SoundPreviewer.app/Contents/MacOS/操作说明/index.html。
 
 Applications 快捷方式供拥有该目录写入权限的用户使用。
 README

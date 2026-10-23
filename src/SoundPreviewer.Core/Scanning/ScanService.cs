@@ -430,6 +430,10 @@ public sealed class ScanService
         previous.DetectionReason = candidate.DetectionReason;
         previous.SynthAssignedManually = candidate.SynthAssignedManually;
         previous.Tags = candidate.Tags;
+        previous.TagIds = candidate.TagIds;
+        previous.CategoryIds = candidate.CategoryIds;
+        previous.CategoryCatalogId = candidate.CategoryCatalogId;
+        previous.TagCatalogId = candidate.TagCatalogId;
         previous.AutomaticTags = candidate.AutomaticTags;
     }
 

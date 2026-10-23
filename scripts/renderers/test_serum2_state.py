@@ -152,10 +152,15 @@ class Serum2StateTests(unittest.TestCase):
     def test_newer_preset_and_wrong_configured_version_are_rejected(self):
         for version in ("2.0.24", "2.1.0"):
             meta, preset = dict(self.preset_meta, productVersion=version), dict(self.preset, productVersion=version)
-            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "requires a newer plugin"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "需要更新 Serum 2.*2.0.23.*" + version):
                 state.prepare_serum2_state(self.wrap(meta, preset), self.native_state(), "2.0.23")
         with self.assertRaisesRegex(ValueError, "does not match.*installed"):
             state.prepare_serum2_state(self.wrap(self.preset_meta, self.preset), self.native_state(), "2.0.25")
+        with self.assertRaisesRegex(ValueError, "does not match.*installed"):
+            state.prepare_serum2_state(self.wrap(self.preset_meta, self.preset), self.native_state(), "2.0.10")
+        meta, preset = dict(self.preset_meta, version=10.0), dict(self.preset, version=10.0)
+        with self.assertRaisesRegex(ValueError, "需要更新 Serum 2.*音色 10.0.*当前插件 9.0"):
+            state.prepare_serum2_state(self.wrap(meta, preset), self.native_state(), "2.0.23")
 
     def test_wrong_product_vendor_filetype_and_conflicting_payload_are_rejected(self):
         for key, value in (("product", "Serum"), ("vendor", "Other"), ("fileType", "Other")):

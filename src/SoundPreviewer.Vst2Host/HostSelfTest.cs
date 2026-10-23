@@ -47,7 +47,7 @@ internal static class HostSelfTest
             Require(plan.OutputBytes == 56L + 13940 * 3 * 8, "Float32 size bound failed.");
             Reject(() => RenderFramePlan.Create(template, plan.OutputBytes - 1));
             Reject(() => VstRenderer.ValidateChunkLoaded(100, [1, 2], [1, 2], [3, 4]));
-            Reject(() => VstRenderer.ValidateChunkLoaded(0, [1, 2], [1, 2], [1, 2]));
+            VstRenderer.ValidateChunkLoaded(0, [1, 2], [1, 2], [1, 2]);
             Reject(() => VstRenderer.ValidateChunkLoaded(-1, [1], [2], [2]));
             Reject(() => VstRenderer.ValidateChunkLoaded(0, [], [], [1]));
             VstRenderer.ValidateChunkLoaded(100, [1, 2], [3, 4], [3, 4]);
@@ -73,9 +73,11 @@ internal static class HostSelfTest
             byte[] headerActual = [.. headerTarget];
             BinaryPrimitives.WriteInt32LittleEndian(headerActual.AsSpan(4), 2200);
             Require(SylenthPresetState.Matches(headerTarget, headerActual), "The observed metadata-only rewrite was rejected.");
+            VstRenderer.ValidateChunkLoaded(0, headerActual, headerActual, headerTarget);
             headerActual[20] = 1;
             Require(!SylenthPresetState.Matches(headerTarget, headerActual), "A changed parameter was accepted as metadata.");
-            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"ProgramSlotBounds\":true,\"CompatibleHeaderReadback\":true,\"PluginsLoaded\":0}");
+            Reject(() => VstRenderer.ValidateChunkLoaded(100, headerActual, headerActual, headerTarget));
+            Console.WriteLine("{\"Architecture\":\"x86\",\"VstNet\":\"2.1.0\",\"BufferInterop\":true,\"FxpParse\":true,\"BadInput\":true,\"FrameBoundaries\":true,\"UnchangedChunkRejected\":true,\"MatchingUnchangedChunkAccepted\":true,\"ProgramSlotBounds\":true,\"CompatibleHeaderReadback\":true,\"PluginsLoaded\":0}");
         }
         finally { File.Delete(path); }
     }

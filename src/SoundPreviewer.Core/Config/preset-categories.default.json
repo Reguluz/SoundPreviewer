@@ -1,21 +1,285 @@
 {
   "version": 1,
   "categories": [
-    { "label": "Bass / 贝斯", "tokens": ["bass", "subbass", "reese", "贝斯", "低音", "重低音"], "prefixes": ["bs", "ba", "bass", "sub", "808"] },
-    { "label": "Lead / 主音", "tokens": ["lead", "solo", "主音", "主旋律", "领奏"], "prefixes": ["ld", "le", "lead"] },
-    { "label": "Pad / 音垫", "tokens": ["pad", "pads", "atmosphere", "atmospheric", "氛围", "铺底", "音垫"], "prefixes": ["pd", "pa", "pad"] },
-    { "label": "Pluck / 拨弦", "tokens": ["pluck", "plucked", "拨弦", "弹拨"], "prefixes": ["pl", "pk", "pluck"] },
-    { "label": "Keys / 键盘", "tokens": ["keys", "key", "keyboard", "ep", "电钢琴", "键盘"], "prefixes": ["ky", "key", "keys", "ep"] },
-    { "label": "Piano / 钢琴", "tokens": ["piano", "grand", "钢琴", "钢片琴"], "prefixes": ["pn", "pi", "piano"] },
-    { "label": "Arp / 琶音", "tokens": ["arp", "arpeggio", "arpeggiator", "琶音"], "prefixes": ["arp", "ar"] },
-    { "label": "Seq / 序列", "tokens": ["seq", "sequence", "sequencer", "序列", "音序", "步进"], "prefixes": ["sq", "seq"] },
-    { "label": "Drums / 鼓组", "tokens": ["drum", "drums", "kick", "snare", "hat", "hihat", "clap", "perc", "percussion", "tom", "cymbal", "鼓", "打击", "军鼓", "踩镲"], "prefixes": ["dr", "drm", "drum", "drums", "perc"] },
-    { "label": "FX / 音效", "tokens": ["fx", "sfx", "effect", "effects", "riser", "downlifter", "uplifter", "sweep", "impact", "noise", "特效", "音效", "上升", "下降", "噪声", "冲击"], "prefixes": ["fx", "sfx"] },
-    { "label": "Strings / 弦乐", "tokens": ["string", "strings", "violin", "cello", "弦乐", "小提琴", "大提琴"], "prefixes": ["st", "str", "strings"] },
-    { "label": "Brass / 铜管", "tokens": ["brass", "trumpet", "trombone", "horn", "铜管", "小号", "长号", "号角"], "prefixes": ["br", "brass"] },
-    { "label": "Organ / 风琴", "tokens": ["organ", "风琴", "管风琴"], "prefixes": ["org", "organ"] },
-    { "label": "Vocal / 人声", "tokens": ["vocal", "voice", "choir", "vox", "人声", "合唱"], "prefixes": ["voc", "vox", "vo", "vocal"] },
-    { "label": "Guitar / 吉他", "tokens": ["guitar", "gtr", "吉他"], "prefixes": ["gt", "gtr", "guitar"] },
-    { "label": "Bell / 钟铃", "tokens": ["bell", "bells", "chime", "mallet", "钟", "铃", "钟琴"], "prefixes": ["bl", "bel", "bell"] }
+    {
+      "label": "Bass / 贝斯",
+      "tokens": [
+        "bass",
+        "subbass",
+        "reese",
+        "贝斯",
+        "低音",
+        "重低音"
+      ],
+      "prefixes": [
+        "bs",
+        "ba",
+        "bass",
+        "sub",
+        "808"
+      ]
+    },
+    {
+      "label": "Lead / 主音",
+      "tokens": [
+        "lead",
+        "solo",
+        "主音",
+        "主旋律",
+        "领奏"
+      ],
+      "prefixes": [
+        "ld",
+        "le",
+        "lead"
+      ]
+    },
+    {
+      "label": "Pad / 音垫",
+      "tokens": [
+        "pad",
+        "pads",
+        "atmosphere",
+        "atmospheric",
+        "氛围",
+        "铺底",
+        "音垫"
+      ],
+      "prefixes": [
+        "pd",
+        "pa",
+        "pad"
+      ]
+    },
+    {
+      "label": "Pluck / 拨弦",
+      "tokens": [
+        "pluck",
+        "plucked",
+        "拨弦",
+        "弹拨"
+      ],
+      "prefixes": [
+        "pl",
+        "pk",
+        "pluck"
+      ]
+    },
+    {
+      "label": "Keys / 键盘",
+      "tokens": [
+        "keys",
+        "key",
+        "keyboard",
+        "ep",
+        "电钢琴",
+        "键盘"
+      ],
+      "prefixes": [
+        "ky",
+        "key",
+        "keys",
+        "ep"
+      ]
+    },
+    {
+      "label": "Piano / 钢琴",
+      "tokens": [
+        "piano",
+        "grand",
+        "钢琴",
+        "钢片琴"
+      ],
+      "prefixes": [
+        "pn",
+        "pi",
+        "piano"
+      ]
+    },
+    {
+      "label": "Arp / 琶音",
+      "tokens": [
+        "arp",
+        "arpeggio",
+        "arpeggiator",
+        "琶音"
+      ],
+      "prefixes": [
+        "arp",
+        "ar"
+      ]
+    },
+    {
+      "label": "Seq / 序列",
+      "tokens": [
+        "seq",
+        "sequence",
+        "sequencer",
+        "序列",
+        "音序",
+        "步进"
+      ],
+      "prefixes": [
+        "sq",
+        "seq"
+      ]
+    },
+    {
+      "label": "Drums / 鼓组",
+      "tokens": [
+        "drum",
+        "drums",
+        "kick",
+        "snare",
+        "hat",
+        "hihat",
+        "clap",
+        "perc",
+        "percussion",
+        "tom",
+        "cymbal",
+        "鼓",
+        "打击",
+        "军鼓",
+        "踩镲"
+      ],
+      "prefixes": [
+        "dr",
+        "drm",
+        "drum",
+        "drums",
+        "perc"
+      ]
+    },
+    {
+      "label": "FX / 音效",
+      "tokens": [
+        "fx",
+        "sfx",
+        "effect",
+        "effects",
+        "riser",
+        "downlifter",
+        "uplifter",
+        "sweep",
+        "impact",
+        "noise",
+        "特效",
+        "音效",
+        "上升",
+        "下降",
+        "噪声",
+        "冲击"
+      ],
+      "prefixes": [
+        "fx",
+        "sfx"
+      ]
+    },
+    {
+      "label": "Strings / 弦乐",
+      "tokens": [
+        "string",
+        "strings",
+        "violin",
+        "cello",
+        "弦乐",
+        "小提琴",
+        "大提琴"
+      ],
+      "prefixes": [
+        "st",
+        "str",
+        "strings"
+      ]
+    },
+    {
+      "label": "Brass / 铜管",
+      "tokens": [
+        "brass",
+        "trumpet",
+        "trombone",
+        "horn",
+        "铜管",
+        "小号",
+        "长号",
+        "号角"
+      ],
+      "prefixes": [
+        "br",
+        "brass"
+      ]
+    },
+    {
+      "label": "Organ / 风琴",
+      "tokens": [
+        "organ",
+        "风琴",
+        "管风琴"
+      ],
+      "prefixes": [
+        "org",
+        "organ"
+      ]
+    },
+    {
+      "label": "Vocal / 人声",
+      "tokens": [
+        "vocal",
+        "voice",
+        "choir",
+        "vox",
+        "人声",
+        "合唱"
+      ],
+      "prefixes": [
+        "voc",
+        "vox",
+        "vo",
+        "vocal"
+      ]
+    },
+    {
+      "label": "Guitar / 吉他",
+      "tokens": [
+        "guitar",
+        "gtr",
+        "吉他"
+      ],
+      "prefixes": [
+        "gt",
+        "gtr",
+        "guitar"
+      ]
+    },
+    {
+      "label": "Bell / 钟铃",
+      "tokens": [
+        "bell",
+        "bells",
+        "chime",
+        "mallet",
+        "钟",
+        "铃",
+        "钟琴"
+      ],
+      "prefixes": [
+        "bl",
+        "bel",
+        "bell"
+      ]
+    },
+    {
+      "label": "Chord / 和弦",
+      "tokens": [
+        "chord",
+        "chords",
+        "和弦"
+      ],
+      "prefixes": [
+        "chord",
+        "ch"
+      ]
+    }
   ]
 }

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SoundPreviewer.Core.Models;
 
 namespace SoundPreviewer.Core.Services;
@@ -44,7 +45,29 @@ public sealed class PresetCategoryService
 
     public void EnsureRulesFile()
     {
-        if (File.Exists(RulesPath)) return;
+        if (File.Exists(RulesPath))
+        {
+            // Extend the shipped rules without replacing edited terms or custom categories.
+            CompiledCategory[] existing;
+            try { existing = Parse(ReadBounded(RulesPath)); }
+            catch (Exception error) when (error is JsonException or InvalidDataException or IOException) { return; }
+            var defaults = Parse(ReadEmbeddedDefaults());
+            var chord = defaults.Single(category => category.Label == "Chord / 和弦");
+            if (!existing.Any(category => category.Label.StartsWith("Chord", StringComparison.OrdinalIgnoreCase)) &&
+                defaults.Where(category => category != chord).All(category => existing.Any(item => item.Label == category.Label)) && existing.Length < MaximumCategories)
+            {
+                var updatedRules = JsonNode.Parse(ReadBounded(RulesPath))!;
+                updatedRules["categories"]!.AsArray().Add(new JsonObject { ["label"] = chord.Label,
+                    ["tokens"] = new JsonArray(chord.Tokens.Select(term => (JsonNode?)JsonValue.Create(term)).ToArray()),
+                    ["prefixes"] = new JsonArray(chord.Prefixes.Select(term => (JsonNode?)JsonValue.Create(term)).ToArray()) });
+                string backup = RulesPath + ".before-chord.bak";
+                if (!File.Exists(backup)) File.Copy(RulesPath, backup);
+                string pending = RulesPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try { File.WriteAllText(pending, updatedRules.ToJsonString(Models.LibraryJson.Options)); File.Move(pending, RulesPath, true); }
+                finally { if (File.Exists(pending)) File.Delete(pending); }
+            }
+            return;
+        }
         string json = (legacyRulesPath is not null ? ReadIfPresent(legacyRulesPath) : null)
             ?? ReadIfPresent(DefaultFilePath) ?? ReadEmbeddedDefaults();
         Parse(json);

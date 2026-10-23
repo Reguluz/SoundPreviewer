@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SoundPreviewer 1.0.0 离线操作说明：音源与生成环境">
+<title>音源与生成环境 — SoundPreviewer 操作说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<header><p class="meta">SoundPreviewer 1.0.0 · 离线操作说明 · 2026-10-24</p>
+<nav aria-label="操作说明章节"><a href="index.html">操作说明首页</a>
+<a href="quick-start.html">快速开始</a>
+<a href="installation.html">安装与启动</a>
+<a href="synths.html" aria-current="page">音源与生成环境</a>
+<a href="rendering.html">生成与试听</a>
+<a href="library.html">音色库整理</a>
+<a href="storage.html">数据、备份与升级</a>
+<a href="appearance.html">语言与外观</a>
+<a href="troubleshooting.html">常见问题</a></nav></header>
+<main id="main">
+<h1>音源与生成环境</h1>
+<p>本页内容：</p>
+<ul aria-label="本页目录"><li><a href="#support">支持范围</a></li><li><a href="#_1">计划支持的音源</a></li><li><a href="#scan">扫描并关联音源</a></li><li><a href="#backend">确认预览生成方式</a></li><li><a href="#environment">一键准备 DawDreamer</a></li></ul>
+<h2 id="support">支持范围</h2>
+<p>“可生成”表示已有生成方式，具体音源版本、授权和外部资源仍须在你的电脑上核对。Windows 与 Mac 共用操作界面；安装包能启动与某个插件实际能生成声音是两项不同的检查。</p>
+<table>
+<thead>
+<tr>
+<th>音源</th>
+<th>可生成预览的音色文件</th>
+<th>生成前需要准备</th>
+<th>已有真实样本验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Vital</strong></td>
+<td>独立 <code>.vital</code>；通过内嵌资源检查的 <code>.vitalbank</code> 包内音色</td>
+<td>Windows / Mac 的 Vital 独立程序，使用「Vital 原生」</td>
+<td>Windows 历史样本及 Vital 1.6.4 的两条包内音色；Apple Silicon 已验证独立测试音色，包内生成尚待实机验证</td>
+</tr>
+<tr>
+<td><strong>Serum 1</strong></td>
+<td>独立 <code>.fxp</code></td>
+<td>VST2 插件及一键准备的 DawDreamer 环境</td>
+<td>Windows Serum 1.334 x64；历史五音色并行实测见<a href="https://github.com/Reguluz/SoundPreviewer/blob/main/docs/parallel-rendering.md#060-windows-五样本实测2026-10-20">并行说明</a>；Mac 尚待真实插件验证</td>
+</tr>
+<tr>
+<td><strong>Serum 2</strong></td>
+<td>原生 <code>.SerumPreset</code></td>
+<td>VST3 插件及带 Serum 2 依赖的 DawDreamer 环境</td>
+<td>Apple Silicon / Serum 2 2.0.23 的两个工厂音色；Windows、Intel Mac 尚待真实插件验证</td>
+</tr>
+<tr>
+<td><strong>Sylenth1</strong></td>
+<td>独立 <code>.fxp</code></td>
+<td>Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer</td>
+<td>Windows Sylenth1 2.2.1.2 x86；五个音色完成 1 / 2 / 4 条实测，其他组合尚待验证</td>
+</tr>
+<tr>
+<td><strong>Spire</strong></td>
+<td>暂不生成</td>
+<td>可扫描 <code>.spf</code>、<code>.spf2</code>、<code>.sbf</code>、<code>.swzip</code>，保留记录并显示「无法预览」</td>
+<td>尚无真实插件生成验证</td>
+</tr>
+</tbody>
+</table>
+<p>Vital 音色包请先重新「扫描音色」：内嵌波表和采样完整、资源格式已覆盖的条目会变为「待生成」，可直接使用「Vital 原生」生成。程序只读取所选条目，在当前生成任务的私有临时目录内加载，不导入或更改 Vital 全局资源目录。资源不完整或使用尚未覆盖的类型时，显示「无法预览」并给出具体原因；可在 Vital 中导入后导出独立 <code>.vital</code>，再扫描导出目录。音色包最大 256 MiB，包内独立预制最大 16 MiB。</p>
+<p><code>.fxb</code> 银行及其他尚未支持的银行内容仍<strong>不能直接生成预览</strong>，请先在对应音源中导出独立音色，再添加其目录。Serum 2 的旧 <code>.fxp</code> 需在 Serum 2 中导入并另存为 <code>.SerumPreset</code>，直接改扩展名无效。无法可靠判断归属的文件会显示「无法预览」，详情提示核对并指定所属音源。</p>
+<p>更多版本与样本记录见 <a href="https://github.com/Reguluz/SoundPreviewer/blob/main/docs/rendering.md#本机验证记录">音源验证记录</a>。这些样本不代表所有音色、插件版本或外部采样资源都已验证。</p>
+<h2 id="_1">计划支持的音源</h2>
+<p><strong>Spire 原生预览生成</strong>：目前已建立专用格式的扫描与索引，后续需验证真实插件加载、音色槽位与依赖资源，完成后才开放生成。其他新增音源尚无确定排期；FXB 银行槽位遍历也仍待实现。现阶段请按上表选择已有生成方式。</p>
+<h2 id="scan">扫描并关联音源</h2>
+<p>点击顶部「扫描音源」，在「音源与设置 → 已发现音源」查看结果。程序会从常见安装位置查找；找不到时，在「目录」页添加音源安装目录后重新扫描。</p>
+<p>可选中正确的插件版本，点击「使用选中版本」。优先使用与本机架构匹配的插件。扫描到插件后，还需确认下一步的生成方式；扫描本身不会演奏音色。</p>
+<h2 id="backend">确认预览生成方式</h2>
+<p>在「音源与设置 → 预览生成」检查配置：</p>
+<ul>
+<li><strong>Vital</strong>：选择 Vital 独立程序，方式为「Vital 原生」。只有 VST 插件文件时，不能直接使用这条原生路径。</li>
+<li><strong>Windows 的 Sylenth1 x86</strong>：匹配后可使用随包的独立宿主。如果提示缺少运行库，请从 <a href="https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/">Microsoft 官方页面</a> 安装 VC++ <strong>x86</strong> 运行库。</li>
+<li><strong>Serum 1 / Serum 2 / 使用 DawDreamer 的 Sylenth1</strong>：点击本页「一键准备生成环境」，首次联网下载，成功后自动填入私有环境路径；再核对关联的插件文件。</li>
+</ul>
+<p>检查音源的实际版本，点击「保存设置」。私有环境与当前程序架构一致；Windows 的 DawDreamer 路径使用 x64，不能加载 x86 插件。</p>
+<p>「渲染程序」与「已关联插件」是两个位置：Serum 1 的 DawDreamer 方式应选择 Python 程序，插件则选择 64 位 <code>Serum_x64.dll</code>，不能把 DLL 当作 Python。未配好的音源也能先保存，不会挡住其他设置；「配置状态」会分别说明缺少什么。若已在本程序的 <code>Preview/renderers</code> 准备默认环境，空白的 DawDreamer 程序路径会自动填入；自选和暂时离线的路径会保留。</p>
+<p><strong>Sushi（本地研究）</strong>：保留手动配置入口，安装包不包含该宿主，也不自动切换。已有实验的适用范围及构建入口见<a href="https://github.com/Reguluz/SoundPreviewer/blob/main/docs/headless-host-research.md">研究记录</a>。日常公开测试采用上面的私有 DawDreamer 环境。</p>
+<p>「加载防错检查」通常自动进行。内置 Windows x86 Sylenth1 宿主遇到启动声音随机波动时，可改用逐音色的精确状态回读；状态与目标不一致或无法核验时仍拒绝保存。这不表示声音比对已稳定，生成结果仍需试听确认。Vital 原生方式不支持这项声音参照检查，也不会因此被禁止生成。</p>
+<p>Sylenth1 的加载状态需要可核验。若提示“状态完全未变”或回读格式不同，当前插件未能提供可核验的加载结果；请使用匹配版本的 Sylenth1，或在对应版本中重新导出独立 FXP。这类明确不兼容的加载不会在同一次队列中重复尝试。</p>
+<p>并行和内存配置见<a href="rendering.html#parallel">生成与试听</a>。</p>
+<h2 id="environment">一键准备 DawDreamer</h2>
+<p>仅使用 Vital 原生或 Windows 随包的 Sylenth1 x86 宿主时，可以跳过本节。</p>
+<p>打开「音源与设置 → 预览生成」，点击 <strong>「一键准备生成环境」</strong>。无需了解 Python，也无需单独安装 Python 或 uv。首次需要联网，完成后可离线生成；Serum 2 所需组件也会一并准备。下载或检查失败时保留已有环境和缓存，可稍后重试。</p>
+<p>程序只随包携带下载工具 uv；Python、DawDreamer 和下载缓存保存在程序旁的 <strong><code>Preview/renderers</code></strong>。不修改系统 PATH、Python 注册信息或用户的 uv / Python 配置。Windows 所需的 x64 C++ 运行库使用私有副本，无需为这条生成路径另装运行库。</p>
+<p>成功后会自动补齐未配置且已发现匹配插件的音源，并修复本程序私有环境的失效旧路径；已有自选生成方式和可用的旧 Python 环境保留。未扫描到插件时，请先扫描音源，再选择版本。准备过程只检查空宿主，不安装商业插件，也不代表所有音色已通过验证。</p>
+<p>也可以先准备环境，再扫描或关联插件；程序会为已确认兼容的插件补齐生成方式，已有自选宿主保持原样。</p>
+<p>关闭程序后，可把整个程序目录连同 <strong>Preview 与 Config</strong> 一起移动；新私有环境使用相对清单，重开时自动定位。原音色文件、插件以及以前手动配置的外部环境仍需核对实际路径。命令行与高级参数见 <a href="https://github.com/Reguluz/SoundPreviewer/blob/main/docs/rendering.md#可选-dawdreamer-宿主">生成环境说明</a>。</p>
+<figure><a href="images/discovered.png"><img src="images/discovered.png" alt="选择已发现的音源版本并关联" loading="lazy" width="1380" height="900"></a><figcaption>选择已发现的音源版本并关联。点击图片可查看原图。截图使用示例音色库，名称、路径及数值仅用于演示。</figcaption></figure>
+
+<figure><a href="images/renderers.png"><img src="images/renderers.png" alt="核对生成方式、程序和插件路径" loading="lazy" width="1380" height="900"></a><figcaption>核对生成方式、程序和插件路径。点击图片可查看原图。截图使用示例音色库，名称、路径及数值仅用于演示。</figcaption></figure>
+
+<p>保存设置后按<a href="quick-start.html#test">快速开始的单音色测试</a>检查实际输出；配置状态或加载失败说明见<a href="troubleshooting.html#rendering">常见问题</a>。</p>
+</main>
+<footer><p class="pager"><a href="installation.html">上一页：安装与启动</a> · <a href="rendering.html">下一页：生成与试听</a></p><p><a href="index.html">返回操作说明首页</a> · <a href="#main">回到本页顶部</a></p><p>正文和截图随程序提供，可离线阅读。外部下载、项目反馈与技术记录链接需要联网。</p></footer>
+</body>
+</html>

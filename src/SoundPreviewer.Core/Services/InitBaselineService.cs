@@ -18,8 +18,20 @@ public static class InitBaselineService
 {
     public const string BaselineKind = "FreshInstanceNoPresetLoaded";
     public const string RejectionPrefix = "初始化匹配：";
+    public const string SuspectedLoadFailurePrefix = "经过验证疑似加载失败：";
     private const string AudioComparisonMode = "AudioComparison";
     private const string VerifiedPresetLoadMode = "VerifiedPresetLoad";
+
+    public static string DescribeRejection(SynthKind synth, string detail) => synth is SynthKind.Serum1 or SynthKind.Serum2
+        ? SuspectedLoadFailurePrefix + "生成结果与未加载预制时的启动声音相同或极近似，本次预览未保存。" +
+            "当前 Serum 版本可能低于制作该音色的版本；请在 Serum 中打开该音色查看提示，如要求较新版本，请更新后重试。 " + detail
+        : RejectionPrefix + detail;
+
+    public static bool IsRejection(string message) => message.StartsWith(RejectionPrefix, StringComparison.Ordinal) ||
+        message.StartsWith(SuspectedLoadFailurePrefix, StringComparison.Ordinal);
+
+    public static string ExplainStoredRejection(SynthKind synth, string message) => synth is SynthKind.Serum1 or SynthKind.Serum2
+        ? message.Replace(RejectionPrefix, DescribeRejection(synth, ""), StringComparison.Ordinal) : message;
 
     public static bool Supports(PluginConfiguration plugin) =>
         plugin.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1 && plugin.Backend == RenderBackend.DawDreamer ||

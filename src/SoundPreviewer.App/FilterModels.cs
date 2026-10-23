@@ -3,7 +3,7 @@ using System.ComponentModel;
 
 namespace SoundPreviewer.App;
 
-public sealed class FilterOption(string key, string label, string? toolTip = null, string? displayLabel = null) : INotifyPropertyChanged
+public sealed class FilterOption(string key, string label, string? toolTip = null, string? displayLabel = null, bool userText = false) : INotifyPropertyChanged
 {
     private bool isSelected;
     private int count;
@@ -13,6 +13,8 @@ public sealed class FilterOption(string key, string label, string? toolTip = nul
     public int Count => count;
     public string CountLabel => count.ToString();
     public string ToolTip { get; } = toolTip ?? label;
+    public string LocalizedDisplayLabel => userText ? DisplayLabel : T(DisplayLabel);
+    public string LocalizedToolTip => userText ? ToolTip : T(ToolTip);
     public bool IsSelected
     {
         get => isSelected;
@@ -24,6 +26,12 @@ public sealed class FilterOption(string key, string label, string? toolTip = nul
         }
     }
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal void RefreshLanguage()
+    {
+        PropertyChanged?.Invoke(this, new(nameof(LocalizedDisplayLabel)));
+        PropertyChanged?.Invoke(this, new(nameof(LocalizedToolTip)));
+    }
 
     internal void SetCount(int value)
     {

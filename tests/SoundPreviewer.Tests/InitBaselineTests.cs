@@ -148,7 +148,10 @@ internal static partial class Program
         Equal(oldPath, record.PreviewPath, "Rejected forced regeneration retains the old valid preview mapping.");
         Equal(oldHash, Fingerprints.HashFile(oldPath), "The before-commit comparison cannot overwrite old valid audio.");
         Equal("失败", record.LastRenderOutcome, "Restoring an old ready preview does not erase the latest failed outcome.");
-        True(record.LastRenderMessage.StartsWith(InitBaselineService.RejectionPrefix, StringComparison.Ordinal), "The latest failure explains initialization matching rather than reporting success.");
+        True(record.LastRenderMessage.StartsWith(InitBaselineService.SuspectedLoadFailurePrefix, StringComparison.Ordinal) &&
+            record.LastRenderMessage.Contains("可能低于", StringComparison.Ordinal) &&
+            record.LastRenderMessage.Contains("查看提示", StringComparison.Ordinal), "Startup similarity reports suspected loading failure, not a confirmed version mismatch.");
+        Equal(1, record.Attempts, "The renamed startup rejection still stops after one forced attempt.");
 
         string locator = plugin.InitBaselinePath;
         settings.Template.Velocity++;

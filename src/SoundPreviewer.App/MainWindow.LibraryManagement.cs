@@ -30,8 +30,9 @@ public partial class MainWindow
 
     private void RefreshPresetMetadataEditors()
     {
-        PresetCategoriesEditor.Text = _selected is null ? "" : string.Join(", ", PresetMetadataService.EffectiveCategories(_selected.Record));
-        PresetTagsEditor.Text = _selected is null ? "" : string.Join(", ", PresetMetadataService.EffectiveTags(_selected.Record));
+        PresetCategoriesEditor.Text = "";
+        PresetTagsEditor.Text = "";
+        RefreshMetadataOptions();
     }
 
     private void SavePresetMetadata_Click(object sender, RoutedEventArgs e) => SavePresetMetadata(reset: false);
@@ -51,12 +52,23 @@ public partial class MainWindow
             }
             else
             {
-                PresetMetadataService.SetTags(copy, SplitMetadata(PresetTagsEditor.Text));
-                PresetMetadataService.SetCategories(copy, SplitMetadata(PresetCategoriesEditor.Text));
+                var categories = _allCategoryOptions.Where(option => option.IsChecked).Select(option => option.Id).ToList();
+                var tags = _allTagOptions.Where(option => option.IsChecked).Select(option => option.Id).ToList();
+                PresetMetadataService.SetCategories(copy, categories.Select(id => _categories.Label(id, "")));
+                PresetMetadataService.SetTags(copy, tags.Select(id => _tags.Label(id, "")));
+                copy.CategoryIds = categories;
+                copy.TagIds = tags;
             }
+            _categories.Synchronize(copy, true);
+            _tags.Synchronize(copy, false);
             _store.Upsert(copy);
             row.Record.Tags = copy.Tags;
             row.Record.CategoryTags = copy.CategoryTags;
+            row.Record.CategoryIds = copy.CategoryIds;
+            row.Record.TagIds = copy.TagIds;
+            row.Record.CategoryCatalogId = copy.CategoryCatalogId;
+            row.Record.TagCatalogId = copy.TagCatalogId;
+            PersistMetadataCatalogs();
             row.Record.ManualTags = copy.ManualTags;
             row.Record.ManualCategories = copy.ManualCategories;
             row.Record.AutomaticTags = copy.AutomaticTags;

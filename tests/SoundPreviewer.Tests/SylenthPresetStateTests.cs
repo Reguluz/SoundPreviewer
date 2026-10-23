@@ -45,6 +45,16 @@ internal static partial class Program
         True(!PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "New adapters cannot claim the old stricter proof scheme.");
         legacy.PresetLoadProof.Scheme = PresetLoadVerification.Scheme;
         True(PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "The new adapter uses its separately versioned state proof.");
+        legacy.PresetLoadProof.Scheme = PresetLoadVerification.CanonicalScheme;
+        True(!PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "Canonical verification requires the normalized state identity.");
+        legacy.PresetLoadProof.CanonicalStateSha256 = new string('b', 64);
+        True(PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "Known legacy conversions retain source, canonical state and all three pitch identities.");
+        legacy.AdapterVersion = "vstnet-2.1.0-sylenth-x86-v3";
+        True(!PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "Old adapters cannot claim the new canonical verification scheme.");
+        legacy.PresetLoadProof.Scheme = PresetLoadVerification.Scheme;
+        True(PresetLoadVerification.IsValid(legacy, proofPreset, proofTemplate), "Previous v3 exact readbacks remain valid.");
+        True(SylenthPresetState.LegacyProgramName(new byte[4096]) is null &&
+            SylenthPresetState.LegacyProgramName(target) is null, "Unknown opaque chunks and modern states cannot enter legacy conversion.");
         var directory = Fixture("preset-permanent-failure");
         var store = new LibraryStore(Path.Combine(directory, "library.db"));
         store.Initialize();

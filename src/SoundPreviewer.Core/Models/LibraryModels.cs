@@ -20,6 +20,10 @@ public sealed class PresetRecord
     public bool SynthAssignedManually { get; set; }
     public List<string> Tags { get; set; } = [];
     public List<string> CategoryTags { get; set; } = [];
+    public List<int>? TagIds { get; set; }
+    public List<int>? CategoryIds { get; set; }
+    public string CategoryCatalogId { get; set; } = "";
+    public string TagCatalogId { get; set; } = "";
     // Null keeps automatic metadata; an empty list records an explicit user clearing.
     public List<string>? ManualTags { get; set; }
     public List<string>? ManualCategories { get; set; }
@@ -138,6 +142,10 @@ public sealed class AppSettings : IJsonOnDeserialized
     public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new PluginConfiguration { Synth = s }).ToList();
     public PreviewTemplate Template { get; set; } = new();
     public AppearanceSettings Appearance { get; set; } = new();
+    public string Language { get; set; } = "zh-CN";
+    public string MetadataLanguage { get; set; } = "";
+    public string CategoryCatalogSnapshot { get; set; } = "";
+    public string TagCatalogSnapshot { get; set; } = "";
     public string PreviewDirectory { get; set; } = "";
     public PreviewAudioFormat PreviewFormat { get; set; } = PreviewAudioFormat.Aac;
     public double StorageBudgetGb { get; set; } = 10;
@@ -216,6 +224,7 @@ public sealed class PresetLoadProof
 {
     public string Scheme { get; set; } = "";
     public string SourceSha256 { get; set; } = "";
+    public string CanonicalStateSha256 { get; set; } = "";
     public List<int> Pitches { get; set; } = [];
 }
 

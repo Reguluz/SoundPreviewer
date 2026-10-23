@@ -24,7 +24,7 @@ function Clear-PublishDirectory([string]$Path) {
     }
     if (Test-Path -LiteralPath $full) {
         $userData = Get-ChildItem -LiteralPath $full -Recurse -Force | Where-Object {
-            $_.Name -in @('Preview', 'local-data', 'settings.json', 'library-location.json', 'directories.json', 'preset-categories.json') -or $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log')
+            $_.Name -in @('Preview', 'local-data', 'settings.json', 'library-location.json', 'directories.json', 'preset-categories.json', 'categories.json', 'tags.json') -or $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log')
         } | Select-Object -First 1
         if ($userData) { throw "Existing publish output contains user data ($($userData.FullName)). Preserve or move the old directory before publishing; no files were deleted." }
         Remove-Item -LiteralPath $full -Recurse -Force

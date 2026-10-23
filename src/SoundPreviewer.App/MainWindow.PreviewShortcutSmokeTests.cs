@@ -23,7 +23,7 @@ public partial class MainWindow
             StopPlayback();
             var filterTab = FilterTabs.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
             var filterOption = FilterOptionsItems.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
-            foreach (var target in new Control[] { SearchBox, filterTab, filterOption, ShowDuplicates, SeekSlider })
+            foreach (var target in new Control[] { SearchBox, filterTab, filterOption, ShowDuplicates, SeekSlider, TaskProgressDetails })
                 CheckIgnored(target, KeyModifiers.None);
             if (SearchBox.GetVisualDescendants().OfType<Control>().FirstOrDefault() is { } textChild)
                 CheckIgnored(textChild, KeyModifiers.None);
@@ -102,8 +102,7 @@ public partial class MainWindow
         if (!PreviewShortcutHint.IsEffectivelyVisible || bounds.Height < 14 ||
             !new Rect(((Control)Content!).Bounds.Size).Contains(bounds) ||
             PreviewShortcutHint.GetVisualParent() is not Control parent || !SmokeBounds(parent).Contains(bounds) ||
-            PreviewShortcutHint.Child is not TextBlock text || text.Text?.Contains("空格键", StringComparison.Ordinal) != true ||
-            text.Text?.Contains("从头播放", StringComparison.Ordinal) != true ||
+            PreviewShortcutHint.Child is not TextBlock text || text.Text != T("空格键 · 从头播放当前预览") ||
             text.DesiredSize.Width > text.Bounds.Width + .5 || text.DesiredSize.Height > text.Bounds.Height + .5)
             throw SmokeLayoutFailure("空格键提示缺失、被裁剪或超出播放区域。");
     }

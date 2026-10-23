@@ -176,6 +176,11 @@ public partial class MainWindow
                 CheckLibraryLayoutUnchanged(fixedLayout);
                 if (TaskProgressDetails.Bounds.Height > 18.1 || TaskResourceDetails.Bounds.Height > 18.1)
                     throw SmokeLayoutFailure("长进度说明没有限制在紧凑的单行区域。");
+                TaskProgressDetails.SelectAll();
+                if (TaskProgressDetails.SelectedText != _statusMessage || !GenerationResultText.Contains(_statusMessage, StringComparison.Ordinal) ||
+                    !CopyGenerationResultButton.IsEffectivelyVisible || !SmokeBounds(TaskStatusBand).Contains(SmokeBounds(CopyGenerationResultButton)))
+                    throw SmokeLayoutFailure("长生成结果无法完整选中或复制，或复制入口超出了进度区域。");
+                TaskProgressDetails.ClearSelection();
                 CaptureSmokeImage($"ui-long-feedback-{name}.png");
                 StopTask_Click(StopTaskButton, new RoutedEventArgs());
                 token.ThrowIfCancellationRequested();

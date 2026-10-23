@@ -15,6 +15,7 @@ public static class PresetMetadataService
         record.AutomaticTags ??= [.. (record.Tags ?? [])];
         record.ManualTags = normalized;
         record.Tags = [.. normalized];
+        record.TagIds = null;
     }
 
     public static void SetCategories(PresetRecord record, IEnumerable<string> values)
@@ -24,6 +25,7 @@ public static class PresetMetadataService
         record.AutomaticCategories ??= [.. (record.CategoryTags ?? [])];
         record.ManualCategories = normalized;
         record.CategoryTags = [.. normalized];
+        record.CategoryIds = null;
     }
 
     public static void ResetTags(PresetRecord record)
@@ -31,6 +33,7 @@ public static class PresetMetadataService
         ArgumentNullException.ThrowIfNull(record);
         record.ManualTags = null;
         record.Tags = [.. (record.AutomaticTags ?? record.Tags ?? [])];
+        record.TagIds = null;
     }
 
     public static void ResetCategories(PresetRecord record)
@@ -38,11 +41,13 @@ public static class PresetMetadataService
         ArgumentNullException.ThrowIfNull(record);
         record.ManualCategories = null;
         record.CategoryTags = [.. (record.AutomaticCategories ?? record.CategoryTags ?? [])];
+        record.CategoryIds = null;
     }
 
     internal static void UpdateAutomaticTags(PresetRecord record, IEnumerable<string> values)
     {
         var automatic = values.ToList();
+        if (record.ManualTags is null && !record.Tags.SequenceEqual(automatic)) record.TagIds = null;
         if (record.ManualTags is not null || record.AutomaticTags is not null) record.AutomaticTags = automatic;
         record.Tags = [.. (record.ManualTags ?? automatic)];
     }
@@ -50,6 +55,7 @@ public static class PresetMetadataService
     internal static void UpdateAutomaticCategories(PresetRecord record, IEnumerable<string> values)
     {
         var automatic = values.ToList();
+        if (record.ManualCategories is null && !record.CategoryTags.SequenceEqual(automatic)) record.CategoryIds = null;
         if (record.ManualCategories is not null || record.AutomaticCategories is not null) record.AutomaticCategories = automatic;
         record.CategoryTags = [.. (record.ManualCategories ?? automatic)];
     }
@@ -57,6 +63,10 @@ public static class PresetMetadataService
     internal static void PreserveEdits(PresetRecord previous, PresetRecord candidate)
     {
         candidate.ManualTags = previous.ManualTags is null ? null : [.. previous.ManualTags];
+        candidate.TagIds = previous.TagIds is null ? null : [.. previous.TagIds];
+        candidate.CategoryIds = previous.CategoryIds is null ? null : [.. previous.CategoryIds];
+        candidate.CategoryCatalogId = previous.CategoryCatalogId;
+        candidate.TagCatalogId = previous.TagCatalogId;
         candidate.ManualCategories = previous.ManualCategories is null ? null : [.. previous.ManualCategories];
         candidate.AutomaticTags = previous.AutomaticTags is null ? null : [.. previous.AutomaticTags];
         candidate.AutomaticCategories = previous.AutomaticCategories is null ? null : [.. previous.AutomaticCategories];

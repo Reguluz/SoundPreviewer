@@ -17,8 +17,13 @@ public partial class MainWindow
 
     private async Task RunSmokeTestAsync()
     {
+        var guide = PrepareUserGuide();
+        if (!guide.UseShellExecute || guide.FileName != Path.Combine(AppContext.BaseDirectory, "操作说明", "index.html"))
+            throw new InvalidOperationException("操作说明入口未指向随程序附带的离线首页。");
+        File.WriteAllText(Path.Combine(App.DataDirectory, "ui-checkpoint.txt"), "appearance");
         // Exercises the same controller, bindings and native playback on both desktop targets.
         bool appearancePersistenceChecked = await CheckAppearanceAsync();
+        File.WriteAllText(Path.Combine(App.DataDirectory, "ui-checkpoint.txt"), "filters");
         if (ForceGeneration.IsChecked == true || ShowDuplicates.IsChecked == true)
             throw new InvalidOperationException("全量生成与重复项必须默认关闭。");
         if (SourceSynthChoice.SelectedIndex != 0 || SourceChoices[0].Value is not null ||
@@ -80,7 +85,7 @@ public partial class MainWindow
         var menu = new ContextMenu();
         ColumnMenu_Opened(menu, new RoutedEventArgs());
         if (!PresetGrid.Columns.Where(value => value.IsVisible).OrderBy(value => value.DisplayIndex)
-            .Select(value => value.Header as string).SequenceEqual(new[] { "音色名称", "音源", "类别", "状态", "收藏", "尝试", "最近任务" }))
+            .Select(value => value.Header as string).SequenceEqual(new[] { "音色名称", "音源", "类别", "状态", "收藏" }))
             throw new InvalidOperationException("音色列表默认可见列及顺序发生变化。");
         if (menu.Items.Count != PresetGrid.Columns.Count) throw new InvalidOperationException("列选择菜单与表格列不一致。");
         var column = PresetGrid.Columns.First(value => value.IsVisible);
@@ -260,10 +265,11 @@ public partial class MainWindow
             editedBackendModel.Backend = originalBackend;
             RefreshGrid(PluginGrid);
         }
+        await CheckLanguagesAsync();
         await CheckClosingCallbacksAsync();
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
         {
-            Loaded = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            Loaded = true, UserGuideChecked = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             AppearanceChecked = true, AppearancePersistenceChecked = appearancePersistenceChecked, AppearanceCancelChecked = true, AppearanceViewports = 2,
             FilterOptionCountsChecked = true,
             FilterCountsBenchmarkRows = 14000, FilterCountsBenchmarkMilliseconds = _filterCountsBenchmarkMilliseconds,
@@ -281,11 +287,15 @@ public partial class MainWindow
             CurrentFilterGenerationChecked = filteredGenerationChecked,
             RendererUnavailableReasonsChecked = filteredGenerationChecked,
             PresetFileTransferChecked = true, ClipboardPathChecked = true, NativeClipboardChecked = nativeClipboardChecked,
+            GenerationResultCopyChecked = true, SelectableGenerationDescriptionChecked = true,
             SourceRevealCommandChecked = true, SourceCountsChecked = true,
             CrossSourceDuplicatesChecked = true, MultiSelectFiltersChecked = true, FilterRefreshPreservedChecked = true,
             StrictDuplicateHidingChecked = filteredGenerationChecked,
             FivePreviewStatusesChecked = true, DirectoryConfigurationChecked = true,
+            SerumLoadFailureMessagesChecked = true,
             CategoryRulesAvailableChecked = true, CategoryRulesPath = _categoryService.RulesPath,
+            LanguagesChecked = true, EnglishViewports = 2, MetadataLanguageIndependentChecked = true,
+            MetadataAliasesSearchChecked = true, LargeMetadataListChecked = true,
             StartupWarnings = App.StorageStartupMessages,
             StoragePreparationWindowShown = App.StoragePreparationWindowShown,
             RenderProgressCountersChecked = true, EffectiveConcurrencyDisplayChecked = true,
@@ -526,6 +536,16 @@ public partial class MainWindow
             foreach (var status in new[] { PresetStatus.Unsupported, PresetStatus.Missing, PresetStatus.Unidentified })
                 if (new PresetRow(new PresetRecord { Status = status }).Message.Length == 0)
                     throw new InvalidOperationException("无法预览记录缺少可操作的原因提示。");
+            foreach (var synth in new[] { SynthKind.Serum1, SynthKind.Serum2 })
+            {
+                string oldReason = InitBaselineService.RejectionPrefix + "TEST ONLY comparison evidence";
+                var record = new PresetRecord { Synth = synth, Status = PresetStatus.Failed, Message = oldReason, LastRenderMessage = oldReason };
+                var row = new PresetRow(record);
+                if (!row.Message.StartsWith(InitBaselineService.SuspectedLoadFailurePrefix, StringComparison.Ordinal) ||
+                    row.LastRenderMessageLabel != row.Message || !row.Message.Contains("TEST ONLY comparison evidence", StringComparison.Ordinal) ||
+                    record.Message != oldReason || record.LastRenderMessage != oldReason || !PresetResultText(row).Contains(row.LastRenderMessageLabel, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Serum 历史初始化匹配原因未显示或复制为疑似加载失败，或改写了已存记录。");
+            }
         }
         finally
         {
@@ -627,6 +647,12 @@ public partial class MainWindow
         var content = (Control)Content!;
         var area = new Rect(content.Bounds.Size);
         CheckPreviewShortcutHint();
+        if (!UserGuideButton.IsEffectivelyVisible || !UserGuideButton.IsEnabled ||
+            UserGuideButton.Bounds.Width <= 0 || UserGuideButton.Bounds.Height <= 0 ||
+            !SmokeBounds(StatusFooter).Contains(SmokeBounds(UserGuideButton)) ||
+            SmokeBounds(UserGuideButton).Intersects(SmokeBounds(BuildVersionLabel)) ||
+            SmokeBounds(UserGuideButton).Intersects(SmokeBounds(StatusFooterText)))
+            throw SmokeLayoutFailure("操作说明入口缺失、不可用或与页脚文字重叠。");
         if (BuildVersionLabel.Text != AppVersion || !BuildVersionLabel.IsEffectivelyVisible ||
             SmokeBounds(BuildVersionLabel).Intersects(SmokeBounds(StatusFooterText)))
             throw SmokeLayoutFailure("版本标识缺失或与状态文字重叠。");

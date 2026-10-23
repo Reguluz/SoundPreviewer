@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SoundPreviewer 1.0.0 离线操作说明：快速开始">
+<title>快速开始 — SoundPreviewer 操作说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<header><p class="meta">SoundPreviewer 1.0.0 · 离线操作说明 · 2026-10-24</p>
+<nav aria-label="操作说明章节"><a href="index.html">操作说明首页</a>
+<a href="quick-start.html" aria-current="page">快速开始</a>
+<a href="installation.html">安装与启动</a>
+<a href="synths.html">音源与生成环境</a>
+<a href="rendering.html">生成与试听</a>
+<a href="library.html">音色库整理</a>
+<a href="storage.html">数据、备份与升级</a>
+<a href="appearance.html">语言与外观</a>
+<a href="troubleshooting.html">常见问题</a></nav></header>
+<main id="main">
+<h1>快速开始</h1>
+<p>本页内容：</p>
+<ul aria-label="本页目录"><li><a href="#launch">1. 打开程序</a></li><li><a href="#configure">2. 最小配置：只配置一个音源</a></li><li><a href="#scan">3. 添加音色目录并扫描</a></li><li><a href="#test">4. 测试：只生成一个音色</a></li><li><a href="#use">5. 使用：筛选、批量生成、随时试听</a></li></ul>
+<p>目标：用一个音色完成生成和试听，再处理更多音色。先准备一个已授权、可以正常打开的受支持音源和它的音色文件；程序不附带商业音源或私人音色。</p>
+<h2 id="launch">1. 打开程序</h2>
+<p>从项目发布页下载对应平台包。Windows 安装后打开，或将免安装包<strong>完整解压</strong>后打开 <code>SoundPreviewer.exe</code>；Mac 将 <code>.app</code> 复制到有写入权限的独立文件夹后打开。第一次运行会建立必要配置，不必先复制 Preview 或 Config。详细平台要求见<a href="installation.html">安装与启动</a>。</p>
+<h2 id="configure">2. 最小配置：只配置一个音源</h2>
+<ol>
+<li>点击顶部 <strong>「扫描音源」</strong>。</li>
+<li>打开 <strong>「音源与设置 → 已发现音源」</strong>，选正确版本，点击「使用选中版本」。扫描不到时，到「目录」添加音源安装目录，再扫描。</li>
+<li>打开 <strong>「预览生成」</strong>，按下表配置一种生成方式，核对关联插件，再点击 <strong>「保存设置」</strong>。其他音源可以暂不配置。</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>准备的音源</th>
+<th>最少需要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vital</td>
+<td>选择 Vital <strong>独立程序</strong>，方式为「Vital 原生」；先用独立 <code>.vital</code> 测试</td>
+</tr>
+<tr>
+<td>Serum 1 / Serum 2</td>
+<td>关联对应 VST2 / VST3 插件，点击「一键准备生成环境」；首次联网完成后保存</td>
+</tr>
+<tr>
+<td>Windows Sylenth1 x86</td>
+<td>关联 x86 插件并使用随包宿主；缺少 x86 运行库时按提示安装</td>
+</tr>
+</tbody>
+</table>
+<p>其余架构与格式限制见<a href="synths.html#support">音源与生成环境</a>。保留默认试听模板、自动并行和 4 GiB 内存预算即可开始。</p>
+<figure><a href="images/renderers.png"><img src="images/renderers.png" alt="音源与设置中的预览生成页" loading="lazy" width="1380" height="900"></a><figcaption>音源与设置中的预览生成页。点击图片可查看原图。截图使用示例音色库，名称、路径及数值仅用于演示。</figcaption></figure>
+
+<h2 id="scan">3. 添加音色目录并扫描</h2>
+<p>在 <strong>「音源与设置 → 目录」</strong> 添加一个音色文件夹，混合目录选择「自动识别（混合音色包）」，点击顶部 <strong>「扫描音色」</strong>。返回「音色库」，找到一条状态为「待生成」的受支持音色。</p>
+<p>若显示「无法预览」，先查看右侧原因；FXB 银行和 Spire 原生格式目前不能直接生成。可先选择独立 <code>.vital</code>、Serum 1 <code>.fxp</code>、Serum 2 <code>.SerumPreset</code> 或 Sylenth1 <code>.fxp</code>。</p>
+<h2 id="test">4. 测试：只生成一个音色</h2>
+<p>选中该音色，在右侧详情点击 <strong>「重新生成此音色」</strong>，等待状态变为「已生成」。在底部试听「中 / 高 / 低」三个音区，并与音源中直接打开的声音核对。需要确认时，点击「确认预览对应此音色」。</p>
+<p><strong>通过标准：</strong> 能听到预期音色，三个音区与目标对应，详情没有加载失败提示。失败时先按<a href="troubleshooting.html">故障排查</a>修正原因，再重试这个音色。</p>
+<h2 id="use">5. 使用：筛选、批量生成、随时试听</h2>
+<p>搜索或勾选音源、分类等条件，点击 <strong>「生成 / 继续」</strong>。它只处理<strong>当前搜索与筛选结果</strong>，已有有效预览会跳过；处理全库前先清空筛选。点击「停止」保留已完成预览，下次可以继续。</p>
+<p>选中已有预览后，按 <strong>空格</strong> 从头播放；播放中再按空格可重播。搜索等文本框内的空格仍用于输入。收藏、标签与分类见<a href="library.html">音色库整理</a>，模板和进度含义见<a href="rendering.html">生成与试听</a>。</p>
+<p>使用后退出程序，备份程序旁的 Preview、Config、categories.json、tags.json 与自定义语言文件。具体步骤见<a href="storage.html#backup">备份与升级</a>。</p>
+</main>
+<footer><p class="pager"><a href="index.html">上一页：操作说明首页</a> · <a href="installation.html">下一页：安装与启动</a></p><p><a href="index.html">返回操作说明首页</a> · <a href="#main">回到本页顶部</a></p><p>正文和截图随程序提供，可离线阅读。外部下载、项目反馈与技术记录链接需要联网。</p></footer>
+</body>
+</html>

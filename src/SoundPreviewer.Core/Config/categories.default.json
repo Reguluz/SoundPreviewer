@@ -1,0 +1,227 @@
+{
+  "Version": 1,
+  "Items": [
+    {
+      "Id": 1,
+      "Name": "Bass",
+      "Aliases": [
+        "贝斯"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Bass",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 2,
+      "Name": "Lead",
+      "Aliases": [
+        "主音"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Lead",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 3,
+      "Name": "Pad",
+      "Aliases": [
+        "音垫"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Pad",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 4,
+      "Name": "Pluck",
+      "Aliases": [
+        "拨弦"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Pluck",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 5,
+      "Name": "Keys",
+      "Aliases": [
+        "键盘"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Keys",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 6,
+      "Name": "Piano",
+      "Aliases": [
+        "钢琴"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Piano",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 7,
+      "Name": "Arp",
+      "Aliases": [
+        "琶音",
+        "点缀"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Arp",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 8,
+      "Name": "Seq",
+      "Aliases": [
+        "序列"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Seq",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 9,
+      "Name": "Drums",
+      "Aliases": [
+        "鼓组"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Drums",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 10,
+      "Name": "FX",
+      "Aliases": [
+        "音效"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "FX",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 11,
+      "Name": "Strings",
+      "Aliases": [
+        "弦乐"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Strings",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 12,
+      "Name": "Brass",
+      "Aliases": [
+        "铜管"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Brass",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 13,
+      "Name": "Organ",
+      "Aliases": [
+        "风琴"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Organ",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 14,
+      "Name": "Vocal",
+      "Aliases": [
+        "人声"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Vocal",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 15,
+      "Name": "Guitar",
+      "Aliases": [
+        "吉他"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Guitar",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 16,
+      "Name": "Bell",
+      "Aliases": [
+        "钟铃"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Bell",
+          "Aliases": []
+        }
+      }
+    },
+    {
+      "Id": 17,
+      "Name": "Chord",
+      "Aliases": [
+        "和弦"
+      ],
+      "Languages": {
+        "en-US": {
+          "Name": "Chord",
+          "Aliases": []
+        }
+      }
+    }
+  ]
+}

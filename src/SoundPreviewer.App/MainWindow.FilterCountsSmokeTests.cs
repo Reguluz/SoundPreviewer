@@ -51,7 +51,7 @@ public partial class MainWindow
             AssertCount("source", sourceB, 2);
             AssertCount("category", bass, 2);
             AssertCount("category", MissingFilter, 1);
-            AssertCount("tag", bass, 2);
+            AssertCount("tag", bass, 1);
             AssertCount("tag", warm, 2);
             AssertCount("tag", MissingFilter, 1);
             if (Group("tag").Options.Where(option => option.Key.Length > 0).Sum(option => option.Count) <= 4)
@@ -204,8 +204,8 @@ public partial class MainWindow
             "status" => [Labels.PreviewStatusKey(row.Record, row.HasPreview)],
             "source" => [row.Record.SourceId.Length == 0 ? MissingFilter : row.Record.SourceId],
             "package" => [row.Package.Length == 0 ? MissingFilter : row.Package],
-            "category" => row.Record.CategoryTags.Count == 0 ? [MissingFilter] : row.Record.CategoryTags,
-            "tag" => row.Record.Tags.Count + row.Record.CategoryTags.Count == 0 ? [MissingFilter] : row.Record.Tags.Concat(row.Record.CategoryTags),
+            "category" => !row.CategoryKeys.Any() ? [MissingFilter] : row.CategoryKeys,
+            "tag" => !row.TagKeys.Any() ? [MissingFilter] : row.TagKeys,
             "favorite" => [row.Record.Favorite ? "1" : "0"],
             _ => []
         };

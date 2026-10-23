@@ -134,19 +134,19 @@ public partial class App : Application
 
     private static void ShowStartupMessage(IClassicDesktopStyleApplicationLifetime desktop, string text, string title)
     {
-        var window = new Window { Title = title, Width = 460, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterScreen };
-        var close = new Button { Content = "确定", IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
+        var window = new Window { Title = T(title), Width = 460, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        var close = new Button { Content = T("确定"), IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
         close.Click += (_, _) => window.Close();
-        var message = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap };
+        var message = new TextBlock { Text = T(text), TextWrapping = TextWrapping.Wrap };
         var content = new StackPanel { Margin = new Thickness(24), Children = { message } };
         if (title == "无法打开本地音色库")
         {
-            var browse = new Button { Content = "选择旧版音色库作为迁移来源", Margin = new Thickness(0, 16, 0, 0) };
+            var browse = new Button { Content = T("选择旧版音色库作为迁移来源"), Margin = new Thickness(0, 16, 0, 0) };
             browse.Click += async (_, _) =>
             {
                 try
                 {
-                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择含 library.db 的旧库；生成文件仍保存到本程序 Preview", AllowMultiple = false });
+                    var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = T("选择含 library.db 的旧库；生成文件仍保存到本程序 Preview"), AllowMultiple = false });
                     if (folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;
                     bool replace = Directory.Exists(ApplicationPaths.DefaultPreviewDirectory) && Directory.EnumerateFileSystemEntries(ApplicationPaths.DefaultPreviewDirectory).Any();
                     if (replace && !await Dialogs.ShowAsync(window, "将先复制并校验所选旧库，再把当前 Preview 完整保留到程序旁的独立备份目录。所选库将成为新的本地 Preview，不合并两份库，原库和音频保留。", "导入旧版音色库", question: true)) return;
@@ -160,7 +160,7 @@ public partial class App : Application
                 catch (Exception error) { message.Text = error.Message; }
             };
             content.Children.Add(browse);
-            content.Children.Add(new TextBlock { Text = "数据固定保存到程序旁的 Preview。安装目录不可写时，请将程序放到可写目录后重试；迁移失败时原库保持原样。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
+            content.Children.Add(new TextBlock { Text = T("数据固定保存到程序旁的 Preview。安装目录不可写时，请将程序放到可写目录后重试；迁移失败时原库保持原样。"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
         }
         content.Children.Add(close);
         window.Content = content;

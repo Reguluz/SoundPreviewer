@@ -37,10 +37,10 @@ internal partial class AppearanceDialog : Window
             var swatch = new Button { Name = "Pick" + key, Width = 32, Height = 32, MinHeight = 32, Padding = new Thickness(0), CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 0, 10, 0) };
             swatch.Bind(BorderBrushProperty, new DynamicResourceExtension("Line"));
             AutomationProperties.SetName(swatch, "选择" + label);
-            ToolTip.SetTip(swatch, "选择" + label);
+            ToolTip.SetTip(swatch, T("选择" + label));
             swatch.Click += (_, _) => OpenPicker(key, label);
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,152") };
-            var caption = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+            var caption = new TextBlock { Text = T(label), VerticalAlignment = VerticalAlignment.Center };
             row.Children.Add(caption);
             Grid.SetColumn(swatch, 1);
             Grid.SetColumn(input, 2);
@@ -226,7 +226,7 @@ internal partial class AppearanceDialog : Window
         }
         catch (Exception error)
         {
-            ValidationMessage.Text = "配色暂未保存：" + error.Message;
+            ValidationMessage.Text = T("配色暂未保存：") + error.Message;
             return false;
         }
     }

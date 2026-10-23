@@ -6,3 +6,12 @@
 - Every `0.x` GitHub release is a prerelease, including numeric tags without a `-beta` suffix. Do not describe development builds as stable or final releases.
 - Pushing a version tag publishes a Release only after CI passes. Do not push a tag or publish a Release unless the user requests it.
 - Preserve existing libraries, Preview directories, custom metadata and cached audio during changes and packaging. Explicit user instructions take precedence over these repository defaults.
+
+## YouTrack task tracking
+
+- This repository uses `https://moonflow.youtrack.cloud`, project `VstiSoundPreviewer`, project key `VSP`, for task planning and tracking.
+- Use the `managing-youtrack` skill and the existing authenticated YouTrack MCP tools. Reuse the locally configured credentials; never store tokens in this repository.
+- Scope issue searches to `project: VSP`. MoonflowTechDemo has separate projects and field definitions; do not reuse its project filters or `Stage` field here.
+- Unless the user specifies an issue, select pending issues by highest priority first, breaking ties by ascending numeric issue order (`VSP-1`, `VSP-2`, ...), respecting dependencies.
+- After implementation and automated checks, move the issue to `验证中`. Only the user moves it to `Done` after manual acceptance; do not mark implemented issues as completed yourself.
+- When asked to work from YouTrack, refresh the relevant issues and read their descriptions, comments, attachments, priorities, due dates and dependencies before implementation. Use the current VSP field schema for updates.

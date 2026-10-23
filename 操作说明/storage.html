@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SoundPreviewer 1.0.0 离线操作说明：数据、备份与升级">
+<title>数据、备份与升级 — SoundPreviewer 操作说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<header><p class="meta">SoundPreviewer 1.0.0 · 离线操作说明 · 2026-10-24</p>
+<nav aria-label="操作说明章节"><a href="index.html">操作说明首页</a>
+<a href="quick-start.html">快速开始</a>
+<a href="installation.html">安装与启动</a>
+<a href="synths.html">音源与生成环境</a>
+<a href="rendering.html">生成与试听</a>
+<a href="library.html">音色库整理</a>
+<a href="storage.html" aria-current="page">数据、备份与升级</a>
+<a href="appearance.html">语言与外观</a>
+<a href="troubleshooting.html">常见问题</a></nav></header>
+<main id="main">
+<h1>数据、备份与升级</h1>
+<p>本页内容：</p>
+<ul aria-label="本页目录"><li><a href="#locations">数据位置</a></li><li><a href="#compression">预览压缩与旧缓存</a></li><li><a href="#recovery">缺失目录与恢复</a></li><li><a href="#import">备份、清理与旧库导入</a></li><li><a href="#backup">升级与整体移动</a></li></ul>
+<h2 id="locations">数据位置</h2>
+<p>音色索引、生成的预览音频、设置、收藏、标签和分类固定保存在程序旁的 <strong>Preview</strong>，安装版与 Portable 版相同。Windows 位于 <code>SoundPreviewer.exe</code> 同目录；Mac 位于 <code>.app</code> 旁边，不写入 app 内部。程序目录不可写时会明确报错，请将程序放到可写的独立文件夹。</p>
+<p>预览与声音参照的文件引用按 <strong>Preview 内的相对路径</strong> 保存，例如 <code>音频文件.m4a</code>、<code>InitializationBaselines/参照.wav</code>。退出后将程序、Preview 和 Config 一起移动到新位置，已有音频会从新位置读取，后续音频也只生成在新位置的 Preview。升级时会兼容转换旧绝对路径；已有音频及收藏、标签等记录会保留。</p>
+<h2 id="compression">预览压缩与旧缓存</h2>
+<p>新生成的预览默认保存为 <strong>AAC-LC 128 kbps 立体声（<code>.m4a</code>）</strong>，保留模板选择的 <strong>44100 / 48000 Hz</strong>，不降低采样率。到「音源与设置 → 试听与存储」可切换「新预览保存格式」；需要无损文件时选择 WAV 并保存设置。</p>
+<p>已有 WAV 会继续读取和复用，改变保存格式不会强制重做音色。想释放已有缓存占用，在同页点击「压缩已有 WAV」：程序按文件分组压缩、验证采样率与音区长度，并更新全部引用；成功后才移除本库自有的旧 WAV。收藏、标签、分类、确认状态和音色源文件保留。失败或停止时，已成功压缩的项目保留，其余原文件继续可用；外部、共享、无法确认归属的音频不会删除。</p>
+<p>播放、空格键重播、波形与三音区定位同时支持新 AAC 和旧 WAV。压缩使用 Windows / macOS 系统编解码器，不需要 Python、FFmpeg 或额外安装音频程序；AAC 的帧补齐信息保存在同一个 M4A 文件中，无需额外配套文件。生成时的加载防错检查仍使用原始无损音频，加载防错声音参照也保留为 WAV。</p>
+<p>升级后的程序兼容旧 WAV；旧程序若只支持 WAV，回退时请使用升级前的 Preview 备份。</p>
+<h2 id="recovery">缺失目录与恢复</h2>
+<p>目录缺失后会重新建立必要配置：</p>
+<table>
+<thead>
+<tr>
+<th>启动时的目录情况</th>
+<th>程序行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Preview 和 Config 都没有</td>
+<td>无可迁入旧库时新建空库与默认配置，可重新添加目录、扫描和生成</td>
+</tr>
+<tr>
+<td>只有 Preview 缺失</td>
+<td>保留并读取 Config 中的来源配置，可重新扫描、生成预览</td>
+</tr>
+<tr>
+<td>只有 Config 缺失</td>
+<td>继续读取 Preview 的记录和预览，从现有库设置重建目录配置；分类规则优先读取兼容旧副本，没有时建立默认规则</td>
+</tr>
+<tr>
+<td>Preview 和 Config 都存在</td>
+<td>继续使用已有记录、配置与有效缓存，不以默认内容覆盖个人文件</td>
+</tr>
+</tbody>
+</table>
+<p>若自动定位到的旧库已不存在，会提示并在当前程序旁新建 Preview；手动指定的旧库导入来源不存在时仍会报错。缺失恢复只重建必要默认内容，不会覆盖损坏的已有配置。音色可重新扫描、预览音频可重新生成；未从备份恢复的收藏、标签、反馈和手工分类不会凭空重建。需要这些记录时，请先退出程序并备份当前目录，再手动恢复旧 Preview；个人分类规则需保留或恢复对应 Config 或旧规则副本。</p>
+<p>早期版本可能沿用旧用户库和外部音频目录。升级时将这些位置作为迁移来源：先复制数据库、个人记录、分类规则和引用的预览，并校验复制结果，再在程序旁使用。旧数据库与旧音频保留作为回退备份。已有 <code>Preview</code> 会继续使用自己的记录，只将它引用的外部预览和加载防错参照复制归入，不会被另一套旧库覆盖。兼容旧记录不再意味着继续向旧目录生成音频。</p>
+<h2 id="import">备份、清理与旧库导入</h2>
+<table>
+<thead>
+<tr>
+<th>你要做什么</th>
+<th>操作与结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查看实际数据位置</td>
+<td>「音源与设置 → 试听与存储」查看当前数据库与音频目录，点击「打开 Preview 文件夹」直接打开</td>
+</tr>
+<tr>
+<td>释放试听缓存空间</td>
+<td>点击「清空预览」；保留音色记录、收藏、反馈、标签和分类，之后可重新生成</td>
+</tr>
+<tr>
+<td>导入另一套旧版本记录</td>
+<td>点击「导入旧版音色库」，选择含 <code>library.db</code> 的原目录并确认；先复制校验所选库，再备份当前完整 <code>Preview</code> 并切换，两套记录不合并</td>
+</tr>
+<tr>
+<td>选择保存位置</td>
+<td>数据固定保存在当前程序旁的 <code>Preview</code>；不再提供任意外部音频输出目录</td>
+</tr>
+<tr>
+<td>备份</td>
+<td>退出应用后完整复制 Preview 与 Config，保留原音色与外部资源</td>
+</tr>
+</tbody>
+</table>
+<p>清理只处理本库可确认归属的预览及声音参照。共享、外部或归属不明的文件会保留并提示，所以「清空预览」不代表把整个目录删空。旧库迁入后，先核对新库记录与试听正常，再自行处理原目录。</p>
+<p>手动导入先在临时目录复制所选库与引用音频，校验记录和设置可读后，再将当前 <code>Preview</code> 在程序旁原子改名为 <code>Preview-before-import-*</code>（末尾为唯一标识），完整保留这套记录与文件，然后切换到准备好的新库。切换失败且 <code>Preview</code> 空缺时会尽量恢复原名，并显示备份位置；不要删除提示中的备份目录。</p>
+<p>较早版本的备份可能仍含原 <code>Preview</code> 的绝对路径。恢复时先退出程序并备份当前 <code>Preview</code>，再把需要恢复的备份目录还原名为 <code>Preview</code>，避免覆盖任何现有数据。旧库中缺失的音频会保留历史来源和缓存记录，活动预览引用归入当前 Preview，方便之后找回原文件或重新生成。</p>
+<h2 id="backup">升级与整体移动</h2>
+<p>升级时先退出程序。推荐在原程序目录直接升级：Windows 安装版运行新安装包；Portable 替换程序文件；Mac 替换 <code>.app</code>。<strong>保留 Preview、Config、categories.json、tags.json 与自定义语言文件</strong> 可继续读取个人记录、目录配置和有效缓存；这是保留个人数据的建议，不是程序启动的前置条件。安装包不携带个人目录配置，升级或卸载会保留现有文件。导入另一套旧库时，已有 <code>Config/directories.json</code> 继续作为本程序的目录配置。旧版根目录的 JSON 也请保留，供兼容迁移和回退使用。降回旧程序时应使用升级前备份。</p>
+<p>Portable 表示免安装。移动程序前先退出并备份，连同 <code>Preview</code>、<code>Config</code>、<code>categories.json</code>、<code>tags.json</code> 和自定义语言文件一起保留；一键准备的私有环境随目录移动，原音色、插件和手选外部 Python 环境的绝对路径仍需核对。程序不提供应用内自动更新，后续版本从 GitHub 下载。</p>
+<p>需要整洁的新目录时，先保留旧目录作为备份，将完整新包解压到独立文件夹，再复制旧 Preview、Config、categories.json、tags.json、自定义语言文件和尚未迁移的旧根目录 JSON。启动后核对原记录、试听及插件路径，再处理旧目录。</p>
+<p><a href="installation.html">安装步骤</a> · <a href="synths.html#environment">音源环境移动后的检查</a> · <a href="appearance.html#catalogs">分类与语言文件</a></p>
+</main>
+<footer><p class="pager"><a href="library.html">上一页：音色库整理</a> · <a href="appearance.html">下一页：语言与外观</a></p><p><a href="index.html">返回操作说明首页</a> · <a href="#main">回到本页顶部</a></p><p>正文和截图随程序提供，可离线阅读。外部下载、项目反馈与技术记录链接需要联网。</p></footer>
+</body>
+</html>

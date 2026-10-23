@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using Jacobi.Vst.Core;
 using Jacobi.Vst.Host.Interop;
 using SoundPreviewer.Core.Audio;
@@ -36,6 +37,8 @@ internal static class VstRenderer
         var segments = new List<WaveData>();
         var notes = new List<NotePreview>();
         var names = new List<string>();
+        byte[]? canonical = preset?.Chunk is { } chunk && SylenthPresetState.LegacyProgramName(chunk) is not null
+            ? CanonicalizeLegacyPreset(request, preset) : null;
         bool allPitchesVerified = preset is not null && !request.IsInitializationBaseline;
         foreach (int pitch in request.Template.Pitches)
         {
@@ -52,7 +55,7 @@ internal static class VstRenderer
                 throw new NotSupportedException("插件不支持预期的单声道/立体声 float32 处理。");
             commands.SetSampleRate(rate);
             commands.SetBlockSize(HostCallbacks.BlockSize);
-            if (preset is not null) allPitchesVerified &= LoadPreset(context, preset);
+            if (preset is not null) allPitchesVerified &= LoadPreset(context, preset, canonical);
             else if (!request.IsInitializationBaseline) throw new InvalidDataException("普通渲染必须明确加载 FXP。");
             names.Add(commands.GetProgramName());
             using var inputs = new VstAudioBufferManager(context.PluginInfo.AudioInputCount, HostCallbacks.BlockSize);
@@ -107,19 +110,49 @@ internal static class VstRenderer
             Success = true, OutputPath = output, Metrics = combinedMetrics, Notes = notes, AdapterVersion = AdapterVersion, NeedsReview = true,
             PresetLoadProof = allPitchesVerified ? new PresetLoadProof
             {
-                Scheme = PresetLoadVerification.Scheme, SourceSha256 = request.Preset.ContentHash,
+                Scheme = canonical is null ? PresetLoadVerification.Scheme : PresetLoadVerification.CanonicalScheme,
+                SourceSha256 = request.Preset.ContentHash,
+                CanonicalStateSha256 = canonical is null ? "" : Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant(),
                 Pitches = request.Template.Pitches.ToList()
             } : null,
             Message = (request.IsInitializationBaseline
                 ? "默认启动基准：每音使用全新 Sylenth1 实例，未加载预制或调用 SetChunk。插件报告音色："
-                : "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色：") + string.Join(" / ", names.Distinct())
+                : canonical is null ? "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色："
+                : "旧格式 FXP 已通过独立实例转换、名称核对及逐音区完整状态回读；需与 DAW 试听确认。插件报告音色：") + string.Join(" / ", names.Distinct())
         };
     }
 
     private static VstMidiEvent Midi(int offset, int status, int pitch, int velocity) =>
         new(offset, 0, 0, [(byte)status, (byte)pitch, (byte)velocity, 0], 0, 0);
 
-    private static bool LoadPreset(VstPluginContext context, FxpPreset preset)
+    private static byte[] CanonicalizeLegacyPreset(RenderRequest request, FxpPreset preset)
+    {
+        var callbacks = new HostCallbacks(request.Template.SampleRate, request.Template.Bpm, Path.GetDirectoryName(request.Plugin.PluginPath)!);
+        using var context = VstPluginContext.Create(Path.GetFullPath(request.Plugin.PluginPath), callbacks);
+        callbacks.PluginContext = context;
+        var commands = context.PluginCommandStub.Commands;
+        commands.Open();
+        if (context.PluginInfo.PluginID != preset.PluginId || (context.PluginInfo.Flags & VstPluginFlags.ProgramChunks) == 0)
+            throw new PresetStateCompatibilityException("旧格式转换的实际插件身份或状态接口不匹配。");
+        commands.SetSampleRate(request.Template.SampleRate);
+        commands.SetBlockSize(HostCallbacks.BlockSize);
+        byte[] before;
+        int consumed;
+        commands.BeginSetProgram();
+        try
+        {
+            commands.SetProgram(0);
+            before = commands.GetChunk(true) ?? [];
+            consumed = commands.SetChunk(preset.Chunk!, true);
+        }
+        finally { commands.EndSetProgram(); }
+        byte[] canonical = commands.GetChunk(true) ?? [];
+        if (consumed < 0 || before.AsSpan().SequenceEqual(canonical) || !SylenthPresetState.IsLegacyReadback(preset.Chunk!, canonical))
+            throw new PresetStateCompatibilityException("旧格式 FXP 转换未通过独立实例的状态变化与完整名称核验，拒绝保存默认音色。");
+        return canonical;
+    }
+
+    private static bool LoadPreset(VstPluginContext context, FxpPreset preset, byte[]? canonical)
     {
         var commands = context.PluginCommandStub.Commands;
         commands.BeginSetProgram();
@@ -132,7 +165,7 @@ internal static class VstRenderer
                 byte[] before = commands.GetChunk(true) ?? [];
                 int consumed = commands.SetChunk(preset.Chunk, true);
                 byte[] after = commands.GetChunk(true) ?? [];
-                ValidateChunkLoaded(consumed, before, after, preset.Chunk);
+                ValidateChunkLoaded(consumed, before, after, canonical ?? preset.Chunk);
             }
             else
             {
@@ -146,8 +179,8 @@ internal static class VstRenderer
         if (preset.Chunk is not null)
         {
             byte[] actual = commands.GetChunk(true) ?? [];
-            if (!SylenthPresetState.Matches(preset.Chunk, actual))
-                throw new PresetStateCompatibilityException("目标预制加载核验失败：" + SylenthPresetState.DescribeMismatch(preset.Chunk, actual));
+            if (!SylenthPresetState.Matches(canonical ?? preset.Chunk, actual))
+                throw new PresetStateCompatibilityException("目标预制加载核验失败：" + SylenthPresetState.DescribeMismatch(canonical ?? preset.Chunk, actual));
             return true;
         }
         if (!preset.Parameters!.Select((value, index) => commands.GetParameter(index) is var actual &&
@@ -159,7 +192,9 @@ internal static class VstRenderer
     internal static void ValidateChunkLoaded(int consumed, ReadOnlySpan<byte> before, ReadOnlySpan<byte> after, ReadOnlySpan<byte> target)
     {
         if (consumed < 0) throw new PresetStateCompatibilityException("插件拒绝载入 FXP。" + SylenthPresetState.DescribeMismatch(target, after));
-        if (!before.IsEmpty && !after.IsEmpty && before.SequenceEqual(after))
+        // Factory presets may already occupy the selected bank slot. An unchanged
+        // state is valid only when its complete readback matches the target.
+        if (!before.IsEmpty && !after.IsEmpty && before.SequenceEqual(after) && !SylenthPresetState.Matches(target, after))
             throw new PresetStateCompatibilityException("SetChunk 后音色状态完全未变，拒绝把默认状态当成目标音色。" +
                 SylenthPresetState.DescribeMismatch(target, after));
         if (consumed == 0 && !SylenthPresetState.Matches(target, after) && (before.IsEmpty || after.IsEmpty))

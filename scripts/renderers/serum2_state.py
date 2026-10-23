@@ -298,18 +298,18 @@ def prepare_serum2_state(preset_bytes: bytes, fresh_state_bytes: bytes, plugin_v
     cbor, zstd, converter, wrappers = _dependencies()
     metadata, wrapper, preset = _read_xfer(preset_bytes, cbor, zstd)
     _identity(metadata, preset, processor=False)
-    if _version(metadata.get("productVersion")) > installed:
-        raise ValueError("The Serum 2 preset requires a newer plugin version than the installed version")
     fresh_metadata, fresh_wrapper, fresh = _read_juce(fresh_state_bytes, cbor, zstd, wrappers)
     if _version(fresh_metadata.get("productVersion")) != installed:
         raise ValueError("Fresh Serum 2 state does not match the configured installed plugin version")
+    if _version(metadata.get("productVersion")) > installed:
+        raise ValueError(f"需要更新 Serum 2：当前插件版本 {fresh_metadata['productVersion']} 低于音色制作版本 {metadata['productVersion']}，请更新后重试。")
     if wrapper != fresh_wrapper:
         raise ValueError("Preset and installed Serum 2 XferJson wrappers differ")
     processor_version = _format_version(fresh.get("version"))
     if _format_version(fresh_metadata.get("version")) != processor_version:
         raise ValueError("Fresh Serum 2 processor schema markers are inconsistent")
     if _format_version(metadata.get("version")) > processor_version:
-        raise ValueError("The preset uses a newer Serum 2 format than the installed processor state")
+        raise ValueError(f"需要更新 Serum 2：音色使用更高的状态格式版本（音色 {metadata['version']}，当前插件 {processor_version}），请更新后重试。")
 
     converted = converter.preset_cbor_to_processor_cbor(preset)
     _adapt_native_defaults(converted, preset, fresh)

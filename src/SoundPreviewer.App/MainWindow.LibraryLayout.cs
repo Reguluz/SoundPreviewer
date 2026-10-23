@@ -39,6 +39,12 @@ public partial class MainWindow
     {
         var group = FilterGroups.FirstOrDefault(group => group.Key == groupKey)
             ?? throw new ArgumentException("未知筛选组。", nameof(groupKey));
+        if (groupKey is "category" or "tag")
+        {
+            var catalog = groupKey == "category" ? _categories : _tags;
+            keys = keys.Select(key => key.Length == 0 || key == MissingFilter || key.StartsWith("id:", StringComparison.Ordinal) || group.Options.Any(option => option.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) ? key :
+                catalog.Items.FirstOrDefault(item => item.SearchTerms.Any(term => term.Equals(key, StringComparison.OrdinalIgnoreCase)) || item.Text("").Label.Equals(key, StringComparison.OrdinalIgnoreCase)) is { } item ? "id:" + item.Id : key).ToArray();
+        }
         group.SetSelection(keys);
         RefreshPresetView();
         NotifyFilterResults();
@@ -91,7 +97,7 @@ public partial class MainWindow
         row.Record.InternalPath.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
         row.SynthLabel.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
         row.Record.ContentMd5.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
-        row.Record.Tags.Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase)) ||
+        row.MatchesMetadata(search) || row.Record.Tags.Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase)) ||
         row.Record.CategoryTags.Any(value => value.Contains(search, StringComparison.CurrentCultureIgnoreCase));
 
     private readonly struct FilterRowValues(PresetRow row)
@@ -114,9 +120,8 @@ public partial class MainWindow
             "status" => keys.Contains(values.Status),
             "source" => keys.Contains(values.Source),
             "package" => keys.Contains(values.Package),
-            "category" => row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) : row.Record.CategoryTags.Any(keys.Contains),
-            "tag" => row.Record.Tags.Count + row.Record.CategoryTags.Count == 0 ? keys.Contains(MissingFilter) :
-                row.Record.Tags.Any(keys.Contains) || row.Record.CategoryTags.Any(keys.Contains),
+            "category" => !row.CategoryKeys.Any() ? keys.Contains(MissingFilter) : row.CategoryKeys.Any(keys.Contains),
+            "tag" => !row.TagKeys.Any() ? keys.Contains(MissingFilter) : row.TagKeys.Any(keys.Contains),
             "favorite" => keys.Contains(values.Favorite),
             _ => true
         });
@@ -178,15 +183,13 @@ public partial class MainWindow
             case "favorite": Add(values.Favorite); break;
             case "category":
                 seen.Clear();
-                foreach (string key in row.Record.CategoryTags)
+                foreach (string key in row.CategoryKeys)
                     if (seen.Add(key)) Add(key);
                 if (seen.Count == 0) Add(MissingFilter);
                 break;
             case "tag":
                 seen.Clear();
-                foreach (string key in row.Record.Tags)
-                    if (seen.Add(key)) Add(key);
-                foreach (string key in row.Record.CategoryTags)
+                foreach (string key in row.TagKeys)
                     if (seen.Add(key)) Add(key);
                 if (seen.Count == 0) Add(MissingFilter);
                 break;
@@ -217,7 +220,7 @@ public partial class MainWindow
             _duplicateView = new PresetDuplicateView(records);
             FilterGroup Group(string key) => FilterGroups.First(group => group.Key == key);
             static FilterOption SourceOption(string key, string path, PresetSourceCounts counts) =>
-                new(key, SourceCountLabel(path, counts), displayLabel: path);
+                new(key, SourceCountLabel(path, counts), displayLabel: path, userText: key.Length > 0 && key != MissingFilter);
             Group("source").ReplaceOptions(new[] { SourceOption("", "全部来源", _duplicateView.TotalCounts) }.Concat(
                 records.GroupBy(record => record.SourceId, StringComparer.Ordinal).Select(group =>
                 {
@@ -227,15 +230,15 @@ public partial class MainWindow
                 }).OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase)));
             Group("package").ReplaceOptions(new[] { new FilterOption("", "全部音色包") }.Concat(records.Select(record => record.Package)
                 .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase)
-                .Select(value => new FilterOption(value.Length == 0 ? MissingFilter : value, value.Length == 0 ? "无音色包" : value))));
+                .Select(value => new FilterOption(value.Length == 0 ? MissingFilter : value, value.Length == 0 ? "无音色包" : value, userText: value.Length > 0))));
+            FilterOption MetadataFilter(string key, bool category) => new(key, key.StartsWith("id:", StringComparison.Ordinal)
+                ? (category ? _categories : _tags).Label(int.Parse(key[3..]), MetadataLanguage) : key, userText: true);
             Group("category").ReplaceOptions(new[] { new FilterOption("", "全部分类") }
-                .Concat(records.Any(record => record.CategoryTags.Count == 0) ? new[] { new FilterOption(MissingFilter, "未分类") } : [])
-                .Concat(records.SelectMany(record => record.CategoryTags).Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new FilterOption(value, value))));
+                .Concat(Presets.Any(row => !row.CategoryKeys.Any()) ? new[] { new FilterOption(MissingFilter, "未分类") } : [])
+                .Concat(Presets.SelectMany(row => row.CategoryKeys).Distinct(StringComparer.OrdinalIgnoreCase).Select(key => MetadataFilter(key, true)).OrderBy(option => option.Label)));
             Group("tag").ReplaceOptions(new[] { new FilterOption("", "全部标签") }
-                .Concat(records.Any(record => record.Tags.Count + record.CategoryTags.Count == 0) ? new[] { new FilterOption(MissingFilter, "无标签") } : [])
-                .Concat(records.SelectMany(record => record.Tags.Concat(record.CategoryTags)).Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase).Select(value => new FilterOption(value, value))));
+                .Concat(Presets.Any(row => !row.TagKeys.Any()) ? new[] { new FilterOption(MissingFilter, "无标签") } : [])
+                .Concat(Presets.SelectMany(row => row.TagKeys).Distinct(StringComparer.OrdinalIgnoreCase).Select(key => MetadataFilter(key, false)).OrderBy(option => option.Label)));
         }
         finally { _updatingFilterChoices = false; }
         RefreshPresetView();

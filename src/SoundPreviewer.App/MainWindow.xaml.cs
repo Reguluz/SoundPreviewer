@@ -135,6 +135,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _store = new LibraryStore(Path.Combine(App.DataDirectory, "library.db"));
         _store.Initialize();
         _settings = App.ImportedSettings ?? _store.LoadSettings();
+        InitializeMetadataCatalogs();
+        ApplyLanguage();
         _settings.Appearance = ThemeManager.Normalize(_settings.Appearance);
         ThemeManager.Apply(_settings.Appearance);
         _directoryConfiguration = new DirectoryConfigurationService(App.SmokeTest && !App.TestInstalledStorage
@@ -164,6 +166,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SeekSlider.AddHandler(PointerReleasedEvent, Seek_Released, RoutingStrategies.Tunnel, handledEventsToo: true);
         VolumeSlider.PropertyChanged += Volume_Changed;
         PopulateSettings();
+        PopulateLanguageChoices();
         foreach (string message in App.StorageStartupMessages) Log(message);
         Log("目录配置已读取：" + DirectoryConfigurationLocation);
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
@@ -229,9 +232,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void SetPresets(IEnumerable<PresetRecord> records)
     {
+        var snapshot = records.ToList();
+        SynchronizeMetadata(snapshot);
         var selectedId = _selected?.Record.Id;
         Presets.Clear();
-        foreach (var record in records) Presets.Add(new PresetRow(record));
+        foreach (var record in snapshot) Presets.Add(new PresetRow(record, _categories, _tags, () => MetadataLanguage));
         RefreshFilterChoices();
         PresetGrid.SelectedItem = Presets.FirstOrDefault(p => p.Record.Id == selectedId);
         RefreshCompatibility();
@@ -868,8 +873,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var record in records)
         {
             record.CategoryTags = categories[record.Id].CategoryTags;
+            record.CategoryIds = categories[record.Id].CategoryIds;
             record.AutomaticCategories = categories[record.Id].AutomaticCategories;
         }
+        SynchronizeMetadata(records);
         RefreshPresetMetadataEditors();
         foreach (var row in Presets) row.Refresh();
         RefreshFilterChoices();
@@ -987,7 +994,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BpmBox.Text = t.Bpm.ToString(CultureInfo.InvariantCulture);
         SampleRateBox.SelectedIndex = t.SampleRate == 48000 ? 1 : 0;
         PreviewFormatBox.SelectedIndex = _settings.PreviewFormat == PreviewAudioFormat.Wav ? 1 : 0;
-        PreviewDirectoryBox.Text = "Preview/（当前程序目录下）";
+        PreviewDirectoryBox.Text = T("Preview/（当前程序目录下）");
         BudgetBox.Text = _settings.StorageBudgetGb.ToString(CultureInfo.InvariantCulture);
         AttemptsBox.Text = _settings.MaxAttempts.ToString(CultureInfo.InvariantCulture);
         VolumeSlider.Value = _settings.PlaybackVolume;
@@ -996,7 +1003,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void AddSourceFromLibrary_Click(object sender, RoutedEventArgs e) { Pages.SelectedItem = SettingsTab; SettingsPages.SelectedItem = DirectorySettingsTab; AddSource_Click(sender, e); }
     private async void AddSource_Click(object sender, RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择预制目录", AllowMultiple = false });
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = T("选择预制目录"), AllowMultiple = false });
         var directory = folders.FirstOrDefault()?.TryGetLocalPath();
         if (directory is null || SourceSynthChoice.SelectedItem is not Choice<SynthKind?> synth) return;
         var automatic = synth.Value is null;
@@ -1039,7 +1046,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private async void AddPluginDirectory_Click(object sender, RoutedEventArgs e)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择音源安装目录", AllowMultiple = true });
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = T("选择音源安装目录"), AllowMultiple = true });
         if (folders.Count == 0) return;
         if (!TryChangeDirectories(() =>
         {
@@ -1280,7 +1287,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "导出音色 MD5 索引与预览映射", SuggestedFileName = "SoundPreviewer-index.json", DefaultExtension = "json",
+            Title = T("导出音色 MD5 索引与预览映射"), SuggestedFileName = "SoundPreviewer-index.json", DefaultExtension = "json",
             FileTypeChoices = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }],
             SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
         });
@@ -1307,7 +1314,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
-                Title = "选择要导入的旧版 library.db 所在目录", AllowMultiple = false,
+                Title = T("选择要导入的旧版 library.db 所在目录"), AllowMultiple = false,
                 SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(App.DataDirectory)
             });
             if (_isClosing || folders.FirstOrDefault()?.TryGetLocalPath() is not { } directory) return;

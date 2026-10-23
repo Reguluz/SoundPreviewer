@@ -64,16 +64,16 @@ public partial class App
         }
 
         StoragePreparationWindowShown = true;
-        var message = new TextBlock { Text = "正在准备本地音色库…", TextWrapping = TextWrapping.Wrap };
+        var message = new TextBlock { Text = T("正在准备本地音色库…"), TextWrapping = TextWrapping.Wrap };
         var loading = new Window
         {
-            Title = "SoundPreviewer · 准备本地音色库", Width = 540, SizeToContent = SizeToContent.Height,
+            Title = T("SoundPreviewer · 准备本地音色库"), Width = 540, SizeToContent = SizeToContent.Height,
             CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterScreen,
             Content = new StackPanel
             {
                 Margin = new Thickness(24), Spacing = 14, Children =
                 {
-                    new TextBlock { Text = "预览与数据保存位置：\n" + target, TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = T("预览与数据保存位置：\n") + target, TextWrapping = TextWrapping.Wrap },
                     message, new ProgressBar { IsIndeterminate = true, Height = 6 }
                 }
             }

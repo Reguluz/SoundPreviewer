@@ -27,7 +27,7 @@ public partial class MainWindow
         if (_isClosing || Pages.SelectedIndex != 0 || e.KeyModifiers != KeyModifiers.None ||
             e.Source is not Visual source || source.GetVisualRoot() != this ||
             source.GetVisualAncestors().Prepend(source).Any(control =>
-                control is TextBox or ComboBox or ToggleButton or Slider or MenuItem)) return;
+                control is TextBox or SelectableTextBlock or ComboBox or ToggleButton or Slider or MenuItem)) return;
 
         e.Handled = true;
         if (!repeated && CanPlay) StartPlayback(0, null);

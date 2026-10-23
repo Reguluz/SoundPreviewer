@@ -4,5 +4,8 @@
     <None Update="Licenses/NAudio.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <None Update="Config/preset-categories.default.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <EmbeddedResource Include="Config/preset-categories.default.json" LogicalName="SoundPreviewer.Core.Config.preset-categories.default.json" />
+    <EmbeddedResource Include="Config/categories.default.json" LogicalName="SoundPreviewer.Core.Config.categories.default.json" />
+    <None Update="language/*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <EmbeddedResource Include="language/*.json" />
   </ItemGroup>
 </Project>

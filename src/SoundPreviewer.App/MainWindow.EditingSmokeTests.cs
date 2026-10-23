@@ -76,17 +76,22 @@ public partial class MainWindow
                 Pages.SelectedIndex = 0;
                 PresetGrid.SelectedItem = row;
                 EditPresetMetadata_Click(PresetMetadataExpander, new RoutedEventArgs());
-                PresetTagsEditor.Text = "手工标签， TEST ONLY;手工标签";
-                PresetCategoriesEditor.Text = "自定义分类\n第二分类";
+                int firstCategory = _categories.Resolve("自定义分类");
+                int secondCategory = _categories.Resolve("第二分类");
+                int firstTag = _tags.Resolve("手工标签");
+                int secondTag = _tags.Resolve("TEST ONLY");
+                RefreshMetadataOptions();
+                foreach (var value in _allCategoryOptions) value.IsChecked = value.Id == firstCategory || value.Id == secondCategory;
+                foreach (var value in _allTagOptions) value.IsChecked = value.Id == firstTag || value.Id == secondTag;
                 SavePresetMetadata_Click(PresetMetadataExpander, new RoutedEventArgs());
                 var stored = _store.LoadPresets().Single(item => item.Id == row.Record.Id);
-                if (stored.ManualTags is null || !stored.Tags.SequenceEqual(new[] { "手工标签", "TEST ONLY" }) ||
-                    !stored.CategoryTags.SequenceEqual(new[] { "自定义分类", "第二分类" }))
+                if (stored.ManualTags is null || !stored.Tags.ToHashSet().SetEquals(new[] { "手工标签", "TEST ONLY" }) ||
+                    !stored.CategoryTags.ToHashSet().SetEquals(new[] { "自定义分类", "第二分类" }))
                     throw new InvalidOperationException("手工标签和分类没有通过编辑界面保存。");
                 await SettleLayoutAsync();
                 CaptureSmokeImage("ui-metadata-edit.png");
-                PresetTagsEditor.Text = "";
-                PresetCategoriesEditor.Text = "";
+                foreach (var value in _allCategoryOptions) value.IsChecked = false;
+                foreach (var value in _allTagOptions) value.IsChecked = false;
                 SavePresetMetadata_Click(PresetMetadataExpander, new RoutedEventArgs());
                 stored = _store.LoadPresets().Single(item => item.Id == row.Record.Id);
                 if (stored.ManualTags is not { Count: 0 } || stored.ManualCategories is not { Count: 0 } ||

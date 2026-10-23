@@ -87,6 +87,8 @@ public partial class MainWindow
             _store.SaveState(fixtures, _settings);
             PopulateSettings();
             SetPresets(_store.LoadPresets());
+            unrelatedJson = JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == unrelated.Id), LibraryJson.Options);
+            canonicalJson = JsonSerializer.Serialize(_store.LoadPresets().Single(record => record.Id == canonical.Id), LibraryJson.Options);
             ClearFilterSelections();
             Pages.SelectedItem = LibraryTab;
             SearchBox.Text = "TEST ONLY filtered";

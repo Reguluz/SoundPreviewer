@@ -22,6 +22,16 @@ public partial class MainWindow
             byte[] originalBank = await File.ReadAllBytesAsync(bank);
             byte[] originalPreview = await File.ReadAllBytesAsync(preview);
             var preset = new PresetRecord { Synth = SynthKind.Vital, SourcePath = source, PreviewPath = preview };
+            preset.Name = "TEST ONLY result copy";
+            preset.PluginVersion = "TEST ONLY version";
+            preset.LastRenderOutcome = "失败";
+            preset.LastRenderMessage = "TEST ONLY first line\n" + new string('长', 5000) + "\nTEST ONLY last line";
+            preset.Message = "TEST ONLY old preview retained";
+            string resultText = PresetResultText(new PresetRow(preset));
+            if (!resultText.Contains(preset.LastRenderMessage, StringComparison.Ordinal) ||
+                !resultText.Contains(source, StringComparison.Ordinal) || !resultText.Contains(preset.PluginVersion, StringComparison.Ordinal) ||
+                !resultText.Contains(preset.Message, StringComparison.Ordinal))
+                throw new InvalidOperationException("复制生成结果遗漏了完整多行错误、来源、音源版本或旧预览状态。");
             if (GetPresetSourceFilePath(preset) != source || PresetSourceUnavailableReason(preset).Length > 0)
                 throw new InvalidOperationException("复制路径未返回原始音色的完整本地地址。");
             foreach (bool windows in new[] { true, false })
@@ -55,6 +65,11 @@ public partial class MainWindow
                     bool copiedBankFiles = (await clipboard.TryGetFilesAsync())?.Any() == true;
                     if (copiedBankText != bank || copiedBankFiles)
                         throw new InvalidOperationException($"音色包条目未复制所属音色库地址，或把内部路径拼入了文件地址。目标地址匹配：{copiedBankText == bank}；前次地址匹配：{copiedBankText == source}；文本为空：{string.IsNullOrEmpty(copiedBankText)}；包含文件对象：{copiedBankFiles}。");
+                    writtenText = resultText;
+                    await CopyResultTextAsync(resultText);
+                    await SettleLayoutAsync();
+                    if (await clipboard.TryGetTextAsync() != resultText)
+                        throw new InvalidOperationException("生成结果未完整写入剪贴板。");
                     nativeChecked = true;
                 }
                 finally

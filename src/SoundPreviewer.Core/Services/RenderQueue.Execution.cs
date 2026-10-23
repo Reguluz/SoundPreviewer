@@ -317,7 +317,7 @@ public sealed partial class RenderQueue
                             else if (baseline.Signature is not null)
                             {
                                 var comparison = InitAudioComparer.Compare(baseline.Signature, audio, candidate.Notes, comparisonToken);
-                                if (comparison.IsMatch) throw new InvalidDataException(InitBaselineService.RejectionPrefix + comparison.Detail);
+                                if (comparison.IsMatch) throw new InvalidDataException(InitBaselineService.DescribeRejection(plugin.Synth, comparison.Detail));
                             }
                             else
                             {
@@ -349,7 +349,7 @@ public sealed partial class RenderQueue
                             preset.Message = failure ?? "渲染工作进程未返回有效结果。";
                             preset.LastRenderOutcome = "失败";
                             preset.LastRenderMessage = preset.Message;
-                            bool finished = result?.NonRetryable == true || preset.Attempts >= settings.MaxAttempts || preset.Message.StartsWith(InitBaselineService.RejectionPrefix, StringComparison.Ordinal);
+                            bool finished = result?.NonRetryable == true || preset.Attempts >= settings.MaxAttempts || InitBaselineService.IsRejection(preset.Message);
                             if (finished)
                             {
                                 if (item.Previous is not null) RestorePreview(preset, item.Previous, "重新生成失败，保留上次预览：" + preset.Message);

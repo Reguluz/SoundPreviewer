@@ -12,9 +12,14 @@ if (-not $ApplicationPath) {
 $resources = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))
 $uvName = if ($Runtime -eq 'win-x64') { 'uv.exe' } else { 'uv' }
 $setupScript = if ($Runtime -eq 'win-x64') { 'Prepare-DawDreamer.ps1' } else { 'Prepare-DawDreamer.sh' }
+$guideDirectory = Join-Path $resources '操作说明'
+if (-not (Test-Path -LiteralPath (Join-Path $guideDirectory 'index.html') -PathType Leaf)) {
+    throw 'Published offline user guide is missing.'
+}
+& (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory $guideDirectory
 foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
     'Renderers/requirements-serum2.txt', 'Licenses/NAudio.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
-    'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json')) {
+    'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json', 'language/zh-CN.json', 'language/en-US.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $file) -PathType Leaf)) { throw "Published application resource is missing: $file" }
 }
 if ($Runtime -eq 'win-x64') {
@@ -59,7 +64,7 @@ try {
         throw "Published application smoke test failed; see $dataDirectory"
     }
     $result = Get-Content -LiteralPath (Join-Path $dataDirectory 'ui-smoke.json') -Raw | ConvertFrom-Json
-    if (-not $result.PreviewShortcutChecked -or $result.PreviewShortcutHintViewports -ne 2) {
+    if (-not $result.UserGuideChecked -or -not $result.PreviewShortcutChecked -or $result.PreviewShortcutHintViewports -ne 2) {
         throw "Published application did not verify the Space shortcut and visible hint; see $dataDirectory"
     }
     if (-not $result.ClipboardPathChecked -or -not $result.LibrarySpaceChecked -or
@@ -68,7 +73,9 @@ try {
         -not $result.FivePreviewStatusesChecked -or -not $result.FixedFilterOptionsChecked -or -not $result.CompressedPreviewChecked -or
         -not $result.CurrentFilterGenerationChecked -or -not $result.RendererUnavailableReasonsChecked -or
         -not $result.StrictDuplicateHidingChecked -or -not $result.FilterOptionCountsChecked -or
-        -not $result.AppearancePersistenceChecked -or -not $result.AppearanceCancelChecked) {
+        -not $result.AppearancePersistenceChecked -or -not $result.AppearanceCancelChecked -or
+        -not $result.LanguagesChecked -or -not $result.MetadataLanguageIndependentChecked -or
+        -not $result.MetadataAliasesSearchChecked -or -not $result.LargeMetadataListChecked) {
         throw "Published application did not verify copy-path and compact library layout; see $dataDirectory"
     }
     if (-not $result.Loaded -or -not $result.FormatsChecked -or -not $result.StopChecked -or -not $result.PluginScanDefaultsChecked -or -not $result.TemplatePersistenceChecked -or -not $result.PresetFileTransferChecked -or -not $result.SourceRevealCommandChecked -or -not $result.SourceCountsChecked -or -not $result.RendererSettingsChecked -or -not $result.CrossSourceDuplicatesChecked -or -not $result.DirectoryConfigurationChecked -or -not $result.CategoryRulesAvailableChecked -or -not $result.RenderProgressCountersChecked -or -not $result.EffectiveConcurrencyDisplayChecked -or -not $result.QueueSelectionCountsChecked -or -not $result.ProgressLayoutStableChecked) {

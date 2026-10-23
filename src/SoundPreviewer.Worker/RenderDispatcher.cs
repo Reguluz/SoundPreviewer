@@ -46,6 +46,7 @@ public static partial class RenderDispatcher
         var complete = new bool[3];
         bool needsReview = false;
         bool allCapturesVerified = !request.IsInitializationBaseline && PresetLoadVerification.IsSupported(request.Plugin);
+        PresetLoadProof? loadProof = null;
         string adapterVersion = "", nativeMessage = "";
         string output = Path.GetFullPath(request.OutputPath);
         string scratch = Path.Combine(Path.GetDirectoryName(output)!, "quick-" + Guid.NewGuid().ToString("N"));
@@ -85,6 +86,13 @@ public static partial class RenderDispatcher
                 // A later round can contribute only some pitches; require every round to be
                 // verified rather than allowing one trusted round to bless other captures.
                 allCapturesVerified &= PresetLoadVerification.IsValid(capture, request.Preset, captureTemplate);
+                if (allCapturesVerified)
+                {
+                    if (loadProof is not null && (loadProof.Scheme != capture.PresetLoadProof!.Scheme ||
+                        loadProof.CanonicalStateSha256 != capture.PresetLoadProof.CanonicalStateSha256))
+                        throw new InvalidDataException("自动延长时目标预制的回读状态发生变化，未提交混合来源预览。");
+                    loadProof ??= capture.PresetLoadProof;
+                }
                 var audio = WaveFile.Read(capturePath, cancellationToken);
                 if (adapterVersion.Length > 0 && adapterVersion != capture.AdapterVersion)
                     throw new InvalidDataException("自动延长时宿主适配器版本发生变化，未提交混合来源预览。");
@@ -143,7 +151,8 @@ public static partial class RenderDispatcher
                 AdapterVersion = Fingerprints.QuickPreviewPolicy + "/" + adapterVersion,
                 PresetLoadProof = allCapturesVerified ? new PresetLoadProof
                 {
-                    Scheme = PresetLoadVerification.Scheme, SourceSha256 = request.Preset.ContentHash,
+                    Scheme = loadProof!.Scheme, SourceSha256 = request.Preset.ContentHash,
+                    CanonicalStateSha256 = loadProof.CanonicalStateSha256,
                     Pitches = request.Template.Pitches.ToList()
                 } : null,
                 NeedsReview = needsReview || complete.Any(value => !value),

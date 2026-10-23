@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SoundPreviewer 1.0.0 离线操作说明：常见问题">
+<title>常见问题 — SoundPreviewer 操作说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+<header><p class="meta">SoundPreviewer 1.0.0 · 离线操作说明 · 2026-10-24</p>
+<nav aria-label="操作说明章节"><a href="index.html">操作说明首页</a>
+<a href="quick-start.html">快速开始</a>
+<a href="installation.html">安装与启动</a>
+<a href="synths.html">音源与生成环境</a>
+<a href="rendering.html">生成与试听</a>
+<a href="library.html">音色库整理</a>
+<a href="storage.html">数据、备份与升级</a>
+<a href="appearance.html">语言与外观</a>
+<a href="troubleshooting.html" aria-current="page">常见问题</a></nav></header>
+<main id="main">
+<h1>常见问题</h1>
+<p>本页内容：</p>
+<ul aria-label="本页目录"><li><a href="#rendering">先定位出错环节</a></li><li><a href="#messages">提示与处理方法</a></li><li><a href="#feedback">反馈问题</a></li></ul>
+<h2 id="rendering">先定位出错环节</h2>
+<ol>
+<li><strong>扫描不到音源</strong>：在「音源与设置 → 目录」添加安装目录，重新扫描；在「已发现音源」选择版本并关联。详见<a href="synths.html#scan">音源配置</a>。</li>
+<li><strong>扫描不到音色</strong>：确认添加的是音色所在文件夹，来源已启用，然后点击「扫描音色」。格式限制见<a href="synths.html#support">支持范围</a>。</li>
+<li><strong>无法生成</strong>：选中音色，查看右侧状态与最近任务描述；先修正具体原因，再只重做这一条。<a href="synths.html#backend">配置生成方式</a>后按<a href="quick-start.html#test">单音色测试</a>核对。</li>
+<li><strong>生成后无法试听或声音不符</strong>：检查底部音量、系统输出、音源授权与资源；点击「中 / 高 / 低」分别核对，失败时保留结果描述。</li>
+<li><strong>更新后记录不见了</strong>：先保留新旧两个目录，按<a href="storage.html#recovery">数据恢复</a>核对位置，再决定是否导入旧库。</li>
+</ol>
+<h2 id="messages">提示与处理方法</h2>
+<table>
+<thead>
+<tr>
+<th>情况</th>
+<th>处理方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>已配置音源，却提示暂不可用</td>
+<td>查看任务结束汇总或对应音色的最近任务原因，按明确提示修正路径、版本、环境或格式问题；已有设置保留，无需盲目重新配置全部音源</td>
+</tr>
+<tr>
+<td>启动时总显示旧库复制进度</td>
+<td>已就位的 Preview 会直接打开；真正导入旧库、搬移目录或迁入旧音频时才显示迁移进度。如果每次仍重复出现，保留启动日志并反馈</td>
+</tr>
+<tr>
+<td>音色因归属不明显示「无法预览」</td>
+<td>在详情中核对并指定所属音源，再生成；不要按相似文件名猜测归属</td>
+</tr>
+<tr>
+<td>旧 Vital 包内条目不能生成</td>
+<td>先重新扫描，让新版检查内嵌资源；通过后可直接生成，未通过时按详情导出独立音色</td>
+</tr>
+<tr>
+<td>FXB 银行或 Spire 原生格式显示「无法预览」</td>
+<td>当前只保留索引；FXB 可先在音源中导出独立音色，Spire 原生生成仍需后续开发</td>
+</tr>
+<tr>
+<td>生成声音与目标不符</td>
+<td>暂不确认，检查插件版本、授权、采样与波表路径；记录该音色和错误原因</td>
+</tr>
+<tr>
+<td>不明白「加载防错检查」</td>
+<td>它记录音源刚启动时的默认声音，避免加载失败后把默认声保存为目标音色；支持的生成方式会自动准备参照，通常无需手动操作</td>
+</tr>
+<tr>
+<td>更新后看不到原记录</td>
+<td>核对程序旁 <code>Preview</code> 与旧库迁移提示，保留旧数据库和原音频；不要先删除或覆盖任一目录</td>
+</tr>
+<tr>
+<td>想用新模板重做试听</td>
+<td>单独重新生成所选音色；勾选「全量重渲染（覆盖）」后只覆盖当前筛选范围，下次操作自动取消勾选</td>
+</tr>
+</tbody>
+</table>
+<h2 id="feedback">反馈问题</h2>
+<p>底部「复制结果」可复制本批完整汇总；选中音色后，详情中的「复制生成结果」会复制音色、来源、音源版本和最近任务描述。界面显示省略号不会截断复制内容；「全部记录」可查看完整日志。</p>
+<p>反馈问题可提交到 <a href="https://github.com/Reguluz/SoundPreviewer/issues">GitHub Issues</a>，附上程序版本、系统与架构、音源版本、所用文件格式和「运行记录」中的相关错误。无需上传商业插件、授权文件或完整私人音色库。</p>
+<figure><a href="images/unavailable.png"><img src="images/unavailable.png" alt="查看已配置但暂不可用的具体原因" loading="lazy" width="1380" height="900"></a><figcaption>查看已配置但暂不可用的具体原因。点击图片可查看原图。截图使用示例音色库，名称、路径及数值仅用于演示。</figcaption></figure>
+
+<p>返回<a href="quick-start.html">快速开始</a>核对路径，或到<a href="rendering.html#status">生成与试听</a>查看五种状态。</p>
+</main>
+<footer><p class="pager"><a href="appearance.html">上一页：语言与外观</a></p><p><a href="index.html">返回操作说明首页</a> · <a href="#main">回到本页顶部</a></p><p>正文和截图随程序提供，可离线阅读。外部下载、项目反馈与技术记录链接需要联网。</p></footer>
+</body>
+</html>
