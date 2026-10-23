@@ -26,8 +26,8 @@
 
 ## 支持创作
 
-![Reguluz 爱发电支持二维码](操作说明/images/afdian-Reguluz.jpg)
+![Reguluz 爱发电支持二维码](UserGuide/images/afdian-Reguluz.jpg)
 
 ## 完整版操作说明
 
-详细配置、格式限制、生成与试听、音色库整理、备份升级和故障排查已拆分至 [完整版操作说明首页](操作说明/index.html)。下载的完整程序在资源目录附带 **「操作说明」** 文件夹，可离线双击 `index.html` 阅读；也可点击软件窗口右下角的 **「操作说明」** 按钮打开首页。
+详细配置、格式限制、生成与试听、音色库整理、备份升级和故障排查已拆分至 [完整版 Markdown 操作说明](UserGuide/index.md)。完整安装包在 **`UserGuide`** 文件夹中附带 Markdown、截图和 **`SoundPreviewer.chm`** 编译手册。点击软件窗口右下角的书本图标，Windows 会打开 CHM 手册；Mac 会打开 Markdown 首页，可使用支持 Markdown 的阅读器阅读。

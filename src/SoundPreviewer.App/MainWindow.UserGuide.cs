@@ -7,7 +7,7 @@ public partial class MainWindow
 {
     private static ProcessStartInfo PrepareUserGuide()
     {
-        string home = Path.Combine(AppContext.BaseDirectory, "操作说明", "index.html");
+        string home = Path.Combine(AppContext.BaseDirectory, "UserGuide", OperatingSystem.IsWindows() ? "SoundPreviewer.chm" : "index.md");
         if (!File.Exists(home))
             throw new FileNotFoundException(T("操作说明文件缺失，请重新完整解压或安装程序。"), home);
         return new ProcessStartInfo(home) { UseShellExecute = true };

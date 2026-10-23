@@ -1,8 +1,8 @@
 # SoundPreviewer
 
-> 开发说明：由原 README 保留，包含构建、架构、协议和历史验证记录。日常使用请看 [快速上手](README.md) 和 [完整版操作说明](操作说明/index.html)；性能方案见 [并行渲染调研](docs/parallel-rendering.md)。
+> 开发说明：由原 README 保留，包含构建、架构、协议和历史验证记录。日常使用请看 [快速上手](README.md) 和 [完整版操作说明](UserGuide/index.md)；性能方案见 [并行渲染调研](docs/parallel-rendering.md)。
 
-1.0.0 将用户说明拆分为 `操作说明/*.html`，正文、截图、导航和样式随 App 构建与发布复制，保留为独立文件供默认浏览器离线打开。界面右下角提供本地首页入口。`scripts/Test-UserGuide.ps1` 检查本地链接、锚点和图片，发布包自检还会检查入口路径及中英文界面下的可见性。用户已明确要求版本升至 1.0.0，`version-policy.json` 同步批准 major 1。
+1.0.0 用户说明源文件位于英文目录 `UserGuide/*.md`，正文、截图和交叉链接随 App 构建与发布复制。Windows 点击右下角书本图标打开 `UserGuide/SoundPreviewer.chm`；macOS 打开 Markdown 首页。`scripts/Build-UserGuide.ps1` 使用 PowerShell 内置 Markdown 转换器及固定版本的 Microsoft HTML Help 编译器；仅在临时构建目录生成 HTML，随后编译并解包比对九个章节和全部图片。编译器从 Microsoft 官方 Visual Studio 包地址下载并校验 SHA-256，不写入系统目录或注册组件。首次 Windows 构建前运行 `pwsh -File scripts/Build-UserGuide.ps1`；生成的 CHM 在 `artifacts/user-guide`，构建及发布自动复制。CI 先编译手册，再将同一 CHM 分发到三个平台作业。`scripts/Test-UserGuide.ps1` 检查 Markdown 链接、锚点和图片，发布与打包检查额外要求合法 CHM。用户已明确要求版本升至 1.0.0，`version-policy.json` 同步批准 major 1。
 
 0.11.0 引入 `MetadataCatalog`：根目录分类/标签 JSON 提供固定数值 `Id`、目录 `CatalogId`、名称、别名和分语言文本；记录保存编号，schema 2 及缓存键不变。遗留字符串继续保留兼容，首次编号迁移前备份数据库。设置内的目录快照支持缺失文件恢复与跨库导入，目录身份不同则从来源快照重新对应，避免同号串项。外部编辑冲突和损坏 JSON 不覆盖。分类/标签编辑使用虚拟化的固定高度列表，新扫描不再自动生成音源、扩展名标签；手工覆盖继续生效。默认规则增加 Chord，并为已有默认规则保留升级前副本。
 

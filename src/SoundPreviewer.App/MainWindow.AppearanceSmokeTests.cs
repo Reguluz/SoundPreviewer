@@ -263,7 +263,7 @@ public partial class MainWindow
         {
             var screen = window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary;
             if (screen is not null && (window.FrameSize ?? window.ClientSize).Height * screen.Scaling > screen.WorkingArea.Height + 1)
-                throw new InvalidOperationException("主题配色窗口超出了屏幕工作区。");
+                throw new InvalidOperationException($"主题配色窗口超出了屏幕工作区。窗口框架：{window.FrameSize}；客户区：{window.ClientSize}；屏幕缩放：{screen.Scaling}；工作区：{screen.WorkingArea}。");
             var cancel = window.GetVisualDescendants().OfType<Button>().Single(button => button.Content as string == "取消");
             foreach (var button in new[] { Named<Button>(window, "SaveButton"), cancel })
                 if (!button.IsEffectivelyVisible || button.TranslatePoint(new Point(0, button.Bounds.Height), window) is not Point bottom ||

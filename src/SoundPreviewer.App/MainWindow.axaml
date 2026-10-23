@@ -409,7 +409,7 @@
   </Border>
   <Border x:Name="StatusFooter" Grid.Row="4" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,0">
    <DockPanel>
-    <Button x:Name="UserGuideButton" DockPanel.Dock="Right" Content="{DynamicResource text_25B37D5C985EA3BE}" Click="OpenUserGuide_Click" ToolTip.Tip="{DynamicResource text_2B03CBE52E16F5D2}" AutomationProperties.Name="{DynamicResource text_25B37D5C985EA3BE}" Height="22" MinHeight="22" Padding="6,0" Margin="12,0,0,0" FontSize="11" Foreground="{DynamicResource Accent}" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"/>
+    <Button x:Name="UserGuideButton" DockPanel.Dock="Right" Click="OpenUserGuide_Click" ToolTip.Tip="{DynamicResource text_2B03CBE52E16F5D2}" AutomationProperties.Name="{DynamicResource text_25B37D5C985EA3BE}" Width="26" Height="22" MinHeight="22" Padding="4,0" Margin="12,0,0,0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"><Path Data="M12,4 C8,1 4,2 2,3 L2,19 C5,18 8,18 12,21 C16,18 19,18 22,19 L22,3 C19,2 16,1 12,4 Z M12,4 L12,21" Stroke="{DynamicResource Accent}" StrokeThickness="1.6" Width="16" Height="16" Stretch="Uniform"/></Button>
     <TextBlock x:Name="BuildVersionLabel" DockPanel.Dock="Right" Text="{local:UiText AppVersion}" ToolTip.Tip="{Binding BuildLocation}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Muted}" Margin="16,0,0,0"/>
     <TextBlock x:Name="StatusFooterText" Text="{local:UiText StatusMessage}" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{local:UiText StatusMessage}"/>
    </DockPanel>

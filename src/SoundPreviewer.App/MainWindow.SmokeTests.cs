@@ -18,8 +18,8 @@ public partial class MainWindow
     private async Task RunSmokeTestAsync()
     {
         var guide = PrepareUserGuide();
-        if (!guide.UseShellExecute || guide.FileName != Path.Combine(AppContext.BaseDirectory, "操作说明", "index.html"))
-            throw new InvalidOperationException("操作说明入口未指向随程序附带的离线首页。");
+        if (!guide.UseShellExecute || guide.FileName != Path.Combine(AppContext.BaseDirectory, "UserGuide", OperatingSystem.IsWindows() ? "SoundPreviewer.chm" : "index.md"))
+            throw new InvalidOperationException("操作说明入口未指向随程序附带的 CHM 或 Markdown 手册。");
         File.WriteAllText(Path.Combine(App.DataDirectory, "ui-checkpoint.txt"), "appearance");
         // Exercises the same controller, bindings and native playback on both desktop targets.
         bool appearancePersistenceChecked = await CheckAppearanceAsync();

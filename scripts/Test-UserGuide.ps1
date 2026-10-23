@@ -1,18 +1,22 @@
 [CmdletBinding()]
-param([string]$GuideDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) '操作说明'))
+param(
+    [string]$GuideDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'UserGuide'),
+    [switch]$RequireChm
+)
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($GuideDirectory)
-$pages = @(Get-ChildItem -LiteralPath $root -Filter '*.html' -File)
-if ($pages.Count -lt 2 -or -not (Test-Path -LiteralPath (Join-Path $root 'index.html') -PathType Leaf)) {
-    throw 'The offline user guide must have an index and separate topic pages.'
+$pages = @(Get-ChildItem -LiteralPath $root -Filter '*.md' -File)
+if ($pages.Count -ne 9 -or -not (Test-Path -LiteralPath (Join-Path $root 'index.md') -PathType Leaf)) {
+    throw 'The user guide must contain its index and eight Markdown topic chapters.'
 }
+if (Get-ChildItem -LiteralPath $root -Filter '*.html' -File -Recurse) { throw 'HTML source pages must remain in build staging only.' }
+$rendered = @{}
+foreach ($page in $pages) { $rendered[$page.FullName] = (ConvertFrom-Markdown -Path $page.FullName).Html }
 $links = 0
 foreach ($page in $pages) {
-    $html = [IO.File]::ReadAllText($page.FullName)
-    if ($html -notmatch '<meta charset="utf-8"' -or $html -match '<script\b') {
-        throw "Guide pages must be UTF-8 static HTML without scripts: $($page.Name)"
-    }
+    $html = $rendered[$page.FullName]
+    if ($html -match '<script\b') { throw "Guide pages cannot contain scripts: $($page.Name)" }
     foreach ($match in [regex]::Matches($html, '(?<attribute>href|src)="(?<url>[^"]+)"')) {
         $url = [Net.WebUtility]::HtmlDecode($match.Groups['url'].Value)
         if ($url -match '^https://') {
@@ -24,12 +28,21 @@ foreach ($page in $pages) {
         $relative = [Uri]::UnescapeDataString($parts[0])
         $target = if ($relative) { [IO.Path]::GetFullPath((Join-Path $page.DirectoryName $relative)) } else { $page.FullName }
         if (-not $target.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
-            -not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Broken or non-local guide link in $($page.Name): $url" }
+            -not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Broken guide link in $($page.Name): $url" }
         if ($parts.Count -eq 2 -and $parts[1]) {
             $fragment = [regex]::Escape([Uri]::UnescapeDataString($parts[1]))
-            if ([IO.File]::ReadAllText($target) -notmatch "id=`"$fragment`"") { throw "Missing guide anchor in $($page.Name): $url" }
+            if (-not $rendered.ContainsKey($target) -or $rendered[$target] -notmatch "id=`"$fragment`"") { throw "Missing guide anchor in $($page.Name): $url" }
         }
         $links++
     }
 }
-Write-Host "Offline user guide verified: $($pages.Count) pages, $links local links and images."
+if ($RequireChm) {
+    $chm = Join-Path $root 'SoundPreviewer.chm'
+    if (-not (Test-Path -LiteralPath $chm) -or (Get-Item -LiteralPath $chm).Length -lt 4096) { throw 'Compiled CHM user guide is missing.' }
+    $stream = [IO.File]::OpenRead($chm)
+    try {
+        $signature = [byte[]]::new(4)
+        if ($stream.Read($signature, 0, 4) -ne 4 -or [Text.Encoding]::ASCII.GetString($signature) -ne 'ITSF') { throw 'Compiled guide is not a CHM file.' }
+    } finally { $stream.Dispose() }
+}
+Write-Host "Markdown guide verified: $($pages.Count) chapters, $links local links and images; CHM required: $RequireChm."

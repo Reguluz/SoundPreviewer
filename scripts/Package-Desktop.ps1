@@ -12,7 +12,7 @@ $releaseDirectory = Join-Path $projectDirectory 'artifacts/releases'
 foreach ($file in @('SoundPreviewer.exe', 'SoundPreviewer.Worker.exe', 'Vst2Host-x86/coreclr.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $publishDirectory $file))) { throw "Publish first; missing $file" }
 }
-& (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory (Join-Path $publishDirectory '操作说明')
+& (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory (Join-Path $publishDirectory 'UserGuide') -RequireChm
 if (Get-ChildItem -LiteralPath $publishDirectory -Recurse -Force | Where-Object { $_.Name -in @('Preview', 'local-data', 'settings.json', 'library-location.json', 'directories.json', 'preset-categories.json', 'categories.json', 'tags.json') -or $_.Extension -in @('.db', '.db-wal', '.db-shm', '.wav', '.m4a', '.log') }) {
     throw 'Publish output contains local user data; publish into a clean directory again.'
 }

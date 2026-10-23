@@ -9,8 +9,11 @@
     <NormalizedX86HostDirectory>$([MSBuild]::EnsureTrailingSlash('$(X86HostDirectory)'))</NormalizedX86HostDirectory>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="../../操作说明/**/*" Link="操作说明/%(RecursiveDir)%(Filename)%(Extension)"
+    <Content Include="../../UserGuide/**/*" Link="UserGuide/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="../../artifacts/user-guide/SoundPreviewer.chm" Link="UserGuide/SoundPreviewer.chm"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
+             Condition="Exists('../../artifacts/user-guide/SoundPreviewer.chm')" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.13" />

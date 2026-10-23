@@ -12,11 +12,11 @@ if (-not $ApplicationPath) {
 $resources = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ApplicationPath))
 $uvName = if ($Runtime -eq 'win-x64') { 'uv.exe' } else { 'uv' }
 $setupScript = if ($Runtime -eq 'win-x64') { 'Prepare-DawDreamer.ps1' } else { 'Prepare-DawDreamer.sh' }
-$guideDirectory = Join-Path $resources '操作说明'
-if (-not (Test-Path -LiteralPath (Join-Path $guideDirectory 'index.html') -PathType Leaf)) {
+$guideDirectory = Join-Path $resources 'UserGuide'
+if (-not (Test-Path -LiteralPath (Join-Path $guideDirectory 'index.md') -PathType Leaf)) {
     throw 'Published offline user guide is missing.'
 }
-& (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory $guideDirectory
+& (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory $guideDirectory -RequireChm
 foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
     'Renderers/requirements-serum2.txt', 'Licenses/NAudio.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
     'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json', 'language/zh-CN.json', 'language/en-US.json')) {

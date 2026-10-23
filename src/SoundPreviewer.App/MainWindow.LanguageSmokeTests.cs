@@ -18,7 +18,7 @@ public partial class MainWindow
             LanguageChoiceBox.SelectedItem = LanguageChoices.Single(choice => choice.Id == "en-US");
             await SettleLayoutAsync();
             if (!Equals(LibraryTab.Header, "Library") || !Equals(StorageSettingsTab.Header, "Playback and storage") ||
-                !Equals(UserGuideButton.Content, "User guide") || _store.LoadSettings().Language != "en-US")
+                !Equals(UserGuideButton.GetValue(Avalonia.Automation.AutomationProperties.NameProperty), "User guide") || _store.LoadSettings().Language != "en-US")
                 throw new InvalidOperationException("English selection did not update resources and persisted preferences.");
             int arp = _categories.Resolve("Arp");
             if (_categories.Label(arp, MetadataLanguage) != "Arp") throw new InvalidOperationException("Metadata did not follow the interface language.");

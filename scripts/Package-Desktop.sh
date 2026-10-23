@@ -17,7 +17,7 @@ fi
 for file in SoundPreviewer SoundPreviewer.Worker; do
     [[ -f "$publish_dir/$file" ]] || { echo "Publish first; missing $file" >&2; exit 1; }
 done
-pwsh -NoProfile -File "$project_dir/scripts/Test-UserGuide.ps1" -GuideDirectory "$publish_dir/操作说明"
+pwsh -NoProfile -File "$project_dir/scripts/Test-UserGuide.ps1" -GuideDirectory "$publish_dir/UserGuide" -RequireChm
 if [[ -n "$(find "$publish_dir" \( -iname Preview -o -name local-data -o -name settings.json -o -name library-location.json -o -name directories.json -o -name preset-categories.json -o -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -iname '*.wav' -o -iname '*.m4a' -o -name '*.log' \) -print -quit)" ]]; then
     echo 'Publish output contains local user data; publish into a clean directory again.' >&2; exit 1
 fi
@@ -54,8 +54,9 @@ DMG 是只读磁盘，请勿直接在其中启动应用。
 升级时退出应用并替换 SoundPreviewer.app，保留 Preview、Config 以及旧版根目录配置。
 移动应用时，请将这些文件一起保留。
 
-点击软件窗口右下角「操作说明」可离线阅读完整说明。
-说明文件位于 SoundPreviewer.app/Contents/MacOS/操作说明/index.html。
+点击软件窗口右下角的书本图标可打开 Markdown 操作说明。
+说明文件位于 SoundPreviewer.app/Contents/MacOS/UserGuide/index.md。
+Windows 版本使用同目录内的 SoundPreviewer.chm 编译手册。
 
 Applications 快捷方式供拥有该目录写入权限的用户使用。
 README
