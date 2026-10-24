@@ -12,7 +12,7 @@ Generate short synthesizer preset previews, then search, filter, and audition th
 
 **Current version: 1.0.1** · Windows x64, macOS Apple Silicon / Intel.
 
-[![SoundPreviewer main window in English](UserGuide/images/library-en.png)](UserGuide/en/index.md#interface)
+[![SoundPreviewer main window, shown in Chinese](UserGuide/images/library.png)](UserGuide/en/index.md#interface)
 
 ## Features
 

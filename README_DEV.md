@@ -2,7 +2,7 @@
 
 > 开发说明：由原 README 保留，包含构建、架构、协议和历史验证记录。日常使用请看 [快速上手](README.md) 和 [完整版操作说明](UserGuide/index.md)；性能方案见 [并行渲染调研](docs/parallel-rendering.md)。
 
-1.0.1 保留 `UserGuide/*.md` 的九个中文章节作为默认说明，英文对应章节位于 `UserGuide/en/*.md`；每页提供语言切换链接。两套说明共用本地图片，首页展示各自界面的主窗口截图。CHM 编译十八个章节，目录按中文 / English 分组，默认主题仍为中文 `index.html`。文档检查递归覆盖全部 Markdown，并检查两种语言的章节完整性、链接与截图；编译后解包比对全部章节和图片。README 也提供 `README.en.md` 英文入口。
+1.0.1 保留 `UserGuide/*.md` 的九个中文章节作为默认说明，英文对应章节位于 `UserGuide/en/*.md`；每页提供语言切换链接。两套说明共用本地图片，首页使用用户提供的中文主窗口截图，英文版注明界面语言。CHM 编译十八个章节，目录按中文 / English 分组，默认主题仍为中文 `index.html`。文档检查递归覆盖全部 Markdown，并检查两种语言的章节完整性、链接与截图；编译后解包比对全部章节和图片。README 也提供 `README.en.md` 英文入口。
 
 1.0.0 用户说明源文件位于英文目录 `UserGuide/*.md`，正文、截图和交叉链接随 App 构建与发布复制。Windows 点击右下角书本图标打开 `UserGuide/SoundPreviewer.chm`；macOS 打开 Markdown 首页。`scripts/Build-UserGuide.ps1` 使用 PowerShell 内置 Markdown 转换器及固定版本的 Microsoft HTML Help 编译器；仅在临时构建目录生成 HTML，随后编译并解包比对九个章节和全部图片。编译器从 Microsoft 官方 Visual Studio 包地址下载并校验 SHA-256，不写入系统目录或注册组件。首次 Windows 构建前运行 `pwsh -File scripts/Build-UserGuide.ps1`；生成的 CHM 在 `artifacts/user-guide`，构建及发布自动复制。CI 先编译手册，再将同一 CHM 分发到三个平台作业。`scripts/Test-UserGuide.ps1` 检查 Markdown 链接、锚点和图片，发布与打包检查额外要求合法 CHM。用户已明确要求版本升至 1.0.0，`version-policy.json` 同步批准 major 1。
 

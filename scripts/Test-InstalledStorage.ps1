@@ -68,7 +68,8 @@ foreach ($phase in @('migrate', 'reopen', 'moved')) {
     $process.StartInfo = $start
     try {
         [void]$process.Start()
-        if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw "Installed storage $phase timed out: $diagnostics" }
+        # Each phase runs the full theme, viewport, and language matrix on hosted Macs.
+        if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw "Installed storage $phase timed out: $diagnostics" }
         if ($process.ExitCode -ne 0) { throw "Installed storage $phase failed: $diagnostics" }
     }
     finally { $process.Dispose() }

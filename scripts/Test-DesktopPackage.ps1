@@ -44,7 +44,8 @@ try {
     [void]$process.Start()
     $appError = $process.StandardError.ReadToEndAsync()
     $appOutput = $process.StandardOutput.ReadToEndAsync()
-    if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Published application smoke test timed out.' }
+    # The complete theme, viewport, and language matrix can exceed two minutes on hosted Macs.
+    if (-not $process.WaitForExit(240000)) { $process.Kill($true); throw 'Published application smoke test timed out.' }
     [IO.File]::WriteAllText((Join-Path $dataDirectory 'ui-process-stderr.txt'), $appError.GetAwaiter().GetResult())
     [IO.File]::WriteAllText((Join-Path $dataDirectory 'ui-process-stdout.txt'), $appOutput.GetAwaiter().GetResult())
     if ($process.ExitCode -ne 0) {

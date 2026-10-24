@@ -20,9 +20,9 @@ This Markdown guide accompanies **1.0.1**. Windows installer and portable packag
 
 ## Main window at a glance
 
-[![SoundPreviewer main window in English: toolbar, filters, library, details, player, and task progress](../images/library-en.png)](../images/library-en.png)
+[![SoundPreviewer main window in Chinese: toolbar, filters, library, details, player, and task progress](../images/library.png)](../images/library.png)
 
-*Click the screenshot to view the original. This screenshot shows the English interface with an empty test library in 1.0.0. Other screenshots in this guide show the Chinese interface; the layout is the same. Names, paths, and values in test screenshots are examples.*
+*Click the screenshot to view the original. This user-provided screenshot shows the Chinese interface in 1.0.0 with its preset library, counts, and paths. The English interface has the same layout. Other screenshots use example settings and libraries.*
 
 | Area | What you can do |
 | --- | --- |
