@@ -1,5 +1,7 @@
 # 安装与启动
 
+**简体中文（默认）** · [English](en/installation.md)
+
 从 [GitHub Releases](https://github.com/Reguluz/SoundPreviewer/releases) 下载对应平台的包。如果尚无对应版本的 Release，可到 [自动构建页面](https://github.com/Reguluz/SoundPreviewer/actions/workflows/desktop.yml)，打开标记为成功的构建，在 Artifacts 下载 `packages-平台`。Actions 测试包有保留期限，下载可能需要登录 GitHub。
 
 | 你的电脑 | 选择的包 | 打开方式 |
@@ -26,4 +28,4 @@
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.0.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.0.1。正文和截图可离线阅读，外部下载与反馈链接需要联网。

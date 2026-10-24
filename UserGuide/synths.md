@@ -1,5 +1,7 @@
 # 音源与生成环境
 
+**简体中文（默认）** · [English](en/synths.md)
+
 本页内容：
 
 - [支持范围](#support)
@@ -94,4 +96,4 @@ Sylenth1 的加载状态需要可核验。若提示“状态完全未变”或�
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.0.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.0.1。正文和截图可离线阅读，外部下载与反馈链接需要联网。

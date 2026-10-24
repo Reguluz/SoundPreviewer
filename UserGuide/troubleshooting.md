@@ -1,5 +1,9 @@
 # 常见问题
 
+**简体中文（默认）** · [English](en/troubleshooting.md)
+
+想先确认“有没有某项功能”，请看[快速开始后的常规问题 Q&A](quick-start.md#faq)；本页用于处理扫描、生成、播放及数据恢复中的问题。
+
 本页内容：
 
 - [先定位出错环节](#rendering)
@@ -50,4 +54,4 @@
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.0.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.0.1。正文和截图可离线阅读，外部下载与反馈链接需要联网。

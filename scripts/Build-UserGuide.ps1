@@ -10,7 +10,9 @@ $CompilerPath = [IO.Path]::GetFullPath($CompilerPath)
 $outputDirectory = Join-Path $workspace 'artifacts/user-guide'
 $build = Join-Path $workspace ('artifacts/user-guide-build/' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $build, $outputDirectory -Force | Out-Null
-$chapters = @('index', 'quick-start', 'installation', 'synths', 'rendering', 'library', 'storage', 'appearance', 'troubleshooting')
+$topics = @('index', 'quick-start', 'installation', 'synths', 'rendering', 'library', 'storage', 'appearance', 'troubleshooting')
+$languages = @(@{ Prefix = ''; Name = '简体中文（默认）' }, @{ Prefix = 'en/'; Name = 'English' })
+$chapters = @(foreach ($language in $languages) { foreach ($topic in $topics) { $language.Prefix + $topic } })
 $titles = @{}
 $files = [Collections.Generic.List[string]]::new()
 foreach ($chapter in $chapters) {
@@ -19,21 +21,29 @@ foreach ($chapter in $chapters) {
     $body = (ConvertFrom-Markdown -InputObject $markdown).Html
     $body = [regex]::Replace($body, 'href="([^":]*?)\.md(?=["#])', 'href="$1.html')
     $title = [Net.WebUtility]::HtmlEncode($titles[$chapter])
+    $htmlLanguage = if ($chapter.StartsWith('en/')) { 'en' } else { 'zh-CN' }
     $html = @"
 <!doctype html>
-<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<html lang="$htmlLanguage"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>$title - SoundPreviewer</title>
 <style>body{font-family:Microsoft YaHei,Arial,sans-serif;font-size:15px;line-height:1.8;padding:20px;color:#222;background:white}a{color:#166b85}img{max-width:100%;height:auto}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left}code{background:#f3f3f3}h2{margin-top:28px;border-bottom:1px solid #ddd}pre{white-space:pre-wrap}</style>
 </head><body>$body</body></html>
 "@
-    [IO.File]::WriteAllText((Join-Path $build "$chapter.html"), $html, [Text.UTF8Encoding]::new($false))
+    $htmlPath = Join-Path $build "$chapter.html"
+    New-Item -ItemType Directory -Path (Split-Path $htmlPath -Parent) -Force | Out-Null
+    [IO.File]::WriteAllText($htmlPath, $html, [Text.UTF8Encoding]::new($false))
     $files.Add("$chapter.html")
 }
 Copy-Item -LiteralPath (Join-Path $source 'images') -Destination $build -Recurse
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $build 'images') -File) { $files.Add('images/' + $file.Name) }
 $toc = '<!doctype html><html><head><meta http-equiv="Content-Type" content="text/html; charset=gb2312"></head><body><ul>'
-foreach ($chapter in $chapters) {
-    $toc += '<li><object type="text/sitemap"><param name="Name" value="' + [Net.WebUtility]::HtmlEncode($titles[$chapter]) + '"><param name="Local" value="' + $chapter + '.html"></object></li>'
+foreach ($language in $languages) {
+    $toc += '<li><object type="text/sitemap"><param name="Name" value="' + $language.Name + '"><param name="Local" value="' + $language.Prefix + 'index.html"></object><ul>'
+    foreach ($topic in $topics) {
+        $chapter = $language.Prefix + $topic
+        $toc += '<li><object type="text/sitemap"><param name="Name" value="' + [Net.WebUtility]::HtmlEncode($titles[$chapter]) + '"><param name="Local" value="' + $chapter + '.html"></object></li>'
+    }
+    $toc += '</ul></li>'
 }
 $toc += '</ul></body></html>'
 [Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)

@@ -6,9 +6,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($GuideDirectory)
-$pages = @(Get-ChildItem -LiteralPath $root -Filter '*.md' -File)
-if ($pages.Count -ne 9 -or -not (Test-Path -LiteralPath (Join-Path $root 'index.md') -PathType Leaf)) {
-    throw 'The user guide must contain its index and eight Markdown topic chapters.'
+$chapters = @('index', 'quick-start', 'installation', 'synths', 'rendering', 'library', 'storage', 'appearance', 'troubleshooting')
+$expected = @(foreach ($prefix in @('', 'en/')) { foreach ($chapter in $chapters) { "$prefix$chapter.md" } })
+$pages = @(Get-ChildItem -LiteralPath $root -Filter '*.md' -File -Recurse)
+if ($pages.Count -ne $expected.Count -or @($expected | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) }).Count) {
+    throw 'The user guide must contain nine Chinese chapters and nine matching English chapters under en/.'
 }
 if (Get-ChildItem -LiteralPath $root -Filter '*.html' -File -Recurse) { throw 'HTML source pages must remain in build staging only.' }
 $rendered = @{}

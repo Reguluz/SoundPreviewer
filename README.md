@@ -1,8 +1,18 @@
 # SoundPreviewer
 
+**简体中文（默认）** · [English](README.en.md) · [English user guide](UserGuide/en/index.md)
+
+## 支持创作
+
+<img src="UserGuide/images/afdian-Reguluz.jpg" alt="Reguluz 爱发电支持二维码" width="375" height="513">
+
+## 软件简介
+
 把合成器音色生成短试听片段，在一个本地音色库里搜索、筛选和播放，减少逐个打开音源试音的时间。已有预览无需打开 DAW。
 
-**当前版本：1.0.0** · 支持 Windows x64、macOS Apple Silicon / Intel。
+**当前版本：1.0.1** · 支持 Windows x64、macOS Apple Silicon / Intel。
+
+[![SoundPreviewer 中文主界面](UserGuide/images/library.png)](UserGuide/index.md#interface)
 
 ## 软件功能
 
@@ -24,10 +34,21 @@
 
 升级或搬移前退出程序，保留 **Preview、Config、categories.json、tags.json** 和自定义语言文件，以继续使用个人记录与缓存。
 
-## 支持创作
+## 常规问题 Q&A
 
-![Reguluz 爱发电支持二维码](UserGuide/images/afdian-Reguluz.jpg)
+| 问题 | 回答 |
+| --- | --- |
+| 可以选择预览音高吗？ | **可以。** 在「音源与设置 → 试听与存储」设置低、中、高音，支持 `C4`、`C#4`、`Db4` 等音名。已有预览需重新生成才会采用新音高。 |
+| 可以调整预览时长吗？ | **可以。** 快速预览每音区可设 0.1–4 秒；关闭后可设置按键时长和尾音，Vital 原生方式另有参数限制。 |
+| 可以自定义标签和分类吗？ | **可以。** 在「编辑标签与分类」新增、改名或添加别名，支持多选；重新扫描保留手工选择。 |
+| 可以按多个条件筛选、只生成筛选结果吗？ | **可以。** 音源、分类、标签等可组合多选，「生成 / 继续」只处理当前搜索与筛选结果。 |
+| 生成可以停止后继续吗？ | **可以。** 已完成项保留，下次跳过已有有效预览；相同内容可复用缓存。 |
+| 试听需要打开 DAW 或音源吗？ | **已有预览不需要。** 新生成时需本机的对应音源与授权；环境首次准备可能需要联网。 |
+| 可以切换语言、保存 WAV / AAC 吗？ | **可以。** 内置简体中文和英语，分类标签语言可独立选择；保存格式可选 WAV / AAC，也可压缩已有 WAV。 |
+| Spire、FXB 银行和自动加载 DAW 支持了吗？ | Spire 与 FXB 目前仅扫描索引，暂不能直接生成；DAW 暂不自动建轨或加载，可复制原音色文件地址后手动打开。 |
+
+操作入口与更多功能问答见[快速开始后的常规问题 Q&A](UserGuide/quick-start.md#faq)，当前平台、音源、插件与音色格式、界面语言见[支持范围表格](UserGuide/index.md#compatibility)。
 
 ## 完整版操作说明
 
-详细配置、格式限制、生成与试听、音色库整理、备份升级和故障排查已拆分至 [完整版 Markdown 操作说明](UserGuide/index.md)。完整安装包在 **`UserGuide`** 文件夹中附带 Markdown、截图和 **`SoundPreviewer.chm`** 编译手册。点击软件窗口右下角的书本图标，Windows 会打开 CHM 手册；Mac 会打开 Markdown 首页，可使用支持 Markdown 的阅读器阅读。
+详细配置、格式限制、生成与试听、音色库整理、备份升级和故障排查已拆分至 [完整版 Markdown 操作说明](UserGuide/index.md)，以中文版为默认入口，并提供完整的 [English user guide](UserGuide/en/index.md)，每个章节可切换对应语言。完整安装包在 **`UserGuide`** 文件夹中附带 Markdown、截图和 **`SoundPreviewer.chm`** 编译手册。点击软件窗口右下角的书本图标，Windows 会打开默认中文、含 English 目录的 CHM 手册；Mac 会打开中文 Markdown 首页，可通过顶部链接切换英文。

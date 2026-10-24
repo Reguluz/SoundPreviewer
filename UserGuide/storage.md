@@ -1,5 +1,7 @@
 # 数据、备份与升级
 
+**简体中文（默认）** · [English](en/storage.md)
+
 本页内容：
 
 - [数据位置](#locations)
@@ -79,4 +81,4 @@ Portable 表示免安装。移动程序前先退出并备份，连同 `Preview`�
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.0.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.0.1。正文和截图可离线阅读，外部下载与反馈链接需要联网。
