@@ -19,10 +19,15 @@ import time
 
 ADAPTER_VERSION = "dawdreamer-fxp-v1"
 SERUM2_ADAPTER_VERSION = "dawdreamer-serum2-state-v1"
+SERUM2_LEGACY_ADAPTER_VERSION = "dawdreamer-serum1-via-serum2-v1"
 HOST_VERSION = "0.8.3"
 NUMPY_VERSION = "1.26.4"
 MINIMUM_MSVC_VERSION = (14, 40)
 PROBE_TIMEOUT_SECONDS = 8
+
+
+class PresetLoadError(ValueError):
+    pass
 
 
 def host_metadata():
@@ -268,20 +273,23 @@ def validate_request(request):
     preset = request["Preset"]
     plugin = request["Plugin"]
     template = request["Template"]
-    if preset["Synth"] not in (1, 2, 3) or plugin["Synth"] != preset["Synth"]:
+    legacy = request.get("Serum1Fallback") is True and preset["Synth"] == 1 and plugin["Synth"] == 2
+    if (preset["Synth"] not in (1, 2, 3) or plugin["Synth"] != preset["Synth"]) and not legacy:
         raise ValueError("DawDreamer bridge supports Serum 1 / Sylenth1 VST2 FXP and Serum 2 VST3 .SerumPreset.")
     if preset.get("BankSlot") is not None or preset.get("InternalPath"):
         raise ValueError("Bank slots and package entries require a verified bank adapter; export a standalone FXP first.")
     binary = Path(plugin["PluginPath"]).resolve(strict=True)
     baseline = request.get("IsInitializationBaseline") is True
+    if request.get("Serum1Fallback") and (not legacy or baseline):
+        raise ValueError("Serum 2 fallback is only valid for an identified Serum 1 source preset")
     if baseline and (preset.get("SourcePath") or preset.get("ContentHash")):
         raise ValueError("Default-startup baseline must not contain a source preset identity.")
     source = None if baseline else Path(preset["SourcePath"]).resolve(strict=True)
-    serum2 = preset["Synth"] == 2
+    serum2 = plugin["Synth"] == 2
     if serum2:
         if binary.suffix.lower() != ".vst3":
             raise ValueError("Serum 2 requires its native VST3 instrument.")
-        if source is not None and source.suffix.lower() != ".serumpreset":
+        if source is not None and source.suffix.lower() != (".fxp" if legacy else ".serumpreset"):
             raise ValueError("Serum 2 VST3 rendering requires .SerumPreset; import legacy FXP in Serum 2 and save it in the native format first.")
     elif (source is not None and source.suffix.lower() != ".fxp") or binary.suffix.lower() not in (".dll", ".vst"):
         raise ValueError("FXP requires a VST2 instrument (.dll on Windows, .vst on macOS); VST3 and banks require separate adapters.")
@@ -307,7 +315,10 @@ def validate_request(request):
     if baseline:
         return None, binary, pitches, None
     raw = source.read_bytes()
-    if serum2:
+    if legacy:
+        from serum2_legacy_import import validate_fxp
+        validate_fxp(raw, preset.get("ContentHash"))
+    elif serum2:
         if len(raw) < 25 or raw[:9] != b"XferJson\x00":
             raise ValueError("Serum 2 preset is missing the XferJson envelope.")
         metadata_bytes = struct.unpack("<Q", raw[9:17])[0]
@@ -327,7 +338,8 @@ def validate_request(request):
 def render(request, report_phase=lambda phase: None):
     source, binary, pitches, raw = validate_request(request)
     daw, np, _ = load_host(report_phase)
-    serum2 = request["Preset"]["Synth"] == 2
+    serum2 = request["Plugin"]["Synth"] == 2
+    legacy = request.get("Serum1Fallback") is True
 
     template = request["Template"]
     sample_rate = template["SampleRate"]
@@ -343,6 +355,36 @@ def render(request, report_phase=lambda phase: None):
         if source is not None:
             snapshot = Path(temporary) / source.name
             snapshot.write_bytes(raw)
+        imported_state = None
+        if legacy:
+            if sys.platform != "win32":
+                raise ValueError("Automatic Serum 1 to Serum 2 import currently requires Windows x64")
+            report_phase("Serum 2 正在后台导入 Serum 1 音色，不占用前台操作")
+            native_binary = binary
+            if binary.is_dir():
+                candidates = list((binary / "Contents" / "x86_64-win").glob("*.vst3"))
+                if len(candidates) != 1:
+                    raise ValueError("Serum 2 native importer requires one unambiguous instrument binary")
+                native_binary = candidates[0]
+            imported_path = Path(temporary) / "imported.state"
+            import_request, import_result = Path(temporary) / "import.json", Path(temporary) / "import-result.json"
+            import_request.write_text(json.dumps({"Binary": str(native_binary), "Source": str(snapshot),
+                "ContentHash": request["Preset"]["ContentHash"], "Version": request["Plugin"]["Version"],
+                "Output": str(imported_path)}, ensure_ascii=False), encoding="utf-8")
+            try:
+                child = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).with_name("serum2_legacy_import.py")),
+                    "--request", str(import_request), "--result", str(import_result)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=max(5, min(45, request["Plugin"].get("TimeoutSeconds", 120) / 2)),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except subprocess.TimeoutExpired as error:
+                raise ValueError("Serum 2 后台导入超时，已关闭隔离导入进程；未弹出前台窗口。") from error
+            imported = json.loads(import_result.read_text(encoding="utf-8")) if import_result.is_file() and import_result.stat().st_size <= 1024 * 1024 else {}
+            if child.returncode or imported.get("Success") is not True:
+                raise ValueError("Serum 2 后台导入失败：" + str(imported.get("Message", f"importer exit {child.returncode}")))
+            if not imported_path.is_file() or not 0 < imported_path.stat().st_size <= 128 * 1024 * 1024:
+                raise ValueError("Serum 2 did not save a bounded imported state")
+            imported_state = imported_path.read_bytes()
         for pitch in pitches:
             report_phase(f"创建宿主，MIDI {pitch}")
             engine = daw.RenderEngine(sample_rate, 128)
@@ -354,14 +396,18 @@ def render(request, report_phase=lambda phase: None):
             if snapshot is not None and serum2:
                 report_phase(f"转换并核对 Serum 2 状态，MIDI {pitch}")
                 try:
-                    from serum2_state import prepare_serum2_state, verify_serum2_state
+                    from serum2_state import prepare_serum2_state, prepare_legacy_serum2_snapshot, verify_serum2_state
                 except ImportError as error:
                     raise RuntimeError("Serum 2 requires the bundled state adapter and requirements-serum2.txt dependencies.") from error
                 fresh = Path(temporary) / f"startup-{pitch}.state"
                 synth.save_state(str(fresh))
                 if not fresh.is_file() or fresh.stat().st_size > 128 * 1024 * 1024:
                     raise ValueError("Serum 2 startup state is missing or exceeds the adapter limit.")
-                state, proof = prepare_serum2_state(raw, fresh.read_bytes(), request["Plugin"]["Version"])
+                if legacy:
+                    names = {source.stem, raw[28:56].split(b"\0", 1)[0].decode("utf-8", errors="replace")}
+                    state, proof = prepare_legacy_serum2_snapshot(imported_state, fresh.read_bytes(), request["Plugin"]["Version"], names)
+                else:
+                    state, proof = prepare_serum2_state(raw, fresh.read_bytes(), request["Plugin"]["Version"])
                 converted = Path(temporary) / f"preset-{pitch}.state"
                 converted.write_bytes(state)
                 synth.load_state(str(converted))
@@ -373,7 +419,7 @@ def render(request, report_phase=lambda phase: None):
             elif snapshot is not None:
                 report_phase(f"加载 FXP，MIDI {pitch}")
                 if not synth.load_preset(str(snapshot)):
-                    raise ValueError("Host rejected the FXP; target preset was not loaded.")
+                    raise PresetLoadError("Host rejected the FXP; target preset was not loaded.")
             else:
                 report_phase(f"默认启动基准，未加载任何预制，MIDI {pitch}")
             synth.clear_midi()
@@ -428,12 +474,13 @@ def render(request, report_phase=lambda phase: None):
         "Success": True,
         "OutputPath": str(output),
         "Message": ("默认启动基准：每音使用全新插件实例，未加载任何预制，保留原始 float32 输出。" if source is None else
+                    "Serum 1 音色已由 Serum 2 在后台自动导入，三个音区均通过状态回读核对；临时状态随本次任务清理，仍须试听确认音色及外部资源。" if legacy else
                     "Serum 2 原生预制已转换为当前插件版本的 VST3 状态，并通过加载后状态回读核对；仍须人工核对音色及外部资源。" if serum2 else
                     "真实 VST2 FXP 已由宿主加载并演奏；新宿主组合须人工确认预制与外部资源，保留原始 float32 输出。") +
                    (" 存在静音或接近削波的音区。" if needs_review else ""),
         "NeedsReview": True,
         "Notes": notes,
-        "AdapterVersion": (SERUM2_ADAPTER_VERSION if serum2 else ADAPTER_VERSION) + "/host-" + HOST_VERSION,
+        "AdapterVersion": (SERUM2_LEGACY_ADAPTER_VERSION if legacy else SERUM2_ADAPTER_VERSION if serum2 else ADAPTER_VERSION) + "/host-" + HOST_VERSION,
     }
 
 
@@ -469,7 +516,7 @@ def main():
             result = render(request, report_phase)
     except Exception as error:
         result = {**(probe_metadata if arguments.probe or arguments.probe_internal else {}),
-                  "Success": False, "Message": str(error), "AdapterVersion": ADAPTER_VERSION}
+                  "Success": False, "PresetLoadFailed": isinstance(error, PresetLoadError), "Message": str(error), "AdapterVersion": ADAPTER_VERSION}
     if arguments.probe or arguments.probe_internal:
         result["Finished"] = True
     write_result(arguments.result, result)

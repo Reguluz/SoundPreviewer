@@ -85,6 +85,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         .Select(value => new Choice<int>(value == RenderResourcePolicy.DefaultMemoryBudgetGiB ? $"{value} GiB（默认）" : $"{value} GiB", value)).ToList();
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
     public PresetRow? Selected => _selected;
+    public string SelectedName => _selected?.Name ?? T("未选择音色");
     public bool IsBusy => _isBusy;
     public bool IsIdle => !_isBusy && !_storageRelocated;
     public bool CanStopTask => _isBusy && !_stopRequested && (!_isStorageMaintenance || _isCompressingPreviews);
@@ -994,7 +995,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BpmBox.Text = t.Bpm.ToString(CultureInfo.InvariantCulture);
         SampleRateBox.SelectedIndex = t.SampleRate == 48000 ? 1 : 0;
         PreviewFormatBox.SelectedIndex = _settings.PreviewFormat == PreviewAudioFormat.Wav ? 1 : 0;
-        PreviewDirectoryBox.Text = T("Preview/（当前程序目录下）");
         BudgetBox.Text = _settings.StorageBudgetGb.ToString(CultureInfo.InvariantCulture);
         AttemptsBox.Text = _settings.MaxAttempts.ToString(CultureInfo.InvariantCulture);
         VolumeSlider.Value = _settings.PlaybackVolume;

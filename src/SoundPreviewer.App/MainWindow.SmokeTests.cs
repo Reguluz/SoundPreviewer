@@ -20,6 +20,14 @@ public partial class MainWindow
         var guide = PrepareUserGuide();
         if (!guide.UseShellExecute || guide.FileName != Path.Combine(AppContext.BaseDirectory, "UserGuide", OperatingSystem.IsWindows() ? "SoundPreviewer.chm" : "index.md"))
             throw new InvalidOperationException("操作说明入口未指向随程序附带的 CHM 或 Markdown 手册。");
+        if (Environment.GetCommandLineArgs().Contains("--settings-language-only"))
+        {
+            await CheckSettingsLanguagesAsync();
+            await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
+            { Loaded = true, SettingsLanguagesChecked = true, AppVersion, WindowTitle = Title, FooterVersion = BuildVersionLabel.Text }));
+            App.Shutdown();
+            return;
+        }
         File.WriteAllText(Path.Combine(App.DataDirectory, "ui-checkpoint.txt"), "appearance");
         // Exercises the same controller, bindings and native playback on both desktop targets.
         bool appearancePersistenceChecked = await CheckAppearanceAsync();
@@ -269,7 +277,9 @@ public partial class MainWindow
         await CheckClosingCallbacksAsync();
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
         {
-            Loaded = true, UserGuideChecked = true, Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            Loaded = true, UserGuideChecked = true, AppVersion, SettingsLanguagesChecked = true,
+            WindowTitle = Title, FooterVersion = BuildVersionLabel.Text,
+            Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             AppearanceChecked = true, AppearancePersistenceChecked = appearancePersistenceChecked, AppearanceCancelChecked = true, AppearanceViewports = 2,
             FilterOptionCountsChecked = true,
             FilterCountsBenchmarkRows = 14000, FilterCountsBenchmarkMilliseconds = _filterCountsBenchmarkMilliseconds,

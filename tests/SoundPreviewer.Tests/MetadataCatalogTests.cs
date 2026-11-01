@@ -73,6 +73,11 @@ internal static partial class Program
         var language = new LanguageService();
         language.Select("en-US");
         Equal("Library", language.Translate("音色库"), "English UI text comes from the JSON dictionary.");
+        Equal("No preset selected", language.Translate("未选择音色"), "Empty selection is interface text rather than a preset name.");
+        Equal("Check unsupported", language.Translate("不支持此检查"), "Startup protection states have English labels.");
+        Equal("Per-preset verification", language.Translate("逐音色核验"), "Verified-load protection has an English label.");
+        Equal("Preview/ (beside this application)", language.Translate("Preview/（当前程序目录下）"), "The fixed preview location is translatable.");
+        Equal(@"Environment saved at: F:\音色库\自动识别\renderers", language.Translate(@"环境保存在：F:\音色库\自动识别\renderers"), "Rendering environment locations preserve user path components.");
         Equal("Processed 7 / 12", language.Translate("已处理 7 / 12"), "Parameterized progress messages retain values.");
         Equal(@"File path copied: E:\音色库\喜欢\Arp.fxp", language.Translate(@"已复制文件地址：E:\音色库\喜欢\Arp.fxp"), "Translation preserves Chinese user paths rather than translating their components.");
         Equal("Update Serum 2: current plugin version 2.0.23 is older than preset version 2.1.0. Update and retry.", language.Translate("需要更新 Serum 2：当前插件版本 2.0.23 低于音色制作版本 2.1.0，请更新后重试。"), "Python bridge version guidance uses the same editable language dictionary.");

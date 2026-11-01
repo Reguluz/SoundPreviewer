@@ -199,6 +199,7 @@ public sealed class NotePreview
 public sealed class RenderRequest
 {
     public bool IsInitializationBaseline { get; set; }
+    public bool Serum1Fallback { get; set; }
     public PresetRecord Preset { get; set; } = new();
     public PluginConfiguration Plugin { get; set; } = new();
     public PreviewTemplate Template { get; set; } = new();
@@ -210,6 +211,7 @@ public sealed class RenderRequest
 public sealed class RenderResult
 {
     public bool Success { get; set; }
+    public bool PresetLoadFailed { get; set; }
     public bool NonRetryable { get; set; }
     public string OutputPath { get; set; } = "";
     public string Message { get; set; } = "";

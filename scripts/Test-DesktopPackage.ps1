@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $guideDirectory 'index.md') -PathTyp
     throw 'Published offline user guide is missing.'
 }
 & (Join-Path $PSScriptRoot 'Test-UserGuide.ps1') -GuideDirectory $guideDirectory -RequireChm
-foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/requirements.txt',
+foreach ($file in @('Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/serum2_legacy_import.py', 'Renderers/requirements.txt',
     'Renderers/requirements-serum2.txt', 'Licenses/NAudio.txt', "Renderers/uv/$uvName", 'Renderers/uv/NOTICE.md',
     'Renderers/uv/LICENSE-MIT.txt', 'Renderers/uv/LICENSE-APACHE.txt', $setupScript, 'Config/preset-categories.default.json', 'language/zh-CN.json', 'language/en-US.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $resources $file) -PathType Leaf)) { throw "Published application resource is missing: $file" }
@@ -65,6 +65,11 @@ try {
         throw "Published application smoke test failed; see $dataDirectory"
     }
     $result = Get-Content -LiteralPath (Join-Path $dataDirectory 'ui-smoke.json') -Raw | ConvertFrom-Json
+    $expectedVersion = 'v' + ([xml](Get-Content -LiteralPath (Join-Path $projectDirectory 'Version.props') -Raw)).Project.PropertyGroup.Version
+    if ($result.AppVersion -ne $expectedVersion -or $result.FooterVersion -ne $expectedVersion -or
+        -not $result.WindowTitle.EndsWith("($expectedVersion)", [StringComparison]::Ordinal) -or -not $result.SettingsLanguagesChecked) {
+        throw "Published application version or settings localization did not match the release: $dataDirectory"
+    }
     if (-not $result.UserGuideChecked -or -not $result.PreviewShortcutChecked -or $result.PreviewShortcutHintViewports -ne 2) {
         throw "Published application did not verify the Space shortcut and visible hint; see $dataDirectory"
     }

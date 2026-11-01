@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from test_dawdreamer_worker import worker
+from serum2_legacy_import import validate_fxp
 
 
 def xfer_fixture(metadata=None):
@@ -137,6 +138,63 @@ class Serum2BridgeTests(unittest.TestCase):
         request["Preset"]["SourcePath"] = str(source)
         with self.assertRaisesRegex(ValueError, "import legacy FXP"):
             self.parse(request)
+
+    def legacy_request(self):
+        raw = bytearray(92)
+        raw[:4], raw[8:12], raw[16:20] = b"CcnK", b"FPCh", b"XfsX"
+        struct.pack_into(">I", raw, 4, len(raw) - 8)
+        struct.pack_into(">I", raw, 56, len(raw) - 60)
+        source = self.directory / "TEST-ONLY.fxp"
+        source.write_bytes(raw)
+        request = copy.deepcopy(self.request)
+        request["Preset"].update(Synth=1, SourcePath=str(source), ContentHash=hashlib.sha256(raw).hexdigest())
+        request["Serum1Fallback"] = True
+        request["OutputPath"] = str(self.directory / "out.wav")
+        return request
+
+    def test_explicit_serum1_fallback_keeps_source_identity_and_checks_header(self):
+        request = self.legacy_request()
+        self.assertEqual(Path(request["Preset"]["SourcePath"]).read_bytes(), self.parse(request)[3])
+        for offset, replacement in ((8, b"FBCh"), (16, b"syl1"), (56, bytes(4))):
+            raw = bytearray(self.parse(request)[3])
+            raw[offset:offset + 4] = replacement
+            with self.subTest(offset=offset), self.assertRaisesRegex(ValueError, "identified Serum 1"):
+                validate_fxp(raw, hashlib.sha256(raw).hexdigest())
+        with self.assertRaisesRegex(ValueError, "changed after scanning"):
+            validate_fxp(self.parse(request)[3], "0" * 64)
+
+    def test_fallback_cannot_be_used_as_a_baseline_or_general_synth_override(self):
+        request = self.legacy_request()
+        request["IsInitializationBaseline"] = True
+        with self.assertRaisesRegex(ValueError, "only valid"):
+            self.parse(request)
+        request.pop("IsInitializationBaseline")
+        request["Preset"]["Synth"] = 2
+        with self.assertRaisesRegex(ValueError, "only valid"):
+            self.parse(request)
+
+    def test_timed_out_import_cleans_private_snapshots_and_never_opens_an_editor_in_parent(self):
+        request = self.legacy_request()
+        original = Path(request["Preset"]["SourcePath"]).read_bytes()
+        observed = []
+
+        def timeout(command, **options):
+            import_request = json.loads(Path(command[command.index("--request") + 1]).read_text(encoding="utf-8"))
+            snapshot = Path(import_request["Source"])
+            self.assertEqual(original, snapshot.read_bytes())
+            self.assertEqual(self.directory, snapshot.parent.parent)
+            observed.append(snapshot.parent)
+            raise worker.subprocess.TimeoutExpired(command, 1)
+
+        with mock.patch.object(worker, "check_plugin_architecture"), \
+                mock.patch.object(worker.sys, "platform", "win32"), \
+                mock.patch.object(worker, "load_host", return_value=(None, None, None)), \
+                mock.patch.object(worker.subprocess, "run", side_effect=timeout), \
+                self.assertRaisesRegex(ValueError, "后台导入超时"):
+            worker.render(request)
+        self.assertEqual(1, len(observed))
+        self.assertFalse(observed[0].exists())
+        self.assertEqual(original, Path(request["Preset"]["SourcePath"]).read_bytes())
 
     def test_serum2_rejects_vst2_and_effect_plugin_paths(self):
         for name, error in (("Serum2.dll", "native VST3"), ("SerumFX.vst3", "effect")):

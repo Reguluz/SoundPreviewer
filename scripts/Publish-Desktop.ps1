@@ -46,7 +46,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Desktop restore failed.' }
     dotnet publish src/SoundPreviewer.App/SoundPreviewer.App.csproj -c Release -r $Runtime --self-contained true --no-restore --disable-build-servers -p:UseSharedCompilation=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=false -p:NuGetAudit=false -m:1 -o $outputDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
-    foreach ($file in @('SoundPreviewer.exe', 'SoundPreviewer.Worker.exe', 'Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py',
+    foreach ($file in @('SoundPreviewer.exe', 'SoundPreviewer.Worker.exe', 'Renderers/dawdreamer_worker.py', 'Renderers/serum2_state.py', 'Renderers/serum2_legacy_import.py',
         'Renderers/requirements.txt', 'Renderers/requirements-serum2.txt', 'Config/preset-categories.default.json',
         'Vst2Host-x86/SoundPreviewer.Vst2Host.exe', 'Vst2Host-x86/coreclr.dll', 'Vst2Host-x86/THIRD-PARTY-NOTICES.md',
         'Vst2Host-x86/LICENSE.VST.NET.txt', 'Vst2Host-x86/LICENSE.Microsoft.txt')) {

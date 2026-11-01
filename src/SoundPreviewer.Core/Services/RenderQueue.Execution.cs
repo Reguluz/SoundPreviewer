@@ -17,7 +17,7 @@ public sealed partial class RenderQueue
         public bool AttemptInProgress { get; set; }
     }
 
-    private sealed record RenderJob(string Key, PluginConfiguration Plugin, List<QueueItem> Items);
+    private sealed record RenderJob(string Key, PluginConfiguration Plugin, List<QueueItem> Items, bool Serum1Fallback = false);
     private sealed record Reservation(long OutputBytes, long ReplacedBytes, long BudgetBytes, List<OwnedCache> OldCaches);
 
     private sealed partial class Execution
@@ -35,6 +35,7 @@ public sealed partial class RenderQueue
         private readonly QueueResult summary;
         private readonly Stopwatch elapsed = Stopwatch.StartNew();
         private readonly Dictionary<SynthKind, Task<PreparedInitBaseline>> baselines = new();
+        private readonly Dictionary<string, RenderJob> serumFallbacks = new(StringComparer.Ordinal);
         private readonly Dictionary<RenderJob, Reservation> reservations = new();
         private readonly Dictionary<object, long> scratchReservations = new();
         private readonly Dictionary<string, List<PresetRecord>> storedReferences = new(ApplicationPaths.PathComparer);
@@ -107,10 +108,20 @@ public sealed partial class RenderQueue
                 }
                 var waiting = PrepareJobs();
                 CaptureResources();
-                while (waiting.Count > 0 || running.Count > 0)
+                while (waiting.Count > 0 || running.Count > 0 || serumFallbacks.Count > 0)
                 {
                     ThrowIfResourceStopped();
                     token.ThrowIfCancellationRequested();
+                    // Drain the normal batch first. Fallbacks get their own admission
+                    // phase, with Serum 2's memory profile and parallelism limits.
+                    if (waiting.Count == 0 && running.Count == 0)
+                    {
+                        lock (gate)
+                        {
+                            waiting = serumFallbacks.Values.ToList();
+                            serumFallbacks.Clear();
+                        }
+                    }
                     var resourceWake = ResourceChangedTask();
                     while (running.Count < targetConcurrency)
                     {
@@ -195,7 +206,11 @@ public sealed partial class RenderQueue
                 readiness.TryGetValue(preset.Synth, out var state);
                 bool unavailable = !unconfigured && state?.CanAttemptRender == false;
                 if ((unconfigured || unavailable) && (force || !HasPreviewMetadata(preset)))
-                { SkipRenderer(item, plugin, state, unconfigured, skipped); continue; }
+                {
+                    if (!TryDeferSerumFallback([item], "Serum 1 生成环境不可用。"))
+                        SkipRenderer(item, plugin, state, unconfigured, skipped);
+                    continue;
+                }
                 Report(QueueStages.Validating, "正在核对已有预览及试听配置...", item, true);
                 bool hasPreview = HasValidPreview(preset, token);
                 if (hasPreview && !force)
@@ -210,18 +225,30 @@ public sealed partial class RenderQueue
                     Report(QueueStages.Validating, "已生成有效预览，默认跳过。", item);
                     continue;
                 }
-                if (unconfigured || unavailable) { SkipRenderer(item, plugin, state, unconfigured, skipped); continue; }
+                if (unconfigured || unavailable)
+                {
+                    if (!TryDeferSerumFallback([item], "Serum 1 生成环境不可用。"))
+                        SkipRenderer(item, plugin, state, unconfigured, skipped);
+                    continue;
+                }
                 settings.Template.Validate();
                 string error = !File.Exists(plugin!.ExecutablePath) ? $"{preset.Synth} 渲染程序不存在。" :
                     plugin.TimeoutSeconds is < 5 or > 3600 ? "进程超时须为 5 到 3600 秒。" :
                     string.IsNullOrWhiteSpace(plugin.Version) ? $"请先填写 {preset.Synth} 的实际版本。" : "";
-                if (error.Length > 0) { FailBeforeRendering(item, error, hasPreview); continue; }
+                if (error.Length > 0)
+                {
+                    item.Previous = hasPreview ? Clone(preset) : null;
+                    if (!TryDeferSerumFallback([item], error)) FailBeforeRendering(item, error, hasPreview);
+                    continue;
+                }
                 string key = Fingerprints.CacheKey(preset, plugin, settings.Template);
                 string lastAttemptKey = preset.AttemptedCacheKey.Length > 0 ? preset.AttemptedCacheKey : preset.CacheKey;
                 bool resetAttempts = force || lastAttemptKey.Length > 0 && lastAttemptKey != key ||
                     preset.Status is PresetStatus.Ready or PresetStatus.NeedsReview;
                 if (!resetAttempts && preset.Attempts >= settings.MaxAttempts && preset.Status != PresetStatus.Pending)
                 {
+                    item.Previous = hasPreview ? Clone(preset) : null;
+                    if (TryDeferSerumFallback([item], preset.LastRenderMessage)) continue;
                     summary.RetryLimited++;
                     Report(QueueStages.Validating, "已达到重试上限。", item);
                     continue;
@@ -264,6 +291,7 @@ public sealed partial class RenderQueue
                 var baseline = await BaselineAsync(job).ConfigureAwait(false);
                 if (InitBaselineService.Supports(job.Plugin) && !baseline.State.CanCompare && !baseline.State.CanRenderWithVerifiedPresetLoad)
                 {
+                    if (!job.Serum1Fallback && TryDeferSerumFallback(pending, "默认启动音色保护未就绪：" + baseline.State.Detail)) return;
                     lock (gate)
                         foreach (var item in pending)
                             FailBeforeRendering(item, "默认启动音色保护未就绪：" + baseline.State.Detail, item.Previous is not null);
@@ -303,6 +331,7 @@ public sealed partial class RenderQueue
                         result = await new WorkerProcessClient().RenderAsync(new RenderRequest
                         {
                             Preset = Clone(pending[0].Record), Plugin = plugin, Template = Clone(settings.Template),
+                            Serum1Fallback = job.Serum1Fallback,
                             OutputPath = completedAudio, CacheKey = job.Key, MaxOutputBytes = reservation.OutputBytes
                         }, workerPath, token, (candidate, audio, comparisonToken) =>
                         {
@@ -339,6 +368,9 @@ public sealed partial class RenderQueue
                         lock (gate) Commit(job, pending, result, reservation, itemClock.Elapsed.TotalSeconds);
                         return;
                     }
+                    if (!job.Serum1Fallback && (result?.PresetLoadFailed == true || InitBaselineService.IsRejection(failure ?? "") ||
+                        result?.NonRetryable == true || pending.All(item => item.Record.Attempts >= settings.MaxAttempts)) &&
+                        TryDeferSerumFallback(pending, failure ?? "Serum 1 未加载目标音色。")) return;
                     lock (gate)
                     {
                         foreach (var item in pending.ToArray())

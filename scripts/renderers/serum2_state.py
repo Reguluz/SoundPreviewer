@@ -36,6 +36,7 @@ class Serum2StateProof:
     wrapper_version: int
     expected: dict
     fresh: dict
+    legacy_import: bool = False
 
 
 def _dependencies():
@@ -260,7 +261,7 @@ def _adapt_native_defaults(converted: dict, preset: dict, fresh: dict) -> None:
                 module.pop("activeClip", None)
 
 
-def _difference(expected: Any, actual: Any, path: str = "processor") -> str | None:
+def _difference(expected: Any, actual: Any, path: str = "processor", *, legacy_wavetables: bool = False) -> str | None:
     if isinstance(expected, dict):
         if not isinstance(actual, dict):
             return path
@@ -270,7 +271,7 @@ def _difference(expected: Any, actual: Any, path: str = "processor") -> str | No
                 continue
             if key not in actual:
                 return f"{path}.{key}"
-            mismatch = _difference(value, actual[key], f"{path}.{key}")
+            mismatch = _difference(value, actual[key], f"{path}.{key}", legacy_wavetables=legacy_wavetables)
             if mismatch:
                 return mismatch
         return None
@@ -278,12 +279,18 @@ def _difference(expected: Any, actual: Any, path: str = "processor") -> str | No
         if not isinstance(actual, list) or len(expected) != len(actual):
             return path
         for index, value in enumerate(expected):
-            mismatch = _difference(value, actual[index], f"{path}[{index}]")
+            mismatch = _difference(value, actual[index], f"{path}[{index}]", legacy_wavetables=legacy_wavetables)
             if mismatch:
                 return mismatch
         return None
     if type(expected) in (int, float) and type(actual) in (int, float):
-        return None if math.isclose(expected, actual, rel_tol=1e-6, abs_tol=1e-8) else path
+        # Legacy wavetables are rebuilt by the native importer/state loader.
+        # Serum 2.1.5 readback differs by up to 3 float32 epsilon at unity in
+        # a real embedded table. Bound only those samples to four epsilon;
+        # parameters, resource identities, lengths and native presets stay strict.
+        tolerance = 4 * 2 ** -23 if legacy_wavetables and re.fullmatch(
+            r"processor\.Oscillator\d+\.WTOsc\d+\.embeddedWTData\[\d+\]", path) else 1e-8
+        return None if math.isclose(expected, actual, rel_tol=1e-6, abs_tol=tolerance) else path
     return None if type(expected) is type(actual) and expected == actual else path
 
 
@@ -346,8 +353,47 @@ def verify_serum2_state(after_state_bytes: bytes, proof: Serum2StateProof) -> No
             _format_version(metadata.get("version")) != proof.processor_format_version:
         raise ValueError("Serum 2 readback state version changed after loading")
     actual = _meaningful(payload, root=True)
-    difference = _difference(proof.expected, actual)
+    difference = _difference(proof.expected, actual, legacy_wavetables=proof.legacy_import)
     if difference is not None:
         if _difference(proof.fresh, actual) is None and _difference(actual, proof.fresh) is None:
             raise ValueError("Serum 2 silently retained its fresh Init state instead of loading the requested preset")
         raise ValueError(f"Serum 2 did not retain the requested preset parameter/resource state at {difference}")
+
+
+def prepare_legacy_serum2_state(processor: bytes, controller: bytes, fresh_state: bytes,
+                               plugin_version: str, names: set[str]) -> tuple[bytes, Serum2StateProof]:
+    """Validate the native import before any of its audio can be published."""
+    cbor, zstd, _, wrappers = _dependencies()
+    metadata, wrapper, payload = _read_xfer(processor, cbor, zstd)
+    _identity(metadata, payload, processor=True)
+    controller_meta, controller_wrapper, ui = _read_xfer(controller, cbor, zstd)
+    fresh_meta, fresh_wrapper, fresh = _read_juce(fresh_state, cbor, zstd, wrappers)
+    if controller_meta.get("component") != "controller" or controller_meta.get("product") != "Serum2" or \
+            controller_meta.get("vendor") != "Xfer Records" or ui.get("presetName") not in names:
+        raise ValueError("Serum 2 did not report the requested legacy preset name after importing")
+    if any(_version(item.get("productVersion")) != _version(plugin_version)
+           for item in (metadata, controller_meta, fresh_meta)) or wrapper != controller_wrapper or wrapper != fresh_wrapper:
+        raise ValueError("Serum 2 imported state does not match the configured plugin version")
+    schema = _format_version(payload.get("version"))
+    if schema != _format_version(metadata.get("version")) or schema != _format_version(fresh.get("version")):
+        raise ValueError("Serum 2 imported processor schema changed")
+    expected, initial = _meaningful(payload, root=True), _meaningful(fresh, root=True)
+    if _difference(expected, initial) is None and _difference(initial, expected) is None:
+        raise ValueError("Serum 2 retained its fresh Init state instead of importing the legacy preset")
+    state = wrappers.build_juce_vst3_state(processor, controller)
+    _bytes(state, MAX_STATE_BYTES, "Imported JUCE VST3 state")
+    return state, Serum2StateProof(metadata["productVersion"], schema, wrapper, expected, initial, legacy_import=True)
+
+
+def prepare_legacy_serum2_snapshot(imported: bytes, fresh: bytes, version: str,
+                                  names: set[str]) -> tuple[bytes, Serum2StateProof]:
+    cbor, zstd, _, wrappers = _dependencies()
+    _read_juce(imported, cbor, zstd, wrappers)  # Enforce the bounded, entity-free envelope first.
+    length = struct.unpack_from("<I", imported, 4)[0]
+    root = ET.fromstring(imported[8:8 + length].decode("utf-8"))
+    controllers = root.findall("IEditController")
+    if len(controllers) != 1 or list(controllers[0]):
+        raise ValueError("Legacy Serum 2 import is missing its controller readback")
+    return prepare_legacy_serum2_state(
+        wrappers.juce_memoryblock_b64decode(root.find("IComponent").text or ""),
+        wrappers.juce_memoryblock_b64decode(controllers[0].text or ""), fresh, version, names)

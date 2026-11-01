@@ -65,6 +65,7 @@ internal static partial class Program
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
             ("Serum 2 VST3 readiness and fresh-instance protection on both platforms", TestSerum2ReadinessAsync),
+            ("Serum 1 fallback preserves identity, drains normal jobs first and guards replacement", TestSerumFallbackAsync),
             ("Windows VST3 bundle architecture selection preserves native rendering", TestWindowsPlatformParityAsync),
             ("Fingerprint and WAV operations honor cancellation without changing hashes", TestCancellationAsync),
             ("PCM round trip, silence, clipping and IEEE nonfinite validation", TestWaveAsync),
@@ -1970,6 +1971,24 @@ internal static partial class Program
         string resultPath = Argument(args, "--result");
         var request = JsonSerializer.Deserialize<RenderRequest>(await File.ReadAllTextAsync(requestPath), LibraryJson.Options)!;
         string mode = request.Preset.Name;
+        if (request.Plugin.Version == "TEST-ONLY-serum-routing" && !request.IsInitializationBaseline)
+        {
+            await File.AppendAllTextAsync(Path.Combine(Path.GetDirectoryName(request.Plugin.PluginPath)!, "routing.log"),
+                $"{mode}|{request.Plugin.Synth}|{request.Serum1Fallback}\n");
+            if (request.Plugin.Synth == SynthKind.Serum1 && !mode.Contains("startup", StringComparison.Ordinal) ||
+                request.Serum1Fallback && mode.EndsWith("fail", StringComparison.Ordinal))
+            {
+                await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult
+                { Message = "TEST ONLY target preset load failure", PresetLoadFailed = true, NonRetryable = true }, LibraryJson.Options));
+                return 1;
+            }
+            if (request.Serum1Fallback && mode.EndsWith("cancel", StringComparison.Ordinal))
+            {
+                await File.WriteAllTextAsync(request.Preset.SourcePath + ".fallback-started", JsonSerializer.Serialize(new { Pid = Environment.ProcessId }));
+                await Task.Delay(30000);
+            }
+            mode = request.Plugin.Synth == SynthKind.Serum1 ? "default" : "alternate";
+        }
         if (request.Plugin.Version == "TEST-ONLY-unstable-state-proof" || mode.StartsWith("TEST-ONLY-state-proof-", StringComparison.Ordinal))
             return await StateProofFakeWorkerAsync(request, resultPath);
         if (mode.StartsWith("parallel-", StringComparison.Ordinal) ||

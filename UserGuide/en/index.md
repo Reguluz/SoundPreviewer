@@ -14,15 +14,15 @@ If SoundPreviewer saves you time auditioning presets, you can support future dev
 
 SoundPreviewer generates short audio previews of synthesizer presets so you can search, filter, and audition a local library. Playing an existing preview does not require opening a DAW or loading its synth again.
 
-This Markdown guide accompanies **1.0.1**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
+This Markdown guide accompanies **1.0.2**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
 
 <a id="interface"></a>
 
 ## Main window at a glance
 
-[![SoundPreviewer main window in Chinese: toolbar, filters, library, details, player, and task progress](../images/library.png)](../images/library.png)
+[![SoundPreviewer main window in English: toolbar, filters, library, details, player, and task progress](../images/library-en.png)](../images/library-en.png)
 
-*Click the screenshot to view the original. This user-provided screenshot shows the Chinese interface in 1.0.0 with its preset library, counts, and paths. The English interface has the same layout. Other screenshots use example settings and libraries.*
+*Click the screenshot to view the original. This user-provided screenshot shows the English interface in 1.0.0 with its preset library, counts, and paths. Other screenshots use example settings and libraries, shown in Chinese with the same layout.*
 
 | Area | What you can do |
 | --- | --- |
@@ -99,4 +99,4 @@ Markdown and CHM update with the package. Keep the complete application folder s
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.0.1. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.1.0. Text and screenshots work offline; external download and feedback links require internet access.

@@ -22,7 +22,10 @@ try
     var request = JsonSerializer.Deserialize<RenderRequest>(await File.ReadAllTextAsync(requestPath), LibraryJson.Options)
         ?? throw new InvalidDataException("请求 JSON 无效。");
     request.Template.Validate();
-    if (request.Preset.Synth != request.Plugin.Synth) throw new InvalidDataException("音源配置与预制不一致。");
+    if (request.Preset.Synth != request.Plugin.Synth && !(request.Serum1Fallback &&
+        !request.IsInitializationBaseline && request.Preset.Synth == SynthKind.Serum1 &&
+        request.Plugin.Synth == SynthKind.Serum2 && request.Plugin.Backend == RenderBackend.DawDreamer))
+        throw new InvalidDataException("音源配置与预制不一致。");
     result = await RenderDispatcher.RenderAsync(request, CancellationToken.None);
 }
 catch (Exception error)

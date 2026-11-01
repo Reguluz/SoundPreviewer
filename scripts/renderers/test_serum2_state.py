@@ -60,6 +60,43 @@ class Serum2StateTests(unittest.TestCase):
     def prepare(self):
         return state.prepare_serum2_state(self.wrap(self.preset_meta, self.preset), self.native_state(), "2.0.23")
 
+    def test_legacy_import_requires_target_name_version_and_non_init_processor_state(self):
+        converted, _ = self.prepare()
+        _, _, payload = self.read(converted)
+        processor = self.wrap(self.native_meta, payload)
+        controller_meta = {**self.native_meta, "component": "controller", "presetName": "TEST-ONLY"}
+        controller = self.wrap(controller_meta, controller_meta)
+        snapshot, proof = state.prepare_legacy_serum2_state(processor, controller, self.native_state(), "2.0.23", {"TEST-ONLY"})
+        state.verify_serum2_state(snapshot, proof)
+        rebuilt, restored = state.prepare_legacy_serum2_snapshot(snapshot, self.native_state(), "2.0.23", {"TEST-ONLY"})
+        state.verify_serum2_state(rebuilt, restored)
+        with self.assertRaisesRegex(ValueError, "preset name"):
+            state.prepare_legacy_serum2_state(processor, controller, self.native_state(), "2.0.23", {"OTHER"})
+        with self.assertRaisesRegex(ValueError, "configured plugin version"):
+            state.prepare_legacy_serum2_state(processor, controller, self.native_state(), "2.0.25", {"TEST-ONLY"})
+        with self.assertRaisesRegex(ValueError, "retained.*Init"):
+            state.prepare_legacy_serum2_state(self.wrap(self.native_meta, self.native), controller, self.native_state(), "2.0.23", {"TEST-ONLY"})
+        with self.assertRaisesRegex(ValueError, "controller readback"):
+            state.prepare_legacy_serum2_snapshot(converted, self.native_state(), "2.0.23", {"TEST-ONLY"})
+
+    def test_legacy_wavetable_float32_roundtrip_tolerance_does_not_relax_parameters_or_native_presets(self):
+        converted, proof = self.prepare()
+        meta, _, payload = self.read(converted)
+        payload["Oscillator0"]["WTOsc0"]["embeddedWTData"] = [0.001, -0.001, 0.0]
+        from dataclasses import replace
+        legacy = replace(proof, expected=state._meaningful(payload, root=True), legacy_import=True)
+        payload["Oscillator0"]["WTOsc0"]["embeddedWTData"][0] += 3e-7
+        state.verify_serum2_state(self.native_state(payload, meta), legacy)
+        with self.assertRaisesRegex(ValueError, "embeddedWTData"):
+            state.verify_serum2_state(self.native_state(payload, meta), replace(legacy, legacy_import=False))
+        payload["Oscillator0"]["WTOsc0"]["embeddedWTData"][0] += 1e-4
+        with self.assertRaisesRegex(ValueError, "embeddedWTData"):
+            state.verify_serum2_state(self.native_state(payload, meta), legacy)
+        payload["Oscillator0"]["WTOsc0"]["embeddedWTData"] = [0.001, -0.001, 0.0]
+        payload["Env0"]["plainParams"]["kParamAttack"] += 3e-7
+        with self.assertRaisesRegex(ValueError, "kParamAttack"):
+            state.verify_serum2_state(self.native_state(payload, meta), legacy)
+
     def read(self, blob):
         return state._read_juce(blob, self.cbor, self.zstd, self.wrappers)
 

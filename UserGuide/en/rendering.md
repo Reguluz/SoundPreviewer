@@ -16,6 +16,8 @@ On this page:
 
 ## Preview template
 
+On Windows x64, an identified Serum 1 FXP that cannot render can fall back to a configured, available Serum 2 VST3 / DawDreamer setup. These items run after the batch's normal jobs. Import and temporary state saving happen automatically in the background, without manual conversion or foreground interaction. The app cleans its temporary copies and states when the task ends. The preset remains classified as Serum 1 and the new preview still needs listening verification. A failed background import reports its reason and preserves any existing valid preview. This special fallback is not yet enabled on macOS.
+
 Open **Synths and settings → Playback and storage**:
 
 - Quick preview is enabled by default at **0.5 seconds per range**, adjustable from **0.1 to 4 seconds**.
@@ -92,4 +94,4 @@ The memory budget is **1–16 GiB**, default **4 GiB**, across the app and rende
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.0.1. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.1.0. Text and screenshots work offline; external download and feedback links require internet access.

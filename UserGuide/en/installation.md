@@ -28,4 +28,4 @@ Next: [configure one synth and test a preset](quick-start.md#configure).
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.0.1. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.1.0. Text and screenshots work offline; external download and feedback links require internet access.

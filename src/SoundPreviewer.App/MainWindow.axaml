@@ -96,7 +96,7 @@
       <ScrollViewer x:Name="PresetDetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
        <StackPanel x:Name="PresetDetailsContent" Margin="0,0,12,0">
         <TextBlock Text="{DynamicResource text_920502F3B87A81FD}" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,8"/>
-        <TextBlock Text="{Binding Selected.Name, TargetNullValue=未选择音色, FallbackValue=未选择音色}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+        <TextBlock x:Name="SelectedPresetNameText" Text="{Binding SelectedName}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
         <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,10"><TextBlock Text="{local:UiText Selected.SynthLabel}" Foreground="{DynamicResource Accent}" VerticalAlignment="Center"/><Border Grid.Column="1" Classes="status-badge" Classes.failed="{Binding Selected.IsFailed}" Classes.generated="{Binding Selected.IsGenerated}" Classes.rendering="{Binding Selected.IsRendering}"><TextBlock Text="{local:UiText Selected.StatusLabel}"/></Border></Grid>
         <SelectableTextBlock x:Name="PresetResultDescription" Text="{local:UiText Selected.Message}" TextWrapping="Wrap" Foreground="{DynamicResource Warning}" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal">
@@ -177,7 +177,7 @@
          <Grid Margin="0,10,0,0">
           <Grid.RowDefinitions><RowDefinition Height="30"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="240"/></Grid.RowDefinitions>
           <DockPanel>
-           <Button x:Name="OpenDirectoryConfigurationButton" DockPanel.Dock="Right" Content="{DynamicResource text_2431DDECDFCC0602}" Click="OpenDirectoryConfiguration_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="{Binding DirectoryConfigurationHint}" Padding="10,4" Margin="8,0,0,0"/>
+           <Button x:Name="OpenDirectoryConfigurationButton" DockPanel.Dock="Right" Content="{DynamicResource text_2431DDECDFCC0602}" Click="OpenDirectoryConfiguration_Click" IsEnabled="{Binding IsIdle}" ToolTip.Tip="{local:UiText DirectoryConfigurationHint}" Padding="10,4" Margin="8,0,0,0"/>
            <TextBlock Text="{DynamicResource text_6FA6E3069CC4E2D7}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
           </DockPanel>
           <Grid Grid.Row="1" Margin="0,6,0,10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -190,7 +190,7 @@
           </Grid>
           <DataGrid x:Name="SourceGrid" Grid.Row="2" ItemsSource="{Binding Sources}" MinHeight="240" IsReadOnly="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
            <DataGrid.Columns>
-            <DataGridTemplateColumn Header="{DynamicResource text_B55171EC62F6333D}" Width="130"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Path=., Converter={StaticResource SourceDetection}}" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="{DynamicResource text_B55171EC62F6333D}" Width="130"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{local:UiText Converter={StaticResource SourceDetection}}" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             <DataGridTextColumn Header="{DynamicResource text_77E1EA5C5688EEA4}" Binding="{Binding Path}" Width="*" MinWidth="230"/>
            </DataGrid.Columns>
           </DataGrid>
@@ -247,7 +247,7 @@
           <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
           <StackPanel Margin="0,0,0,10">
            <WrapPanel><Button x:Name="PrepareRendererButton" Content="{DynamicResource text_0F3045E0E26161B9}" Click="PrepareDawDreamer_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,10,6"/><TextBlock Text="{DynamicResource text_26DD140272849F5B}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,0,6"/></WrapPanel>
-           <TextBlock Text="{Binding RendererSetupLocation}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,6"/>
+           <TextBlock x:Name="RendererSetupLocationText" Text="{local:UiText RendererSetupLocation}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,6"/>
            <TextBlock Text="{DynamicResource text_6AEC0C4B9E459D3E}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
           </StackPanel>
           <StackPanel Grid.Row="1" Margin="0,0,0,10">
@@ -276,22 +276,22 @@
           </Grid>
          </Expander>
          <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource Line}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Margin="0,12,0,0"/>
-         <TabControl Grid.Column="2" Margin="0,8,0,0" Background="{DynamicResource Surface}" BorderThickness="0">
+         <TabControl x:Name="RenderStatusTabs" Grid.Column="2" Margin="0,8,0,0" Background="{DynamicResource Surface}" BorderThickness="0">
           <TabItem Header="{DynamicResource text_96648E17D37C2081}">
            <Grid RowDefinitions="Auto,*">
            <TextBlock Text="{DynamicResource text_E5BF9A4653A1513A}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,10"/>
            <DataGrid x:Name="InitializationGrid" Grid.Row="1" ItemsSource="{Binding InitBaselines}" MinHeight="240" IsReadOnly="True" AutomationProperties.Name="{DynamicResource text_EB22CA07E244AE4A}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
             <DataGrid.Columns>
              <DataGridTextColumn Header="{DynamicResource text_1FBB55C11DFD292B}" Binding="{Binding Synth}" Width="85"/>
-             <DataGridTextColumn Header="{DynamicResource text_6320B4A8722A851F}" Binding="{Binding Status}" Width="100"/>
-             <DataGridTextColumn Header="{DynamicResource text_BB7EF73495DD8A74}" Binding="{Binding Detail}" Width="*" MinWidth="140"/>
+             <DataGridTextColumn Header="{DynamicResource text_6320B4A8722A851F}" Binding="{local:UiText Status}" Width="100"/>
+             <DataGridTextColumn Header="{DynamicResource text_BB7EF73495DD8A74}" Binding="{local:UiText Detail}" Width="*" MinWidth="140"/>
              <DataGridTemplateColumn Header="{DynamicResource text_ED31FBB483EE1B0A}" Width="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Button Classes="icon" Content="↻" Click="GenerateInitBaseline_Click" Tag="{Binding}" IsEnabled="{Binding CanGenerate}" Width="32" Height="30" Margin="0,0,4,0" ToolTip.Tip="{DynamicResource text_C5ADCDD2A8F36462}"/><Button Classes="icon" Content="▶" Click="PlayInitBaseline_Click" Tag="{Binding}" IsEnabled="{Binding CanPlay}" Width="32" Height="30" Margin="0" ToolTip.Tip="{DynamicResource text_C585C518473A3150}"/></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
             </DataGrid.Columns>
            </DataGrid>
            </Grid>
           </TabItem>
           <TabItem Header="{DynamicResource text_5C08DA81DC7A8927}">
-           <DataGrid x:Name="CompatibilityGrid" ItemsSource="{Binding Compatibility}" IsReadOnly="True" MinHeight="240" RowHeight="NaN" ScrollViewer.HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="{DynamicResource text_1FBB55C11DFD292B}" Binding="{Binding Synth}" Width="90"/><DataGridTextColumn Header="{DynamicResource text_398F8AE519E0F081}" Binding="{Binding Status}" Width="110"/><DataGridTemplateColumn Header="{DynamicResource text_AFABF8F1A4AA21BB}" Width="*" MinWidth="180"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{local:UiText Detail}" TextWrapping="Wrap" Margin="4,6"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns></DataGrid>
+           <DataGrid x:Name="CompatibilityGrid" ItemsSource="{Binding Compatibility}" IsReadOnly="True" MinHeight="240" RowHeight="NaN" ScrollViewer.HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="{DynamicResource text_1FBB55C11DFD292B}" Binding="{Binding Synth}" Width="90"/><DataGridTextColumn Header="{DynamicResource text_398F8AE519E0F081}" Binding="{local:UiText Status}" Width="110"/><DataGridTemplateColumn Header="{DynamicResource text_AFABF8F1A4AA21BB}" Width="*" MinWidth="180"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{local:UiText Detail}" TextWrapping="Wrap" Margin="4,6"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns></DataGrid>
           </TabItem>
          </TabControl>
         </Grid>
@@ -328,7 +328,7 @@
           <TextBlock Text="{DynamicResource text_DF18AAA608771A41}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,6,0,2"/>
           <TextBlock Text="{DynamicResource text_81FFFC60D6C1510D}" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="{DynamicResource text_5C88A3F326A6DBA8}" ToolTip.Tip="{Binding LibraryLocation}"/>
-          <StackPanel Margin="0,4,0,0"><TextBlock Text="{DynamicResource text_9D3478C91ADD4C2A}" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="{DynamicResource text_9ACDA844E72F057C}"/></StackPanel>
+          <StackPanel Margin="0,4,0,0"><TextBlock Text="{DynamicResource text_9D3478C91ADD4C2A}" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" Text="{DynamicResource text_865FB0CFE2FC0A4B}" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="{DynamicResource text_9ACDA844E72F057C}"/></StackPanel>
           <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="{DynamicResource text_BF8192A07063C458}" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button x:Name="CompressPreviewsButton" Content="{DynamicResource text_494F3CB63BF6DF01}" Click="CompressPreviews_Click" IsEnabled="{Binding CanCompressPreviews}" Padding="10,6" Margin="0,0,8,8" ToolTip.Tip="{DynamicResource text_44996E2D2B51DBFB}"/><Button Content="{DynamicResource text_DFF2B9D16A02FD0B}" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
           <Button Content="{DynamicResource text_9721050B07A2A364}" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="{DynamicResource text_7E7BCE0DF5DFA9E6}"/>
           <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

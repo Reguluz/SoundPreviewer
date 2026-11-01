@@ -27,6 +27,7 @@ public sealed class WorkerProcessClient
             {
                 Preset = request.Preset, Plugin = request.Plugin, Template = request.Template,
                 IsInitializationBaseline = request.IsInitializationBaseline,
+                Serum1Fallback = request.Serum1Fallback,
                 CacheKey = request.CacheKey, OutputPath = stagedAudio, MaxOutputBytes = request.MaxOutputBytes
             };
             await File.WriteAllTextAsync(requestFile, JsonSerializer.Serialize(stagedRequest, LibraryJson.Options), cancellationToken);

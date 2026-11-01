@@ -13,6 +13,9 @@ public static partial class RenderDispatcher
 
     public static Task<RenderResult> RenderAsync(RenderRequest request, CancellationToken cancellationToken)
     {
+        if (request.Serum1Fallback && (request.IsInitializationBaseline || request.Preset.Synth != SynthKind.Serum1 ||
+            request.Plugin.Synth != SynthKind.Serum2 || request.Plugin.Backend != RenderBackend.DawDreamer))
+            throw new InvalidDataException("Serum 2 回退请求必须来自已确认的 Serum 1 音色，并使用 Serum 2 后台导入适配器。");
         if (request.IsInitializationBaseline && (!Enum.IsDefined(request.Preset.Synth) ||
             request.Preset.Synth != request.Plugin.Synth || request.Preset.SourcePath.Length > 0 ||
             request.Preset.ContentHash.Length > 0 || request.Preset.InternalPath.Length > 0 || request.Preset.BankSlot is not null))
@@ -72,6 +75,7 @@ public static partial class RenderDispatcher
                 {
                     Preset = request.Preset, Plugin = request.Plugin, Template = captureTemplate,
                     IsInitializationBaseline = request.IsInitializationBaseline,
+                    Serum1Fallback = request.Serum1Fallback,
                     CacheKey = request.CacheKey, OutputPath = capturePath, MaxOutputBytes = maximumCaptureBytes
                 };
                 // The existing adapters capture all three pitches; keep satisfactory earlier clips unchanged.

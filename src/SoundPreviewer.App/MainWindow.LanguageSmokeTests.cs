@@ -3,13 +3,110 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.VisualTree;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Services;
 
 namespace SoundPreviewer.App;
 
 public partial class MainWindow
 {
+    private async Task CheckSettingsLanguagesAsync()
+    {
+        var original = (Language: _settings.Language, Page: Pages.SelectedItem, SettingsPage: SettingsPages.SelectedItem,
+            RenderTab: RenderStatusTabs.SelectedIndex, Preset: PresetGrid.SelectedItem, Source: SourceGrid.SelectedItem);
+        var baselines = InitBaselines.ToArray();
+        var compatibility = Compatibility.ToArray();
+        string recordsBefore = JsonSerializer.Serialize(_store.LoadPresets(), LibraryJson.Options);
+        var source = new SourceFolder { AutoDetect = true, Path = Path.Combine(App.DataDirectory, "TEST ONLY 音色库", "自动识别") };
+        var unsupported = new InitializationRow(SynthKind.Vital, "Vital", "不支持此检查",
+            "当前后端不支持此声音检查，但不阻止生成；生成结果须人工试听，未启用默认音色保护。", "", false, false);
+        var unconfigured = new InitializationRow(SynthKind.Serum1, "Serum 1", "不支持此检查",
+            "渲染器未配置，尚不能生成默认启动基准。", "", false, false);
+        var verified = new InitializationRow(SynthKind.Sylenth1, "Sylenth1", "逐音色核验",
+            "渲染器未配置，尚不能生成默认启动基准。", "", false, false);
+        Sources.Insert(0, source);
+        InitBaselines.Clear();
+        InitBaselines.Add(unsupported);
+        InitBaselines.Add(verified);
+        Compatibility.Clear();
+        var readiness = new CompatibilityRow("Serum 1", "未选择生成方式", unconfigured.Detail);
+        Compatibility.Add(readiness);
+        try
+        {
+            // Reuse the same rows through both directions of a live language switch.
+            foreach (string language in new[] { "en-US", "zh-CN", "en-US" })
+            {
+                LanguageChoiceBox.SelectedItem = LanguageChoices.Single(choice => choice.Id == language);
+                bool english = language == "en-US";
+                Pages.SelectedItem = SettingsTab;
+                SettingsPages.SelectedItem = StorageSettingsTab;
+                await SettleLayoutAsync();
+                if (PreviewDirectoryBox.Text != (english ? "Preview/ (beside this application)" : "Preview/（当前程序目录下）"))
+                    throw new InvalidOperationException("The fixed Preview location did not follow the live language change.");
+                CaptureSmokeImage("ui-language-storage-" + language + ".png");
+
+                SettingsPages.SelectedItem = DirectorySettingsTab;
+                SourceGrid.ScrollIntoView(source, SourceGrid.Columns[0]);
+                await SettleLayoutAsync();
+                RequireCellText(SourceGrid, source, english ? "Auto-detect" : "自动识别");
+                RequireCellText(SourceGrid, source, source.Path);
+
+                SettingsPages.SelectedItem = RenderSettingsTab;
+                RenderStatusTabs.SelectedIndex = 0;
+                await SettleLayoutAsync();
+                if (RendererSetupLocationText.Text != (english ? "Environment saved at: " : "环境保存在：") + Path.Combine(App.DataDirectory, "renderers"))
+                    throw new InvalidOperationException("The rendering environment location was untranslated or its path changed.");
+                RequireCellText(InitializationGrid, unsupported, english ? "Check unsupported" : unsupported.Status);
+                RequireCellText(InitializationGrid, unsupported, english
+                    ? "This backend does not support the audio check but can still generate previews. Listen to results manually; startup sound protection is disabled."
+                    : unsupported.Detail);
+                RequireCellText(InitializationGrid, verified, english ? "Per-preset verification" : verified.Status);
+                // Results arriving after the switch must use the current language too.
+                if (!InitBaselines.Contains(unconfigured)) InitBaselines.Add(unconfigured);
+                await SettleLayoutAsync();
+                RequireCellText(InitializationGrid, unconfigured, english ? "Renderer not configured; cannot create startup baseline yet." : unconfigured.Detail);
+                CaptureSmokeImage("ui-language-rendering-" + language + ".png");
+
+                RenderStatusTabs.SelectedIndex = 1;
+                await SettleLayoutAsync();
+                RequireCellText(CompatibilityGrid, readiness, english ? "No rendering method selected" : readiness.Status);
+                Pages.SelectedItem = LibraryTab;
+                PresetGrid.SelectedItem = null;
+                await SettleLayoutAsync();
+                if (SelectedPresetNameText.Text != (english ? "No preset selected" : "未选择音色"))
+                    throw new InvalidOperationException("The empty preset selection did not follow the interface language.");
+                string version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)!.InformationalVersion.Split('+')[0];
+                if (AppVersion != "v" + version || BuildVersionLabel.Text != AppVersion || !Title!.EndsWith("(" + AppVersion + ")", StringComparison.Ordinal))
+                    throw new InvalidOperationException("The title, footer, and compiled product version disagree.");
+            }
+            if (JsonSerializer.Serialize(_store.LoadPresets(), LibraryJson.Options) != recordsBefore)
+                throw new InvalidOperationException("Settings language checks changed stored preset records.");
+        }
+        finally
+        {
+            Sources.Remove(source);
+            InitBaselines.Clear();
+            foreach (var row in baselines) InitBaselines.Add(row);
+            Compatibility.Clear();
+            foreach (var row in compatibility) Compatibility.Add(row);
+            LanguageChoiceBox.SelectedItem = LanguageChoices.Single(choice => choice.Id == original.Language);
+            Pages.SelectedItem = original.Page;
+            SettingsPages.SelectedItem = original.SettingsPage;
+            RenderStatusTabs.SelectedIndex = original.RenderTab;
+            PresetGrid.SelectedItem = original.Preset;
+            SourceGrid.SelectedItem = original.Source;
+            await SettleLayoutAsync();
+        }
+
+        static void RequireCellText(DataGrid grid, object row, string text)
+        {
+            if (!grid.GetVisualDescendants().OfType<TextBlock>().Any(block => ReferenceEquals(block.DataContext, row) && block.Text == text))
+                throw new InvalidOperationException($"Expected localized cell in {grid.Name}: {text}");
+        }
+    }
+
     private async Task CheckLanguagesAsync()
     {
+        await CheckSettingsLanguagesAsync();
         var original = (_settings.Language, _settings.MetadataLanguage, Pages.SelectedItem, SettingsPages.SelectedItem, Width, Height, PresetMetadataExpander.IsExpanded);
         string recordsBefore = JsonSerializer.Serialize(_store.LoadPresets(), LibraryJson.Options);
         var filtersBefore = FilterGroups.ToDictionary(group => group.Key, group => group.SelectedKeys.ToArray());

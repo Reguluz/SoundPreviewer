@@ -1,6 +1,15 @@
 {
   "languageName": "English",
   "strings": {
+    "等待 Serum 2 回退": "Waiting for Serum 2 fallback",
+    "Serum 1 生成环境不可用。": "The Serum 1 renderer is unavailable. ",
+    "Serum 1 无法加载，已排到本批末尾，等待 Serum 2 后台自动导入。": "Serum 1 could not load this preset. Queued after the batch's normal jobs for automatic background import with Serum 2. ",
+    "Serum 1 未加载目标音色。": "Serum 1 did not load the target preset. ",
+    "Serum 2 回退请求必须来自已确认的 Serum 1 音色，并使用 Serum 2 后台导入适配器。": "Serum 2 fallback requires an identified Serum 1 preset and the Serum 2 background import adapter.",
+    "Serum 2 正在后台导入 Serum 1 音色，不占用前台操作": "Serum 2 is importing a Serum 1 preset in the background without foreground interaction",
+    "Serum 2 后台导入超时，已关闭隔离导入进程；未弹出前台窗口。": "Serum 2 background import timed out. The isolated importer was closed without opening a foreground window.",
+    "Serum 2 后台导入失败：": "Serum 2 background import failed: ",
+    "Serum 1 音色已由 Serum 2 在后台自动导入，三个音区均通过状态回读核对；临时状态随本次任务清理，仍须试听确认音色及外部资源。": "Serum 2 automatically imported the Serum 1 preset in the background, with state readback verified for all three ranges. Temporary states are cleaned with this task; listen to verify the sound and external resources.",
     "操作说明": "User guide",
     "打开离线操作说明首页": "Open the offline user guide (Chinese)",
     "操作说明文件缺失，请重新完整解压或安装程序。": "The user guide is missing. Extract the complete package or reinstall the application.",
@@ -715,6 +724,7 @@
     "未识别": "Unidentified",
     "未收藏": "Not favorited",
     "未选择生成方式": "No rendering method selected",
+    "未选择音色": "No preset selected",
     "未选择预览": "No preview selected",
     "未找到配置的渲染程序，请检查程序位置。": "Configured renderer was not found. Check its location.",
     "未支持音源": "Unsupported synth",
