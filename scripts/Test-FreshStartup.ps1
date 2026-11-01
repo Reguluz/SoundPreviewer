@@ -126,7 +126,8 @@ try {
             [void]$process.Start()
             $stdout = $process.StandardOutput.ReadToEndAsync()
             $stderr = $process.StandardError.ReadToEndAsync()
-            $timedOut = -not $process.WaitForExit(120000)
+            # Each phase runs the full UI matrix, matching the other desktop smoke checks.
+            $timedOut = -not $process.WaitForExit(240000)
             if ($timedOut) { $process.Kill($true); $process.WaitForExit() }
             [IO.File]::WriteAllText((Join-Path $diagnostics "$phase-stdout.txt"), $stdout.GetAwaiter().GetResult())
             [IO.File]::WriteAllText((Join-Path $diagnostics "$phase-stderr.txt"), $stderr.GetAwaiter().GetResult())
