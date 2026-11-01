@@ -10,7 +10,22 @@ public partial class MainWindow
     public bool CanCompressPreviews => IsIdle && !_isClosing && Presets.Any(row => row.HasPreview &&
         Path.GetExtension(row.Record.PreviewPath).Equals(".wav", StringComparison.OrdinalIgnoreCase));
 
-    private async void CompressPreviews_Click(object? sender, RoutedEventArgs e) => await CompressExistingPreviewsAsync();
+    private const string CompressionConfirmation = "将把当前音色库已有的 WAV 预览转换为 AAC 压缩格式。转换并校验成功后会永久删除对应的原 WAV，此操作不可逆，无法恢复原始无损音质。建议先备份 Preview 文件夹。收藏、标签、分类和音区保持不变；失败的项目保留原 WAV。是否继续？";
+
+    private bool _compressionConfirmationOpen;
+
+    private async void CompressPreviews_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!CanCompressPreviews || _compressionConfirmationOpen) return;
+        _compressionConfirmationOpen = true;
+        try
+        {
+            if (await Dialogs.ShowAsync(this, CompressionConfirmation, "压缩并永久删除原 WAV", question: true,
+                acceptLabel: "压缩并删除 WAV", defaultToCancel: true))
+                await CompressExistingPreviewsAsync();
+        }
+        finally { _compressionConfirmationOpen = false; }
+    }
 
     private async Task CompressExistingPreviewsAsync()
     {

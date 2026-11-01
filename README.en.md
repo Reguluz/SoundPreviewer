@@ -10,7 +10,7 @@
 
 Generate short synthesizer preset previews, then search, filter, and audition them in one local library. Existing previews play without opening a DAW or loading the synth.
 
-**Current version: 1.2.2** · Windows x64, macOS Apple Silicon / Intel.
+**Current version: 1.3.0** · Windows x64, macOS Apple Silicon / Intel.
 
 [![SoundPreviewer main window in English](UserGuide/images/library-en.png)](UserGuide/en/index.md#interface)
 

@@ -17,9 +17,9 @@ public partial class MainWindow
     private static ObservableCollection<FilterGroup> CreateFilterGroups() =>
     [
         new("synth", "音源", [new("", "全部音源"), .. Enum.GetValues<SynthKind>().Select(synth =>
-            new FilterOption(synth.ToString(), Labels.Synth(synth), $"{Labels.Synth(synth)} ({Labels.PresetExtensions(synth)})"))]) { IsActive = true },
+            new FilterOption(synth.ToString(), Labels.Synth(synth), $"{Labels.Synth(synth)} ({Labels.PresetExtensions(synth)})"))]),
         new("status", "状态", [new("", "全部状态"), new("pending", "待生成"), new("rendering", "生成中"),
-            new("generated", "已生成"), new("failed", "生成失败"), new("unavailable", "无法预览")]),
+            new("generated", "已生成"), new("failed", "生成失败"), new("unavailable", "无法预览")]) { IsActive = true },
         new("source", "来源", [new("", "全部来源")], StringComparer.Ordinal),
         new("package", "音色包", [new("", "全部音色包")]),
         new("category", "分类", [new("", "全部分类")]),

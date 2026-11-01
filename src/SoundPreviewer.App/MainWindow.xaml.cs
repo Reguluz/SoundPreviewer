@@ -1011,6 +1011,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BudgetBox.Text = _settings.StorageBudgetGb.ToString(CultureInfo.InvariantCulture);
         AttemptsBox.Text = _settings.MaxAttempts.ToString(CultureInfo.InvariantCulture);
         VolumeSlider.Value = _settings.PlaybackVolume;
+        PopulateFilterLayout();
     }
 
     private void AddSourceFromLibrary_Click(object sender, RoutedEventArgs e) { Pages.SelectedItem = SettingsTab; SettingsPages.SelectedItem = DirectorySettingsTab; AddSource_Click(sender, e); }
@@ -1216,6 +1217,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var candidate = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_settings, LibraryJson.Options), LibraryJson.Options)!;
             candidate.Template = template;
             candidate.PreviewFormat = PreviewFormatBox.SelectedIndex == 1 ? PreviewAudioFormat.Wav : PreviewAudioFormat.Aac;
+            candidate.LibraryFilterOrder = FilterLayoutOptions.Where(option => option.IsVisible).Select(option => option.Key).ToList();
+            if (candidate.LibraryFilterOrder.Count == 0) throw new ArgumentException("请至少显示一种筛选类型。");
             candidate.Plugins = JsonSerializer.Deserialize<List<PluginConfiguration>>(JsonSerializer.Serialize(Plugins, LibraryJson.Options), LibraryJson.Options)!;
             candidate.Sources = Sources.ToList();
             candidate.PluginDirectories = PluginDirectories.ToList();
@@ -1228,6 +1231,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (!App.SmokeTest || App.TestInstalledStorage) candidate.PreviewDirectory = App.DataDirectory;
             SaveDirectoryConfiguration(candidate);
             _settings = candidate;
+            ApplyFilterLayout();
             foreach (var plugin in Plugins)
                 plugin.AllowParallelRendering = candidate.Plugins.First(saved => saved.Synth == plugin.Synth).AllowParallelRendering;
             RefreshGrid(PluginGrid);

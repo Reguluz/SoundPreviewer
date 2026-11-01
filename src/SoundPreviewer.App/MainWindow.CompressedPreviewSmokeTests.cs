@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using SoundPreviewer.Core.Audio;
 using SoundPreviewer.Core.Models;
 
@@ -67,7 +68,28 @@ public partial class MainWindow
             await SettleLayoutAsync();
             if (!CanCompressPreviews || !CompressPreviewsButton.IsEffectivelyEnabled)
                 throw new InvalidOperationException("隔离的已有 WAV 没有启用主动压缩入口。");
-            await CompressExistingPreviewsAsync();
+            string wavHash = Fingerprints.HashFile(wav);
+            CompressPreviews_Click(CompressPreviewsButton, new RoutedEventArgs());
+            await SettleLayoutAsync();
+            var confirmation = OwnedWindows.Single(window => Equals(window.Title, T("压缩并永久删除原 WAV")));
+            var cancel = confirmation.GetVisualDescendants().OfType<Button>().Single(button => button.IsCancel);
+            if (!cancel.IsDefault || !confirmation.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .Any(block => block.Text == T(CompressionConfirmation)))
+                throw new InvalidOperationException("WAV 压缩缺少不可逆操作说明或没有默认取消。");
+            CaptureSmokeImage("ui-compression-confirmation.png", (Control)confirmation.Content!);
+            cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await SettleLayoutAsync();
+            if (_compressionConfirmationOpen || !File.Exists(wav) || File.Exists(m4a) || Fingerprints.HashFile(wav) != wavHash ||
+                _store.LoadPresets().Single(value => value.Id == id).PreviewPath != wav)
+                throw new InvalidOperationException("取消压缩确认后仍然改变了原音频或记录。");
+            CompressPreviews_Click(CompressPreviewsButton, new RoutedEventArgs());
+            await SettleLayoutAsync();
+            confirmation = OwnedWindows.Single(window => Equals(window.Title, T("压缩并永久删除原 WAV")));
+            var accept = confirmation.GetVisualDescendants().OfType<Button>().Single(button => !button.IsCancel);
+            accept.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (_compressionConfirmationOpen && DateTime.UtcNow < deadline) await Task.Delay(30);
+            if (_compressionConfirmationOpen) throw new TimeoutException("确认后预览压缩未结束。");
             var compressed = _store.LoadPresets().Single(value => value.Id == id);
             if (!IsIdle || compressed.PreviewPath != m4a || !File.Exists(m4a) || File.Exists(wav) ||
                 compressed.Status != record.Status || compressed.CacheKey != key || !compressed.Favorite ||

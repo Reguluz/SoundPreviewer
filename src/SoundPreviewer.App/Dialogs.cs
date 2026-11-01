@@ -7,7 +7,8 @@ namespace SoundPreviewer.App;
 
 internal static class Dialogs
 {
-    public static Task<bool> ShowAsync(Window owner, string text, string title, bool question = false)
+    public static Task<bool> ShowAsync(Window owner, string text, string title, bool question = false,
+        string? acceptLabel = null, bool defaultToCancel = false)
     {
         var dialog = new Window
         {
@@ -16,12 +17,12 @@ internal static class Dialogs
             ShowInTaskbar = false
         };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
-        var accept = new Button { Content = T(question ? "继续" : "确定"), IsDefault = true, MinWidth = 80 };
+        var accept = new Button { Content = T(acceptLabel ?? (question ? "继续" : "确定")), IsDefault = !defaultToCancel, MinWidth = 80 };
         accept.Click += (_, _) => dialog.Close(true);
         buttons.Children.Add(accept);
         if (question)
         {
-            var cancel = new Button { Content = T("取消"), IsCancel = true, MinWidth = 80, Margin = default };
+            var cancel = new Button { Content = T("取消"), IsCancel = true, IsDefault = defaultToCancel, MinWidth = 80, Margin = default };
             cancel.Click += (_, _) => dialog.Close(false);
             buttons.Children.Add(cancel);
         }

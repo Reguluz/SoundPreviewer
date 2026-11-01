@@ -3,6 +3,13 @@ using System.ComponentModel;
 
 namespace SoundPreviewer.App;
 
+public sealed class FilterLayoutOption(string key, string label, bool isVisible)
+{
+    public string Key { get; } = key;
+    public string Label { get; } = label;
+    public bool IsVisible { get; set; } = isVisible;
+}
+
 public sealed class FilterOption(string key, string label, string? toolTip = null, string? displayLabel = null, bool userText = false) : INotifyPropertyChanged
 {
     private bool isSelected;

@@ -143,6 +143,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     public List<PluginConfiguration> Plugins { get; set; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new PluginConfiguration { Synth = s }).ToList();
     public PreviewTemplate Template { get; set; } = new();
     public AppearanceSettings Appearance { get; set; } = new();
+    public List<string> LibraryFilterOrder { get; set; } = [.. LibraryFilterLayout.DefaultOrder];
     public string Language { get; set; } = "zh-CN";
     public string MetadataLanguage { get; set; } = "";
     public string CategoryCatalogSnapshot { get; set; } = "";
@@ -163,6 +164,7 @@ public sealed class AppSettings : IJsonOnDeserialized
     {
         if (!parallelRendersSpecified) maxParallelRenders = 1;
         Appearance ??= new();
+        LibraryFilterOrder = LibraryFilterLayout.Normalize(LibraryFilterOrder);
         Plugins ??= [];
         foreach (var synth in Enum.GetValues<SynthKind>().Where(synth => synth != SynthKind.Unknown))
             if (Plugins.All(plugin => plugin.Synth != synth)) Plugins.Add(new PluginConfiguration { Synth = synth });

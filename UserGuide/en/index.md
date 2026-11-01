@@ -14,7 +14,7 @@ If SoundPreviewer saves you time auditioning presets, you can support future dev
 
 SoundPreviewer generates short audio previews of synthesizer presets so you can search, filter, and audition a local library. Playing an existing preview does not require opening a DAW or loading its synth again.
 
-This Markdown guide accompanies **1.2.2**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
+This Markdown guide accompanies **1.3.0**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
 
 <a id="interface"></a>
 
@@ -100,4 +100,4 @@ Markdown and CHM update with the package. Keep the complete application folder s
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.2.2. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.3.0. Text and screenshots work offline; external download and feedback links require internet access.

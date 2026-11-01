@@ -12,6 +12,7 @@ public partial class MainWindow
     private async Task CheckSynthAssignmentAsync()
     {
         var saved = Presets.ToArray();
+        var savedPage = Pages.SelectedItem;
         string? selectedId = _selected?.Record.Id;
         string search = SearchBox.Text ?? "";
         var filters = FilterGroups.ToDictionary(group => group.Key, group => group.SelectedKeys.ToArray());
@@ -30,7 +31,10 @@ public partial class MainWindow
             ClearFilterSelections();
             Presets.ReplaceAll(rows);
             RefreshFilterChoices();
+            Pages.SelectedItem = LibraryTab;
+            await SettleLayoutAsync();
             PresetGrid.SelectedItem = rows[0];
+            await SettleLayoutAsync();
             var watch = Stopwatch.StartNew();
             Task assignment = AssignSelectedSynthAsync(SynthKind.Nexus2);
             _assignmentYieldMilliseconds = watch.Elapsed.TotalMilliseconds;
@@ -57,6 +61,7 @@ public partial class MainWindow
             SearchBox.Text = search;
             RefreshPresetView();
             PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.Id == selectedId);
+            Pages.SelectedItem = savedPage;
         }
     }
 }

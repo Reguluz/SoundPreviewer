@@ -50,6 +50,7 @@ internal static partial class Program
         ApplicationPaths.ConfigureDataDirectory(Path.Combine(_fixtureRoot, "application-data"));
         var tests = new List<(string Name, Func<Task> Run)>
         {
+            ("Library filter layout defaults, normalization and persistence", TestLibraryFilterLayoutAsync),
             ("Nexus 2 identity, migration, x86 selection and startup protection", TestNexus2Async),
             ("Single synth assignment changes only affected duplicates and preserves audio", TestPresetAssignmentAsync),
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),

@@ -27,7 +27,9 @@ Use the directory JSON button to open the file, close the app before editing, th
 
 ## Search and multiple filters
 
-Search matches names, tags, paths, or MD5. Beside search are **Synth / Status / Source / Package / Categories / Tags / Fav.** tabs. A tab displays its options in a fixed three-row area, with scrolling for more items; the list and details stay in place.
+Search matches names, tags, paths, or MD5. Beside search, the default tabs are **Status / Categories / Tags / Synth**, in that order. A tab displays its options in a fixed three-row area, with scrolling for more items; the list and details stay in place.
+
+Under **Synths and settings → Interface**, check the groups to show, select a row and use **Move up / Move down**, then **Save settings**. Source, Package and Favorites are hidden by default and can be enabled here. Hiding a group clears its selections. **Reset to default order** restores the four default groups after saving.
 
 **Click directly to select multiple options; no Ctrl or Shift is needed.** Click again to deselect. All clears the current group, and the tab count shows selected options. Options in one group use OR; groups use AND. For example, Vital + Serum 1 and Favorites shows favorites from either synth. Switching tabs keeps other selections. **↺** clears all filters.
 

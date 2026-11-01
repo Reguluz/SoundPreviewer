@@ -14,7 +14,7 @@
 
 SoundPreviewer 把合成器音色生成短试听片段，让你在一个本地音色库里搜索、筛选和播放。已有预览无需打开 DAW 或再次加载音源。
 
-这份 Markdown 操作说明随 **1.2.2** 程序提供，Windows 安装包和免安装包另附编译好的 CHM 手册。正文、截图和章节链接均可离线阅读；GitHub、运行库下载及技术记录链接需要联网。本文以简体中文界面为例，英文界面使用同样的页面布局。
+这份 Markdown 操作说明随 **1.3.0** 程序提供，Windows 安装包和免安装包另附编译好的 CHM 手册。正文、截图和章节链接均可离线阅读；GitHub、运行库下载及技术记录链接需要联网。本文以简体中文界面为例，英文界面使用同样的页面布局。
 
 <a id="interface"></a>
 
@@ -100,4 +100,4 @@ CHM 默认打开中文首页，章节目录按「简体中文（默认） / Engl
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.2.2。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.3.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。

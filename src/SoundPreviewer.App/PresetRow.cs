@@ -57,7 +57,8 @@ public sealed class PresetRow(PresetRecord record, MetadataCatalog? categories =
     public string PluginVersionLabel => Record.PluginVersion;
     public string AdapterVersionLabel => Record.AdapterVersion;
     public string LastRenderOutcomeLabel => Record.LastRenderOutcome;
-    public string LastRenderMessageLabel => InitBaselineService.ExplainStoredRejection(Record.Synth, Record.LastRenderMessage);
+    public string LastRenderMessageLabel => Record.LastRenderMessage.Length > 0
+        ? InitBaselineService.ExplainStoredRejection(Record.Synth, Record.LastRenderMessage) : Message;
     public string FeedbackLabel => Record.Feedback switch { 1 => "喜欢", -1 => "不喜欢", _ => "" };
     public string FavoriteLabel => Record.Favorite ? "★" : "";
     public string AudioLabel => Record.Metrics is { } m ? $"{m.DurationSeconds:0.0} 秒 · {m.SampleRate} Hz · {m.Channels} 声道" : "尚未生成";

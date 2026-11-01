@@ -62,7 +62,7 @@ The app prefers consecutive work on the same synth. When parallel instances are 
 
 ## Player and shortcuts
 
-Select a preset and press **Space** to play its preview from the beginning. Press again while playing to restart. Holding Space does not repeatedly restart playback, and text fields / filter controls retain their normal Space behavior. The player includes a shortcut hint, play / stop buttons, separate **Mid / High / Low** buttons, a seek control, and a volume slider.
+Select a preset and press **Space** to play its preview from the beginning. Press again while playing to restart. Holding Space does not repeatedly restart playback, and text fields / filter controls retain their normal Space behavior. The player includes a shortcut hint, play / stop buttons, separate **Low / Mid / High** buttons (full previews still play Mid → High → Low), a seek control, and a volume slider.
 
 <a id="status"></a>
 

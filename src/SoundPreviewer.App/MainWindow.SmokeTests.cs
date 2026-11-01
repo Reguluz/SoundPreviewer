@@ -39,6 +39,7 @@ public partial class MainWindow
             DiscoveredPluginGrid.ItemsSource?.Cast<object>().Count() != DiscoveredPlugins.Count)
             throw new InvalidOperationException("设置列表绑定或目录自动识别默认值错误。");
         CheckPluginScanDefaults();
+        bool filterLayoutChecked = await CheckFilterLayoutPersistenceAsync();
         CheckLibraryFilterSelections();
         await CheckFilterCountsAsync();
         CheckPreviewStatusGroups();
@@ -222,7 +223,7 @@ public partial class MainWindow
                 }
                 CaptureSmokeImage($"ui-{name}-{page}.png");
             }
-            foreach (var (tab, suffix) in new[] { (DirectorySettingsTab, "directories"), (DiscoveredSettingsTab, "discovered"), (RenderSettingsTab, "renderers"), (StorageSettingsTab, "storage"), (ClassificationSettingsTab, "categories") })
+            foreach (var (tab, suffix) in new[] { (DirectorySettingsTab, "directories"), (DiscoveredSettingsTab, "discovered"), (RenderSettingsTab, "renderers"), (StorageSettingsTab, "storage"), (InterfaceSettingsTab, "interface"), (ClassificationSettingsTab, "categories") })
             {
                 _smokeLayoutPhase = $"{name}-settings-{suffix}";
                 Pages.SelectedItem = SettingsTab;
@@ -283,6 +284,7 @@ public partial class MainWindow
             Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             AppearanceChecked = true, AppearancePersistenceChecked = appearancePersistenceChecked, AppearanceCancelChecked = true, AppearanceViewports = 2,
             FilterOptionCountsChecked = true,
+            FilterLayoutPersistenceChecked = filterLayoutChecked, SeekHandleBoundsChecked = true, NoteButtonOrderChecked = true,
             SynthAssignmentChecked = true, SynthAssignmentInputRows = 14000, SynthAssignmentYieldMilliseconds = _assignmentYieldMilliseconds,
             FilterCountsBenchmarkRows = 14000, FilterCountsBenchmarkMilliseconds = _filterCountsBenchmarkMilliseconds,
             FilterCountsBenchmarkAllocatedBytes = _filterCountsBenchmarkAllocatedBytes,
@@ -777,9 +779,9 @@ public partial class MainWindow
             throw SmokeLayoutFailure($"扫描按钮 {button.Name} 未完整显示。");
     }
 
-    private void CaptureSmokeImage(string name)
+    private void CaptureSmokeImage(string name, Control? target = null)
     {
-        var content = (Control)Content!;
+        var content = target ?? (Control)Content!;
         using var bitmap = new RenderTargetBitmap(new PixelSize(Math.Max(1, (int)content.Bounds.Width), Math.Max(1, (int)content.Bounds.Height)), new Vector(96, 96));
         bitmap.Render(content);
         bitmap.Save(Path.Combine(App.DataDirectory, name));

@@ -32,7 +32,7 @@
      <Grid x:Name="FilterStrip" Classes="filter-strip" Grid.ColumnSpan="2" Height="38" Margin="0,4,0,4">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="150"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="32"/><ColumnDefinition Width="108"/><ColumnDefinition Width="34"/><ColumnDefinition Width="26"/></Grid.ColumnDefinitions>
       <TextBox x:Name="SearchBox" Watermark="{DynamicResource text_DC922CD8E4F25797}" TextChanged="Filter_Changed" Margin="0,0,6,0" ToolTip.Tip="{DynamicResource text_0130E9895C137AB5}" AutomationProperties.Name="{DynamicResource text_4BC792C2341E68B4}"/>
-      <ItemsControl x:Name="FilterTabs" Grid.Column="1" ItemsSource="{Binding FilterGroups}" VerticalAlignment="Center" Margin="0,0,6,0">
+      <ItemsControl x:Name="FilterTabs" Grid.Column="1" ItemsSource="{Binding VisibleFilterGroups}" VerticalAlignment="Center" Margin="0,0,6,0">
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate><DataTemplate><ToggleButton Classes="filter-tab" Content="{local:UiText DisplayLabel}" IsChecked="{Binding IsActive, Mode=OneWay}" Click="FilterGroup_Click" ToolTip.Tip="{DynamicResource text_C6FACBEF762045F0}" AutomationProperties.Name="{local:UiText Label}"/></DataTemplate></ItemsControl.ItemTemplate>
       </ItemsControl>
@@ -98,7 +98,6 @@
         <TextBlock Text="{DynamicResource text_920502F3B87A81FD}" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,8"/>
         <TextBlock x:Name="SelectedPresetNameText" Text="{Binding SelectedName}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
         <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,10"><TextBlock Text="{local:UiText Selected.SynthLabel}" Foreground="{DynamicResource Accent}" VerticalAlignment="Center"/><Border Grid.Column="1" Classes="status-badge" Classes.failed="{Binding Selected.IsFailed}" Classes.generated="{Binding Selected.IsGenerated}" Classes.rendering="{Binding Selected.IsRendering}"><TextBlock Text="{local:UiText Selected.StatusLabel}"/></Border></Grid>
-        <SelectableTextBlock x:Name="PresetResultDescription" Text="{local:UiText Selected.Message}" TextWrapping="Wrap" Foreground="{DynamicResource Warning}" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal">
          <Button x:Name="FavoriteButton" Classes="icon" Content="☆" Click="Favorite_Click" ToolTip.Tip="{DynamicResource text_2045BD211A75D25E}" IsEnabled="{Binding CanEditSelection}"/>
          <Button Classes="icon" Content="＋" Click="Like_Click" ToolTip.Tip="{DynamicResource text_8993762DAF037182}" IsEnabled="{Binding CanEditSelection}"/>
@@ -325,11 +324,11 @@
           <TextBlock Text="{DynamicResource text_EA2D42866B2BF962}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/>
           <TextBlock Text="{DynamicResource text_7F7C49ADC3FDBC64}" Classes="field-label"/>
           <ComboBox x:Name="PreviewFormatBox" IsEnabled="{Binding IsIdle}" AutomationProperties.Name="{DynamicResource text_4E2B4A526423F759}"><ComboBoxItem Content="{DynamicResource text_16FCFEAE3809DEE7}"/><ComboBoxItem Content="{DynamicResource text_242C64FCF2DF2108}"/></ComboBox>
-          <TextBlock Text="{DynamicResource text_DF18AAA608771A41}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,6,0,2"/>
+          <TextBlock Text="{DynamicResource text_DAF6D5048526F4C1}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,6,0,2"/>
           <TextBlock Text="{DynamicResource text_81FFFC60D6C1510D}" Classes="field-label"/>
           <TextBox Text="{Binding LibraryLocation, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="{DynamicResource text_5C88A3F326A6DBA8}" ToolTip.Tip="{Binding LibraryLocation}"/>
           <StackPanel Margin="0,4,0,0"><TextBlock Text="{DynamicResource text_9D3478C91ADD4C2A}" Classes="field-label"/><TextBox x:Name="PreviewDirectoryBox" Text="{DynamicResource text_865FB0CFE2FC0A4B}" IsReadOnly="True" TextWrapping="Wrap" MinHeight="32" MaxHeight="90" ToolTip.Tip="{Binding #PreviewDirectoryBox.Text}" AutomationProperties.Name="{DynamicResource text_9ACDA844E72F057C}"/></StackPanel>
-          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="{DynamicResource text_BF8192A07063C458}" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button x:Name="CompressPreviewsButton" Content="{DynamicResource text_494F3CB63BF6DF01}" Click="CompressPreviews_Click" IsEnabled="{Binding CanCompressPreviews}" Padding="10,6" Margin="0,0,8,8" ToolTip.Tip="{DynamicResource text_44996E2D2B51DBFB}"/><Button Content="{DynamicResource text_DFF2B9D16A02FD0B}" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
+          <WrapPanel Margin="0,10,0,0" IsEnabled="{Binding IsIdle}"><Button Content="{DynamicResource text_BF8192A07063C458}" Click="OpenData_Click" Padding="10,6" Margin="0,0,8,8"/><Button x:Name="CompressPreviewsButton" Content="{DynamicResource text_60F3289D8FEB07C8}" Click="CompressPreviews_Click" IsEnabled="{Binding CanCompressPreviews}" Padding="10,6" Margin="0,0,8,8" ToolTip.Tip="{DynamicResource text_A7B49D6BCE9C3648}"/><Button Content="{DynamicResource text_DFF2B9D16A02FD0B}" Click="ClearPreviews_Click" Padding="10,6" Margin="0,0,0,8"/></WrapPanel>
           <Button Content="{DynamicResource text_9721050B07A2A364}" Click="OpenExistingLibrary_Click" IsEnabled="{Binding IsIdle}" Margin="0,0,0,4" Padding="10,6" ToolTip.Tip="{DynamicResource text_7E7BCE0DF5DFA9E6}"/>
           <Grid IsEnabled="{Binding IsIdle}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
            <StackPanel><TextBlock Text="{DynamicResource text_596E76782C94A0F2}" Classes="field-label"/><TextBox x:Name="BudgetBox"/></StackPanel>
@@ -337,6 +336,23 @@
           </Grid>
          </StackPanel>
         </Grid>
+       </ScrollViewer>
+      </TabItem>
+      <TabItem x:Name="InterfaceSettingsTab" Header="{DynamicResource text_785D65C70FDE627A}">
+       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="12" MaxWidth="620" HorizontalAlignment="Left" IsEnabled="{Binding IsIdle}">
+         <TextBlock Text="{DynamicResource text_DF851A71261415C1}" FontSize="16" FontWeight="SemiBold"/>
+         <TextBlock Text="{DynamicResource text_6383EC26443B0C7E}" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,12"/>
+         <ListBox x:Name="FilterOrderList" ItemsSource="{Binding FilterLayoutOptions}" Height="256" BorderThickness="1" BorderBrush="{DynamicResource Line}" CornerRadius="5" AutomationProperties.Name="{DynamicResource text_DF851A71261415C1}">
+          <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="Padding" Value="8,2"/></Style></ListBox.Styles>
+          <ListBox.ItemTemplate><DataTemplate><CheckBox Content="{local:UiText Label}" IsChecked="{Binding IsVisible, Mode=TwoWay}" MinHeight="28" Height="28" Margin="4,0"/></DataTemplate></ListBox.ItemTemplate>
+         </ListBox>
+         <WrapPanel Margin="0,12,0,0">
+          <Button Content="{DynamicResource text_F853A70B120418BE}" Click="MoveFilterGroup_Click" Tag="up"/>
+          <Button Content="{DynamicResource text_E75E8B4E5C971227}" Click="MoveFilterGroup_Click" Tag="down"/>
+          <Button Content="{DynamicResource text_7BFEF8D8A6171078}" Click="ResetFilterLayout_Click" Margin="0"/>
+         </WrapPanel>
+        </StackPanel>
        </ScrollViewer>
       </TabItem>
       <TabItem x:Name="ClassificationSettingsTab" Header="{DynamicResource text_6E700446263DB82C}">
@@ -363,20 +379,22 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
     <StackPanel VerticalAlignment="Center">
      <TextBlock Text="{local:UiText NowPlaying}" FontSize="12" LineHeight="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
-     <StackPanel Orientation="Horizontal">
+     <StackPanel x:Name="PreviewButtons" Orientation="Horizontal">
       <Button x:Name="PlayPreviewButton" Classes="icon primary" Content="▶" Width="32" Height="28" Margin="0,0,5,0" Click="Play_Click" ToolTip.Tip="{DynamicResource text_F03E2B5312A86349}" IsEnabled="{Binding CanPlay}"/>
       <Button Classes="icon" Content="■" Width="32" Height="28" Margin="0,0,5,0" Click="Stop_Click" ToolTip.Tip="{DynamicResource text_D2514094A0F771A4}" IsEnabled="{Binding CanPlay}"/>
+      <Button Content="{DynamicResource text_AA9E366F68D3D097}" Click="PlayNote_Click" Tag="Low" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="{DynamicResource text_81180C8E83246695}" IsEnabled="{Binding CanPlay}"/>
       <Button Content="{DynamicResource text_A567BDAA11367F26}" Click="PlayNote_Click" Tag="Middle" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="{DynamicResource text_B5ED94E3C8E19CAC}" IsEnabled="{Binding CanPlay}"/>
       <Button Content="{DynamicResource text_B1C27820FEC23EDB}" Click="PlayNote_Click" Tag="High" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="{DynamicResource text_6A2A2CA3D3C25026}" IsEnabled="{Binding CanPlay}"/>
-      <Button Content="{DynamicResource text_AA9E366F68D3D097}" Click="PlayNote_Click" Tag="Low" FontSize="12" Padding="0" Width="32" Height="28" Margin="0,0,5,0" ToolTip.Tip="{DynamicResource text_81180C8E83246695}" IsEnabled="{Binding CanPlay}"/>
      </StackPanel>
      <Border x:Name="PreviewShortcutHint" IsVisible="{Binding #LibraryTab.IsSelected}" Background="{DynamicResource SurfaceAlt}" CornerRadius="4" Padding="5,1" Margin="0,4,0,0" HorizontalAlignment="Left" AutomationProperties.Name="{DynamicResource text_1A961B42D73F93ED}">
       <TextBlock Text="{DynamicResource text_61C1EB23AE24F8CF}" FontSize="11" LineHeight="14" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
      </Border>
     </StackPanel>
-    <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="46"/><RowDefinition Height="18"/></Grid.RowDefinitions>
+    <Grid Grid.Column="1" Margin="16,0,20,0"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
      <Border CornerRadius="5" ClipToBounds="True"><local:WaveformView x:Name="Waveform" BackgroundBrush="{DynamicResource HoverBackground}" WaveBrush="{DynamicResource Accent}" LineBrush="{DynamicResource Line}" PlayheadBrush="{DynamicResource Accent}"/></Border>
-     <Slider x:Name="SeekSlider" Grid.Row="1" Minimum="0" Maximum="1" IsEnabled="{Binding CanPlay}" AutomationProperties.Name="{DynamicResource text_CBC1B88ECBE201AC}"/>
+     <Slider x:Name="SeekSlider" Grid.Row="1" Height="32" MinHeight="32" VerticalAlignment="Center" Minimum="0" Maximum="1" IsEnabled="{Binding CanPlay}" AutomationProperties.Name="{DynamicResource text_CBC1B88ECBE201AC}">
+      <Slider.Resources><GridLength x:Key="SliderPreContentMargin">6</GridLength><GridLength x:Key="SliderPostContentMargin">6</GridLength></Slider.Resources>
+     </Slider>
     </Grid>
     <StackPanel Grid.Column="2" VerticalAlignment="Center">
      <TextBlock x:Name="TimeLabel" Text="00:00 / 00:00" FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" Margin="0,0,0,5"/>

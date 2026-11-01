@@ -38,10 +38,10 @@ public partial class MainWindow
         if (Math.Abs(filters.Height - 38) > .5 || row.Any(control => !control.IsEffectivelyVisible ||
                 Math.Abs(SmokeBounds(control).Center.Y - center) > 6 || !filters.Inflate(1).Contains(SmokeBounds(control))) ||
             SearchBox.Bounds.Width < 120)
-            throw SmokeLayoutFailure("搜索与七组筛选标签没有保持为一行可见控件。");
+            throw SmokeLayoutFailure("搜索与可见筛选标签没有保持为一行可见控件。");
         var tabs = FilterTabs.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.DataContext is FilterGroup).ToList();
-        if (tabs.Count != 7 || tabs.Any(tab => !tab.IsEffectivelyVisible || !filters.Inflate(1).Contains(SmokeBounds(tab))))
-            throw SmokeLayoutFailure("七组筛选标签没有完整显示。");
+        if (tabs.Count != VisibleFilterGroups.Count || tabs.Any(tab => !tab.IsEffectivelyVisible || !filters.Inflate(1).Contains(SmokeBounds(tab))))
+            throw SmokeLayoutFailure("可见筛选标签没有完整显示。");
         var options = SmokeBounds(FilterOptionsBand);
         if (!FilterOptionsBand.IsEffectivelyVisible || Math.Abs(options.Height - 96) > .5 ||
             options.Top < filters.Bottom - 1 || list.Top < options.Bottom - 1 || details.Top < options.Bottom - 1 ||
@@ -49,6 +49,13 @@ public partial class MainWindow
             throw SmokeLayoutFailure("筛选选项未固定占用96像素，或与列表、详情重叠。");
 
         var playback = SmokeBounds(PlaybackBar);
+        var seek = SmokeBounds(SeekSlider);
+        var thumb = SeekSlider.GetVisualDescendants().OfType<Thumb>().Single();
+        if (!seek.Contains(SmokeBounds(thumb)) || !playback.Contains(SmokeBounds(thumb)))
+            throw SmokeLayoutFailure($"试听进度条手柄没有完整显示在播放栏内。Slider={seek}；Thumb={SmokeBounds(thumb)}。");
+        if (!PreviewButtons.Children.OfType<Button>().Select(button => button.Tag?.ToString())
+                .Where(tag => tag is not null).SequenceEqual(new[] { "Low", "Middle", "High" }))
+            throw SmokeLayoutFailure("音区按钮没有按低、中、高排列。");
         var progress = SmokeBounds(TaskStatusBand);
         if (!PlaybackBar.IsEffectivelyVisible || !TaskStatusBand.IsEffectivelyVisible ||
             Math.Abs(playback.Height - 84) > .5 || Math.Abs(progress.Height - 118) > .5 ||
@@ -99,7 +106,7 @@ public partial class MainWindow
             var fixedLayout = CaptureLibraryLayout();
             CaptureSmokeImage($"ui-idle-{name}.png");
 
-            foreach (var group in FilterGroups)
+            foreach (var group in VisibleFilterGroups)
             {
                 SelectFilterGroup(group.Key);
                 await SettleLayoutAsync();

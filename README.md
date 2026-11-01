@@ -10,7 +10,7 @@
 
 把合成器音色生成短试听片段，在一个本地音色库里搜索、筛选和播放，减少逐个打开音源试音的时间。已有预览无需打开 DAW。
 
-**当前版本：1.2.2** · 支持 Windows x64、macOS Apple Silicon / Intel。
+**当前版本：1.3.0** · 支持 Windows x64、macOS Apple Silicon / Intel。
 
 [![SoundPreviewer 中文主界面](UserGuide/images/library.png)](UserGuide/index.md#interface)
 
