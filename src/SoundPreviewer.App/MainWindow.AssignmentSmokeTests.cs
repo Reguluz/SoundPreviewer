@@ -12,6 +12,7 @@ public partial class MainWindow
     private async Task CheckSynthAssignmentAsync()
     {
         var saved = Presets.ToArray();
+        string storedBefore = JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options);
         var savedPage = Pages.SelectedItem;
         string? selectedId = _selected?.Record.Id;
         string search = SearchBox.Text ?? "";
@@ -55,6 +56,8 @@ public partial class MainWindow
         }
         finally
         {
+            DeleteSmokeFixtureRows([rows[0].Record.Id]);
+            File.Delete(source);
             Presets.ReplaceAll(saved);
             RefreshFilterChoices();
             foreach (var group in FilterGroups) group.SetSelection(filters[group.Key]);
@@ -62,6 +65,8 @@ public partial class MainWindow
             RefreshPresetView();
             PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.Id == selectedId);
             Pages.SelectedItem = savedPage;
+            if (JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options) != storedBefore)
+                throw new InvalidOperationException("音源确认测试未完整恢复持久化记录，或遗留了临时音色行。");
         }
     }
 }

@@ -80,7 +80,7 @@ public partial class MainWindow
             var hashes = files.Where(File.Exists).ToDictionary(path => path, path => Fingerprints.HashFile(path));
 
             UnloadForStorageMaintenance();
-            DeleteCompressionFixtureRows(savedRecords.Select(record => record.Id));
+            DeleteSmokeFixtureRows(savedRecords.Select(record => record.Id));
             _settings = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(savedSettings, LibraryJson.Options), LibraryJson.Options)!;
             _settings.Sources = [];
             _settings.PreviewDirectory = App.DataDirectory;
@@ -224,7 +224,7 @@ public partial class MainWindow
         finally
         {
             UnloadForStorageMaintenance();
-            DeleteCompressionFixtureRows(fixtures.Select(record => record.Id));
+            DeleteSmokeFixtureRows(fixtures.Select(record => record.Id));
             _store.SaveState(savedRecords, savedSettings);
             if (JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options) != savedRecordsJson)
                 throw new InvalidOperationException("筛选生成测试未完整恢复原持久记录。");

@@ -51,7 +51,7 @@ public partial class MainWindow
             _settings.Template.SampleRate = rate;
             _settings.Sources = []; // The temporary source is a distinct file, outside the cache's protected preset roots.
             // Temporarily expose only this one private record to compression; every original mapping is restored below.
-            DeleteCompressionFixtureRows(savedRecords.Select(value => value.Id));
+            DeleteSmokeFixtureRows(savedRecords.Select(value => value.Id));
             _store.SaveState([record], _settings);
             PopulateSettings();
             SetPresets(_store.LoadPresets());
@@ -129,7 +129,7 @@ public partial class MainWindow
         finally
         {
             UnloadForStorageMaintenance();
-            DeleteCompressionFixtureRows([id]);
+            DeleteSmokeFixtureRows([id]);
             _store.SaveState(savedRecords, savedSettings);
             if (JsonSerializer.Serialize(_store.LoadPresets().OrderBy(record => record.Id), LibraryJson.Options) != savedRecordsJson)
                 throw new InvalidOperationException("压缩测试未完整恢复持久化音色记录，或遗留了临时音色行。");
@@ -147,7 +147,7 @@ public partial class MainWindow
         }
     }
 
-    private void DeleteCompressionFixtureRows(IEnumerable<string> ids)
+    private void DeleteSmokeFixtureRows(IEnumerable<string> ids)
     {
         // LibraryStore.SaveState upserts records. Delete only these explicitly snapshotted test IDs, in a transaction.
         var type = typeof(SoundPreviewer.Core.Storage.LibraryStore).Assembly.GetType("SoundPreviewer.Core.Storage.NativeSqlite", throwOnError: true)!;
