@@ -10,7 +10,7 @@
 
 Generate short synthesizer preset previews, then search, filter, and audition them in one local library. Existing previews play without opening a DAW or loading the synth.
 
-**Current version: 1.0.2** · Windows x64, macOS Apple Silicon / Intel.
+**Current version: 1.2.2** · Windows x64, macOS Apple Silicon / Intel.
 
 [![SoundPreviewer main window in English](UserGuide/images/library-en.png)](UserGuide/en/index.md#interface)
 
@@ -22,12 +22,12 @@ Generate short synthesizer preset previews, then search, filter, and audition th
 - Edit categories, aliases, custom tags, favorites, and feedback; choose Chinese or English with an independent metadata language.
 - Keep data locally, back up or move the library, compress old WAV previews, and copy complete generation results for feedback.
 
-Supported preset formats can generate with Vital, Serum 1, Serum 2, and Sylenth1. Spire can be indexed, but native preview generation is not available yet. Supply your own plugins, presets, and licenses.
+Supported preset formats can generate with Vital, Serum 1, Serum 2, Sylenth1, and Windows x86 Nexus 2. Spire can be indexed, but native preview generation is not available yet. Supply your own plugins, presets, and licenses.
 
 ## Minimum setup and first use
 
 1. **Open:** download your platform package from [GitHub Releases](https://github.com/Reguluz/SoundPreviewer/releases). Install or fully extract the Windows package before opening `SoundPreviewer.exe`. Copy the Mac `.app` into a separate writable folder. The .NET runtime is included.
-2. **Configure one synth:** Scan synths, select and link the correct version under Synths and settings → Discovered synths, then check Preview generation and save. Vital uses its standalone program and native mode. For Serum 1 / 2, use Prepare rendering environment. Windows Sylenth1 x86 uses the bundled host.
+2. **Configure one synth:** Scan synths, select and link the correct version under Synths and settings → Discovered synths, then check Preview generation and save. Vital uses its standalone program and native mode. For Serum 1 / 2, use Prepare rendering environment. Windows Sylenth1 / Nexus 2 x86 uses the bundled host.
 3. **Scan presets:** add a preset folder under Folders, choose automatic detection for mixed collections, and Scan presets. First launch creates necessary defaults.
 4. **Test one:** select a Pending preset, click Regenerate this preset, and compare Mid / High / Low with the synth's original sound. Confirm the match if requested. Fix any reported failure before retrying this preset.
 5. **Use daily:** search or filter, then Generate / Resume. Valid previews are skipped and Stop retains finished work. Press Space to audition; use favorites, tags, and categories to organize.

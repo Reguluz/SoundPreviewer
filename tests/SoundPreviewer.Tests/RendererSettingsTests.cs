@@ -63,6 +63,17 @@ internal static partial class Program
             "An exactly identified bundled worker with a scanned x86 Sylenth selection restores its external backend.");
         Equal(RenderBackend.ExternalWorker, sylenth.Backend, "Repair selects the backend actually implemented by the bundled worker.");
         True(EvaluateWindowsReadiness(sylenth, [discovered]).CanAttemptRender, "The matching x86 selection can use its own external worker.");
+        sylenth.Backend = RenderBackend.DawDreamer;
+        sylenth.BackendSelectedManually = true;
+        Equal(0, PluginSelectionService.RefreshBundledHost([sylenth], host, PluginPlatform.Windows, [discovered]),
+            "Explicit backend choices cannot be reverted by startup repair.");
+        AssignWindowsPlugin(sylenth, discovered, host);
+        Equal(RenderBackend.DawDreamer, sylenth.Backend, "Rescanning and associating x86 plugins preserves explicit backend choices.");
+        var persistedChoice = System.Text.Json.JsonSerializer.Deserialize<PluginConfiguration>(
+            System.Text.Json.JsonSerializer.Serialize(sylenth, LibraryJson.Options), LibraryJson.Options)!;
+        True(persistedChoice.BackendSelectedManually && persistedChoice.Backend == RenderBackend.DawDreamer,
+            "The explicit choice survives settings reload.");
+        sylenth.Backend = RenderBackend.ExternalWorker;
         sylenth.Synth = SynthKind.Serum1;
         True(!EvaluateWindowsReadiness(sylenth, [discovered]).CanAttemptRender, "The Sylenth-only worker cannot be repurposed for Serum 1.");
         serum.ExecutablePath = synth;

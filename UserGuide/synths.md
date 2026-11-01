@@ -22,6 +22,7 @@
 | **Serum 1** | 独立 `.fxp` | VST2 插件及一键准备的 DawDreamer 环境 | Windows Serum 1.334 x64；历史五音色并行实测见[并行说明](https://github.com/Reguluz/SoundPreviewer/blob/main/docs/parallel-rendering.md#060-windows-五样本实测2026-10-20)；Mac 尚待真实插件验证 |
 | **Serum 2** | 原生 `.SerumPreset` | VST3 插件及带 Serum 2 依赖的 DawDreamer 环境 | Apple Silicon / Serum 2 2.0.23 的两个工厂音色；Windows、Intel Mac 尚待真实插件验证 |
 | **Sylenth1** | 独立 `.fxp` | Windows x86 插件可用随包宿主；其他匹配架构的 VST2 需 DawDreamer | Windows Sylenth1 2.2.1.2 x86；五个音色完成 1 / 2 / 4 条实测，其他组合尚待验证 |
+| **Nexus 2** | 独立 `.fxp`（原生及兼容旧版） | Windows x86 VST2、随包宿主及完整 Nexus Content 采样库 | Nexus 2.2.0 x86 的 Bass 和采样钢琴已有真实输出；其他版本尚待验证 |
 | **Spire** | 暂不生成 | 可扫描 `.spf`、`.spf2`、`.sbf`、`.swzip`，保留记录并显示「无法预览」 | 尚无真实插件生成验证 |
 
 Vital 音色包请先重新「扫描音色」：内嵌波表和采样完整、资源格式已覆盖的条目会变为「待生成」，可直接使用「Vital 原生」生成。程序只读取所选条目，在当前生成任务的私有临时目录内加载，不导入或更改 Vital 全局资源目录。资源不完整或使用尚未覆盖的类型时，显示「无法预览」并给出具体原因；可在 Vital 中导入后导出独立 `.vital`，再扫描导出目录。音色包最大 256 MiB，包内独立预制最大 16 MiB。
@@ -31,6 +32,8 @@ Vital 音色包请先重新「扫描音色」：内嵌波表和采样完整、�
 更多版本与样本记录见 [音源验证记录](https://github.com/Reguluz/SoundPreviewer/blob/main/docs/rendering.md#本机验证记录)。这些样本不代表所有音色、插件版本或外部采样资源都已验证。
 
 <a id="_1"></a>
+
+Nexus 2 目前仅开放 Windows x86 VST2 生成，使用随包宿主时方式显示为「外部工作进程」，无需 Python。手动选择的方式会保存；DawDreamer 暂不适配这条 32 位路径。请正常安装并授权音源，先在 DAW 中确认目标音色及所需 Nexus Content 采样库可以正常发声。程序不导入 `.nxp` 扩展包，也不将后续 Nexus 版本当作 Nexus 2。静音结果不保存，已有声音仍需试听确认；生成过程不打开插件编辑器或文件选择窗口。
 
 ## 计划支持的音源
 
@@ -51,7 +54,7 @@ Vital 音色包请先重新「扫描音色」：内嵌波表和采样完整、�
 在「音源与设置 → 预览生成」检查配置：
 
 - **Vital**：选择 Vital 独立程序，方式为「Vital 原生」。只有 VST 插件文件时，不能直接使用这条原生路径。
-- **Windows 的 Sylenth1 x86**：匹配后可使用随包的独立宿主。如果提示缺少运行库，请从 [Microsoft 官方页面](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/) 安装 VC++ **x86** 运行库。
+- **Windows 的 Sylenth1 / Nexus 2 x86**：匹配后可使用随包的独立宿主。如果提示缺少运行库，请从 [Microsoft 官方页面](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/) 安装 VC++ **x86** 运行库。
 - **Serum 1 / Serum 2 / 使用 DawDreamer 的 Sylenth1**：点击本页「一键准备生成环境」，首次联网下载，成功后自动填入私有环境路径；再核对关联的插件文件。
 
 检查音源的实际版本，点击「保存设置」。私有环境与当前程序架构一致；Windows 的 DawDreamer 路径使用 x64，不能加载 x86 插件。
@@ -96,4 +99,4 @@ Sylenth1 的加载状态需要可核验。若提示“状态完全未变”或�
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.1.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.2.2。正文和截图可离线阅读，外部下载与反馈链接需要联网。

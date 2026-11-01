@@ -145,6 +145,8 @@ try {
     foreach ($reference in $references) {
         if ($null -eq $reference -or $null -eq $reference.Result -or [string]::IsNullOrWhiteSpace($reference.WavPath) -or
             [string]::IsNullOrWhiteSpace($reference.WavSha256)) { throw 'A startup reference is missing its WAV, fingerprint or note result.' }
+        $reference.WavPath = [SoundPreviewer.Core.Storage.PreviewPathStorage]::Resolve($reference.WavPath, $settings.PreviewDirectory)
+        $reference.Result.OutputPath = [SoundPreviewer.Core.Storage.PreviewPathStorage]::Resolve($reference.Result.OutputPath, $settings.PreviewDirectory)
         $referenceReport = Get-AudioReport $reference.WavPath
         if (-not $referenceReport.Sha256.Equals($reference.WavSha256, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'A reference WAV differs from the fingerprint in its baseline metadata.'

@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace SoundPreviewer.Core.Models;
 
-public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5 }
+public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5, Nexus2 = 6 }
 public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
 public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer, Sushi = 4 }
 public enum PreviewNoteOrder { LowMiddleHigh = 0, MiddleHighLow = 1 }
@@ -77,6 +77,7 @@ public sealed class PluginConfiguration
     public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
     public SynthKind Synth { get; set; }
     public RenderBackend Backend { get; set; }
+    public bool BackendSelectedManually { get; set; }
     public string ExecutablePath { get; set; } = "";
     public string PluginPath { get; set; } = "";
     public string Version { get; set; } = "";

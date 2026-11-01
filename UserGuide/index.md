@@ -14,7 +14,7 @@
 
 SoundPreviewer 把合成器音色生成短试听片段，让你在一个本地音色库里搜索、筛选和播放。已有预览无需打开 DAW 或再次加载音源。
 
-这份 Markdown 操作说明随 **1.0.2** 程序提供，Windows 安装包和免安装包另附编译好的 CHM 手册。正文、截图和章节链接均可离线阅读；GitHub、运行库下载及技术记录链接需要联网。本文以简体中文界面为例，英文界面使用同样的页面布局。
+这份 Markdown 操作说明随 **1.2.2** 程序提供，Windows 安装包和免安装包另附编译好的 CHM 手册。正文、截图和章节链接均可离线阅读；GitHub、运行库下载及技术记录链接需要联网。本文以简体中文界面为例，英文界面使用同样的页面布局。
 
 <a id="interface"></a>
 
@@ -57,6 +57,7 @@ SoundPreviewer 把合成器音色生成短试听片段，让你在一个本地�
 | Serum 1 | VST2 | 独立 `.fxp` | 可生成；Windows x64 已有真实样本验证，Mac 尚待验证 |
 | Serum 2 | VST3 | 原生 `.SerumPreset` | 可生成；Apple Silicon 已有真实样本验证，Windows / Intel Mac 尚待验证 |
 | Sylenth1 | VST2；Windows x86 可用随包宿主 | 独立 `.fxp` | 可生成；Windows x86 已有真实样本验证，其他组合尚待验证 |
+| **Nexus 2** | Windows x86 VST2；随包宿主 | 独立 `.fxp`（原生及兼容旧版） | Nexus 2.2.0 x86 的 Bass 和采样钢琴已有真实输出；其他版本尚待验证 |
 | Spire | 原生生成尚未开放 | `.spf`、`.spf2`、`.sbf`、`.swzip` | 可扫描与索引，暂不能生成预览 |
 | FXB 银行 | 取决于所属音源 | `.fxb` | 可保留索引，暂不能直接生成；需先在音源中导出受支持的独立音色 |
 
@@ -99,4 +100,4 @@ CHM 默认打开中文首页，章节目录按「简体中文（默认） / Engl
 
 [操作说明首页](index.md) · [快速开始](quick-start.md) · [安装与启动](installation.md) · [音源配置](synths.md) · [生成与试听](rendering.md) · [音色库整理](library.md) · [数据维护](storage.md) · [语言与外观](appearance.md) · [常见问题](troubleshooting.md)
 
-适用于 SoundPreviewer 1.1.0。正文和截图可离线阅读，外部下载与反馈链接需要联网。
+适用于 SoundPreviewer 1.2.2。正文和截图可离线阅读，外部下载与反馈链接需要联网。

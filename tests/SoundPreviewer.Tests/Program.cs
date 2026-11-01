@@ -50,6 +50,8 @@ internal static partial class Program
         ApplicationPaths.ConfigureDataDirectory(Path.Combine(_fixtureRoot, "application-data"));
         var tests = new List<(string Name, Func<Task> Run)>
         {
+            ("Nexus 2 identity, migration, x86 selection and startup protection", TestNexus2Async),
+            ("Single synth assignment changes only affected duplicates and preserves audio", TestPresetAssignmentAsync),
             ("Template validation and content/version/template cache keys", TestFingerprintsAsync),
             ("Scientific note names use C2, C4 and C6 with MIDI compatibility", TestNoteNamesAsync),
             ("Configurable quick preview crops actual audio and preserves old cache keys", TestConfigurableQuickPreviewAsync),
@@ -916,7 +918,7 @@ internal static partial class Program
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"Sources\":[{\"Id\":\"legacy\",\"Path\":\"C:\\\\Old\\\\Presets\",\"Synth\":1,\"Enabled\":true}]}", LibraryJson.Options)!;
         True(!settings.Sources.Single().AutoDetect && settings.Sources.Single().Synth == SynthKind.Serum1,
             "Legacy serialized source retains explicit synth mode.");
-        Equal(5, settings.Plugins.Count, "Supported synthesizers include Spire while Unknown has no render plugin configuration.");
+        Equal(6, settings.Plugins.Count, "Supported synthesizers include Spire while Unknown has no render plugin configuration.");
         True(settings.Plugins.All(plugin => plugin.Synth != SynthKind.Unknown), "Only actual synthesizers have default plugin settings.");
         True(settings.PluginDirectories.Count == 0 && settings.DiscoveredPlugins.Count == 0, "Legacy settings default to an empty shared plugin inventory.");
         var record = JsonSerializer.Deserialize<PresetRecord>("{\"Id\":\"old\",\"Synth\":3,\"Status\":2,\"Favorite\":true}", LibraryJson.Options)!;
@@ -1459,8 +1461,8 @@ internal static partial class Program
             new DiscoveredPlugin { Synth = SynthKind.Serum1, FilePath = serumVst3, BinaryPath = serumVst3, Version = "TEST ONLY 1", Architecture = PluginArchitecture.X64, Format = PluginBinaryFormat.Vst3 }
         };
         var absent = EvaluateWindowsReadiness(new AppSettings { Plugins = [], DiscoveredPlugins = discovery.ToList() });
-        Equal(5, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
-        True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1, SynthKind.Spire }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
+        Equal(6, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
+        True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1, SynthKind.Spire, SynthKind.Nexus2 }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
         True(absent.All(p => !p.CanAttemptRender && !p.IsVerified && !string.IsNullOrWhiteSpace(p.Status) && !string.IsNullOrWhiteSpace(p.Detail)), "Missing configuration is actionable and cannot be presented as successful verification.");
 
         var sylenth = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = sylenth32, Version = "TEST ONLY 2" };

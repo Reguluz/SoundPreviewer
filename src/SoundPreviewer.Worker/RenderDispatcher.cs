@@ -310,6 +310,15 @@ public static partial class RenderDispatcher
                 TimeSpan.FromSeconds(Math.Clamp(request.Plugin.TimeoutSeconds, 5, 3600)), cancellationToken, environmentOverrides);
             if (!File.Exists(resultFile))
             {
+                if (!dawdreamer && request.Plugin.Synth == SynthKind.Nexus2 &&
+                    Path.GetFileName(executable).Equals("SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase) &&
+                    unchecked((uint)outcome.ExitCode) == 0xC0000005)
+                    return new RenderResult
+                    {
+                        PresetLoadFailed = true, NonRetryable = true,
+                        Message = "Nexus 2 插件加载此音色时发生访问冲突（0xC0000005）。本批不再自动重试，未保存预览。请先在 DAW 中用同一插件检查此音色及扩展资源。" +
+                            Environment.NewLine + outcome.StandardError
+                    };
                 string phaseFile = resultFile + ".phase";
                 string phase = dawdreamer && File.Exists(phaseFile) && new FileInfo(phaseFile).Length <= 4096
                     ? await File.ReadAllTextAsync(phaseFile, cancellationToken) : "未知阶段";

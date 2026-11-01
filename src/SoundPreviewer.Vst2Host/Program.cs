@@ -35,14 +35,14 @@ internal static class Program
             FxpPreset? preset;
             if (request.IsInitializationBaseline)
             {
-                if (request.Preset.Synth != SynthKind.Sylenth1 || request.Plugin.Synth != SynthKind.Sylenth1 ||
+                if (request.Plugin.Synth is not (SynthKind.Sylenth1 or SynthKind.Nexus2) || request.Preset.Synth != request.Plugin.Synth ||
                     request.Preset.SourcePath.Length > 0 || request.Preset.ContentHash.Length > 0 ||
                     request.Preset.InternalPath.Length > 0 || request.Preset.BankSlot is not null)
-                    throw new InvalidDataException("默认启动基准必须使用空预制身份及匹配的 Sylenth1 配置。");
+                    throw new InvalidDataException("默认启动基准必须使用空预制身份及匹配的 Sylenth1 / Nexus 2 配置。");
                 preset = null;
             }
             else preset = FxpPreset.Read(request);
-            FxpPreset.ValidatePlugin(request.Plugin.PluginPath);
+            FxpPreset.ValidatePlugin(request.Plugin.PluginPath, request.Plugin.Synth);
             result = VstRenderer.Render(request, preset);
         }
         catch (Exception error)

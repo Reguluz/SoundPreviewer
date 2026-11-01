@@ -10,6 +10,7 @@ namespace SoundPreviewer.Vst2Host;
 internal static class VstRenderer
 {
     public const string AdapterVersion = PresetLoadVerification.NativeSylenthAdapterVersion;
+    public const string NexusAdapterVersion = "vstnet-2.1.0-nexus2-x86-v3";
 
     public static void CheckBufferInterop()
     {
@@ -22,6 +23,8 @@ internal static class VstRenderer
     public static RenderResult Render(RenderRequest request, FxpPreset? preset)
     {
         int rate = request.Template.SampleRate;
+        bool nexus = request.Plugin.Synth == SynthKind.Nexus2;
+        string synthName = nexus ? "Nexus 2" : "Sylenth1";
         var plan = RenderFramePlan.Create(request.Template, request.MaxOutputBytes);
         int hold = plan.Hold;
         int tail = plan.Tail;
@@ -37,27 +40,32 @@ internal static class VstRenderer
         var segments = new List<WaveData>();
         var notes = new List<NotePreview>();
         var names = new List<string>();
-        byte[]? canonical = preset?.Chunk is { } chunk && SylenthPresetState.LegacyProgramName(chunk) is not null
+        byte[]? canonical = !nexus && preset?.Chunk is { } chunk && SylenthPresetState.LegacyProgramName(chunk) is not null
             ? CanonicalizeLegacyPreset(request, preset) : null;
-        bool allPitchesVerified = preset is not null && !request.IsInitializationBaseline;
+        bool allPitchesVerified = !nexus && preset is not null && !request.IsInitializationBaseline;
         foreach (int pitch in request.Template.Pitches)
         {
-            Console.Error.WriteLine($"加载 x86 Sylenth1，演奏 MIDI {pitch}");
+            Console.Error.WriteLine($"加载 x86 {synthName}，演奏 MIDI {pitch}");
             // Each note gets a fresh instance so release/FX state cannot leak from another range.
             var callbacks = new HostCallbacks(rate, request.Template.Bpm, Path.GetDirectoryName(request.Plugin.PluginPath)!);
             using var context = VstPluginContext.Create(Path.GetFullPath(request.Plugin.PluginPath), callbacks);
             callbacks.PluginContext = context;
             var commands = context.PluginCommandStub.Commands;
             commands.Open();
-            if (context.PluginInfo.PluginID != (preset?.PluginId ?? 0x73796c31))
-                throw new InvalidDataException("实际插件 ID 与 Sylenth1 / FXP 身份不匹配，拒绝生成。");
+            if (context.PluginInfo.PluginID != (preset?.PluginId ?? (nexus ? 0x4e455855 : 0x73796c31)))
+                throw new InvalidDataException("实际插件 ID 与所选音源 / FXP 身份不匹配，拒绝生成。");
             if ((context.PluginInfo.Flags & VstPluginFlags.CanReplacing) == 0 || context.PluginInfo.AudioOutputCount is < 1 or > 2 || context.PluginInfo.AudioInputCount is < 0 or > 2)
                 throw new NotSupportedException("插件不支持预期的单声道/立体声 float32 处理。");
             commands.SetSampleRate(rate);
             commands.SetBlockSize(HostCallbacks.BlockSize);
-            if (preset is not null) allPitchesVerified &= LoadPreset(context, preset, canonical);
+            if (preset is not null)
+            {
+                if (nexus) NexusPresetState.Load(context, preset);
+                else allPitchesVerified &= LoadPreset(context, preset, canonical);
+            }
             else if (!request.IsInitializationBaseline) throw new InvalidDataException("普通渲染必须明确加载 FXP。");
-            names.Add(commands.GetProgramName());
+            string programName = commands.GetProgramName();
+            names.Add(nexus && string.IsNullOrWhiteSpace(programName) ? "（插件未提供名称）" : programName);
             using var inputs = new VstAudioBufferManager(context.PluginInfo.AudioInputCount, HostCallbacks.BlockSize);
             using var outputs = new VstAudioBufferManager(context.PluginInfo.AudioOutputCount, HostCallbacks.BlockSize);
             var inputBuffers = inputs.Buffers.ToArray();
@@ -103,11 +111,13 @@ internal static class VstRenderer
         }
         var combined = WaveFile.Concatenate(segments);
         var combinedMetrics = WaveFile.Analyze(combined);
+        if (nexus && combinedMetrics.IsSilent)
+            throw new InvalidDataException("Nexus 2 输出静音，未保存预览。请先在 DAW 中确认该音色能正常发声，并检查 Nexus Content 采样库及所需扩展是否完整、位置是否正确。");
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         WriteFloat32(output, combined);
         return new RenderResult
         {
-            Success = true, OutputPath = output, Metrics = combinedMetrics, Notes = notes, AdapterVersion = AdapterVersion, NeedsReview = true,
+            Success = true, OutputPath = output, Metrics = combinedMetrics, Notes = notes, AdapterVersion = nexus ? NexusAdapterVersion : AdapterVersion, NeedsReview = true,
             PresetLoadProof = allPitchesVerified ? new PresetLoadProof
             {
                 Scheme = canonical is null ? PresetLoadVerification.Scheme : PresetLoadVerification.CanonicalScheme,
@@ -116,7 +126,8 @@ internal static class VstRenderer
                 Pitches = request.Template.Pitches.ToList()
             } : null,
             Message = (request.IsInitializationBaseline
-                ? "默认启动基准：每音使用全新 Sylenth1 实例，未加载预制或调用 SetChunk。插件报告音色："
+                ? $"默认启动基准：每音使用全新 {synthName} 实例，未加载预制或调用 SetChunk。插件报告音色："
+                : nexus ? "Nexus 2 已载入目标音色并生成预览；仍须试听确认音色及采样资源。插件报告音色："
                 : canonical is null ? "已通过独立 x86 VST.NET 宿主加载 Sylenth1 FXP 并生成真实输出；需试听确认音色及资源。插件报告音色："
                 : "旧格式 FXP 已通过独立实例转换、名称核对及逐音区完整状态回读；需与 DAW 试听确认。插件报告音色：") + string.Join(" / ", names.Distinct())
         };

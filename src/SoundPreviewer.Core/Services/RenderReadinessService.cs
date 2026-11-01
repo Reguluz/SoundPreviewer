@@ -57,10 +57,10 @@ public static class RenderReadinessService
             return Result("平台不兼容", "已关联其他操作系统的音源文件，请扫描并关联当前平台版本。");
         if (PluginSelectionService.IsBundledX86Host(configuration.ExecutablePath) && configuration.Backend != RenderBackend.Unconfigured)
         {
-            if (configuration.Backend != RenderBackend.ExternalWorker || configuration.Synth != SynthKind.Sylenth1)
-                return Result("宿主不匹配", "所选程序是内置 32 位 Sylenth1 宿主。DawDreamer 的渲染程序须选择 Python，不能选择插件 DLL 或此宿主；32 位 Sylenth1 请重新关联对应版本。");
-            if (selected is null || selected.Synth != SynthKind.Sylenth1 || selected.Architecture != PluginArchitecture.X86 || selected.Format != PluginBinaryFormat.Vst2)
-                return Result("宿主不匹配", "内置宿主只适用于已扫描确认的 Windows 32 位 Sylenth1 VST2，请关联对应版本。");
+            if (configuration.Backend != RenderBackend.ExternalWorker || configuration.Synth is not (SynthKind.Sylenth1 or SynthKind.Nexus2))
+                return Result("宿主不匹配", "所选程序是内置 32 位 VST2 宿主，支持 Sylenth1 / Nexus 2。请重新关联对应的 32 位版本；DawDreamer 的渲染程序须选择 Python。");
+            if (selected is null || selected.Synth != configuration.Synth || selected.Architecture != PluginArchitecture.X86 || selected.Format != PluginBinaryFormat.Vst2)
+                return Result("宿主不匹配", "内置宿主只适用于已扫描确认的 Windows 32 位 Sylenth1 / Nexus 2 VST2，请关联对应版本。");
         }
         if (configuration.Backend == RenderBackend.Unconfigured)
         {
@@ -68,7 +68,7 @@ public static class RenderReadinessService
             bool onlyX86 = candidates.Any(plugin => plugin.Architecture == PluginArchitecture.X86) &&
                 !candidates.Any(plugin => plugin.Architecture == PluginArchitecture.X64);
             if (!mac && (selectedX86 || onlyX86))
-                return Result("需要32位宿主", "已识别到 32 位音源。DawDreamer 桥接不能加载它；Sylenth1 VST2 可在包含独立 x86 宿主的版本中重新扫描并关联，其他插件需配置兼容的外部宿主。不要求必须寻找 64 位音源包。");
+                return Result("需要32位宿主", "已识别到 32 位音源。DawDreamer 桥接不能加载它；Sylenth1 / Nexus 2 VST2 可通过内置 x86 宿主关联，其他插件需配置兼容的外部宿主。");
             return Result("未选择生成方式", candidates.Count > 0 || !string.IsNullOrWhiteSpace(configuration.PluginPath)
                 ? "已发现或关联音源文件，但尚未配置可运行的渲染宿主；扫描识别不等于能够生成音频。"
                 : "尚未发现已支持的音源文件，也未配置渲染宿主；请先检查共享插件目录的扫描结果。");
@@ -100,6 +100,8 @@ public static class RenderReadinessService
         }
         if (configuration.Backend == RenderBackend.DawDreamer)
         {
+            if (configuration.Synth == SynthKind.Nexus2)
+                return Result("格式未适配", "当前 Nexus 2 仅适配 Windows 32 位 VST2 内置宿主，对应“外部工作进程”方式；DawDreamer 暂不支持此音源。所选设置会保留，请选择可用方式后再生成。");
             if (DawDreamerRuntimeService.IsManagedExecutablePath(configuration.ExecutablePath))
             {
                 if (!DawDreamerRuntimeService.TryGetRuntime(configuration.ExecutablePath, out var runtime))
@@ -164,6 +166,9 @@ public static class RenderReadinessService
                 : mac
                 ? "macOS VST2 插件包、Python 程序及版本已配置。Python、DawDreamer 和插件必须使用同一 arm64 / x64 架构；依赖安装、FXP 加载和宿主初始化仍须预检及单个预制试渲染，不代表已验证可用。"
                 : "x64 VST2 插件、Python 程序及版本已配置。尚未检查 x64 Python 3.11 / 3.12、DawDreamer 0.8.3、NumPy 1.26.4 的依赖安装和宿主初始化是否成功；须先完成独立宿主预检及单个预制试渲染，不代表已验证可用。", true);
+        if (configuration.Synth == SynthKind.Nexus2 && configuration.Backend == RenderBackend.ExternalWorker &&
+            PluginSelectionService.IsBundledX86Host(configuration.ExecutablePath))
+            return Result("可尝试", "Nexus 2 已关联内置 32 位宿主，对应“外部工作进程”方式，无需 Python。请先在同一版本音源中确认目标音色及扩展资源可以正常发声。", true);
         return Result("可尝试", selected?.Architecture == PluginArchitecture.X86
             ? "外部渲染器程序已配置，允许交给兼容 32 位插件的独立宿主或桥接；是否支持此音源和预制格式仍须实际验证。"
             : "外部渲染器程序已配置；目标插件位数、宿主能力和预制格式支持由该外部宿主负责，尚未验证其实际可用性。", true);

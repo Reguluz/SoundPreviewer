@@ -13,6 +13,16 @@ public static class DuplicatePreviewService
         ArgumentNullException.ThrowIfNull(store);
         cancellationToken.ThrowIfCancellationRequested();
         var records = store.LoadPresets();
+        var (updates, donors) = PrepareUpdates(records, cancellationToken);
+        if (updates.Count == 0) return 0;
+        var merged = store.MergeRenderStates(updates, donors);
+        // No cancellation after the transaction: all published mappings are durable.
+        return merged.Where((record, index) => SameAudioMapping(record, updates[index].Rendered)).Count();
+    }
+
+    internal static (List<(PresetRecord Rendered, PresetRecord Identity, bool AudioOnly)> Updates,
+        List<PresetRecord> Donors) PrepareUpdates(IReadOnlyList<PresetRecord> records, CancellationToken cancellationToken)
+    {
         var view = new PresetDuplicateView(records);
         var verified = new Dictionary<string, bool>(StringComparer.Ordinal);
         var donors = new Dictionary<string, PresetRecord>(StringComparer.Ordinal);
@@ -39,10 +49,7 @@ public static class DuplicatePreviewService
             donors.TryAdd(donor.Id, donor);
         }
         cancellationToken.ThrowIfCancellationRequested();
-        if (updates.Count == 0) return 0;
-        var merged = store.MergeRenderStates(updates, donors.Values.ToList());
-        // No cancellation after the transaction: all published mappings are durable.
-        return merged.Where((record, index) => SameAudioMapping(record, updates[index].Rendered)).Count();
+        return (updates, donors.Values.ToList());
 
         bool HasValidPreview(PresetRecord record)
         {

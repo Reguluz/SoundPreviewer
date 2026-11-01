@@ -36,14 +36,14 @@ public static class PluginSelectionService
         int changed = 0;
         foreach (var configuration in configurations)
         {
-            if (configuration.Synth != SynthKind.Sylenth1 || configuration.Backend is not (RenderBackend.ExternalWorker or RenderBackend.DawDreamer) ||
+            if (configuration.Synth is not (SynthKind.Sylenth1 or SynthKind.Nexus2) || configuration.Backend is not (RenderBackend.ExternalWorker or RenderBackend.DawDreamer) ||
                 string.IsNullOrWhiteSpace(configuration.ExecutablePath)) continue;
             string previousPath;
             try { previousPath = Path.GetFullPath(configuration.ExecutablePath); }
             catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
             { continue; }
             if (!IsBundledX86Host(previousPath)) continue;
-            bool restoreBackend = configuration.Backend == RenderBackend.DawDreamer && discovered?.Any(plugin =>
+            bool restoreBackend = !configuration.BackendSelectedManually && configuration.Backend == RenderBackend.DawDreamer && discovered?.Any(plugin =>
                 Matches(configuration, plugin) && plugin.Platform == PluginPlatform.Windows &&
                 plugin.Architecture == PluginArchitecture.X86 && plugin.Format == PluginBinaryFormat.Vst2) == true;
             if (configuration.Backend == RenderBackend.DawDreamer && !restoreBackend ||
@@ -154,7 +154,7 @@ public static class PluginSelectionService
     {
         int changed = RefreshLocalDawDreamer(configurations, dataDirectory, platform, architecture);
         if (!DawDreamerRuntimeService.TryGetLocalRuntime(dataDirectory, out var runtime, platform, architecture)) return changed;
-        foreach (var configuration in configurations.Where(configuration => configuration.Backend == RenderBackend.Unconfigured &&
+        foreach (var configuration in configurations.Where(configuration => !configuration.BackendSelectedManually && configuration.Backend == RenderBackend.Unconfigured &&
             string.IsNullOrWhiteSpace(configuration.ExecutablePath) && configuration.Synth is SynthKind.Serum1 or SynthKind.Serum2 or SynthKind.Sylenth1))
         {
             if (configuration.Synth == SynthKind.Serum2 && !runtime!.SupportsSerum2) continue;
@@ -243,7 +243,7 @@ public static class PluginSelectionService
                 configuration.ExecutablePath = "";
                 configuration.ExecutableHash = "";
             }
-            if (CanUseX86Host(configuration, plugin, x86HostPath, platform) &&
+            if (!configuration.BackendSelectedManually && CanUseX86Host(configuration, plugin, x86HostPath, platform) &&
                 configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer)
             {
                 configuration.Backend = RenderBackend.ExternalWorker;
@@ -256,7 +256,7 @@ public static class PluginSelectionService
 
     private static bool CanUseX86Host(PluginConfiguration configuration, DiscoveredPlugin plugin, string? hostPath, PluginPlatform? platform = null) =>
         (platform ?? CurrentPlatform) == PluginPlatform.Windows && plugin.Platform == PluginPlatform.Windows &&
-        plugin.Synth == SynthKind.Sylenth1 && plugin.Architecture == PluginArchitecture.X86 &&
+        plugin.Synth is SynthKind.Sylenth1 or SynthKind.Nexus2 && plugin.Architecture == PluginArchitecture.X86 &&
         plugin.Format == PluginBinaryFormat.Vst2 && !string.IsNullOrWhiteSpace(hostPath) && File.Exists(hostPath) &&
         (configuration.Backend is RenderBackend.Unconfigured or RenderBackend.DawDreamer ||
          configuration.Backend == RenderBackend.ExternalWorker &&

@@ -2,10 +2,11 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.RegularExpressions;
 using SoundPreviewer.Core.Models;
+using SoundPreviewer.Core.Audio;
 
 namespace SoundPreviewer.Core.Scanning;
 
-internal sealed record VstEnvelope(bool IsValid, string PluginId, string Error, string Diagnostic);
+internal sealed record VstEnvelope(bool IsValid, string PluginId, string Error, string Diagnostic, uint PluginVersion = 0, bool Nexus2Compatible = false);
 internal sealed record SynthDetection(SynthKind Synth, string Reason);
 
 internal static partial class PresetDetection
@@ -23,6 +24,7 @@ internal static partial class PresetDetection
         SynthKind.Serum2 => "Serum 2",
         SynthKind.Sylenth1 => "Sylenth1",
         SynthKind.Spire => "Spire",
+        SynthKind.Nexus2 => "Nexus 2",
         _ => "未识别"
     };
 
@@ -58,9 +60,28 @@ internal static partial class PresetDetection
         if ((!parameter && !chunk) || length < minimum)
             return new(false, "", bank ? "FXB 文件头类型无效或文件过短。" : "FXP 文件头无效或此文件实际为音色库。", "");
         uint declared = BinaryPrimitives.ReadUInt32BigEndian(header[4..8]);
+        uint version = BinaryPrimitives.ReadUInt32BigEndian(header[20..24]);
+        bool nexus = header[16..20].SequenceEqual("NEXU"u8);
+        bool nexusCompatible = bank && nexus && version >> 24 == 2;
+        bool legacyTrailer = false;
+        if (nexus && !bank && chunk && length >= 92)
+        {
+            Span<byte> details = stackalloc byte[20];
+            stream.Position = 56;
+            stream.ReadExactly(details);
+            stream.Position = 0;
+            uint chunkBytes = BinaryPrimitives.ReadUInt32BigEndian(details[..4]);
+            legacyTrailer = chunkBytes == NexusPresetFormat.LegacyChunkBytes &&
+                NexusPresetFormat.IsLegacy(version, (int)chunkBytes) && length == 60L + chunkBytes + 1 &&
+                (declared == length - 9 || declared == length - 1);
+            nexusCompatible = chunkBytes <= int.MaxValue && (length == 60L + chunkBytes || legacyTrailer) &&
+                NexusPresetFormat.IsSupported(version, (int)chunkBytes, details[4..]);
+        }
         string diagnostic = "";
         if (declared == length)
             diagnostic = "文件长度字段包含完整文件大小，已按兼容格式识别。";
+        else if (legacyTrailer)
+            diagnostic = "旧版 Nexus FXP 带有一个额外尾部字节，已按声明的状态长度识别，原文件保持不变。";
         else if (declared != length - 8)
         {
             if (bank && declared >= minimum - 8 && (long)declared + 8 < length)
@@ -69,7 +90,7 @@ internal static partial class PresetDetection
         }
         var id = header[16..20];
         string pluginId = id.IndexOfAnyExceptInRange((byte)32, (byte)126) < 0 ? Encoding.ASCII.GetString(id) : "0x" + Convert.ToHexString(id);
-        return new(true, pluginId, "", diagnostic);
+        return new(true, pluginId, "", diagnostic, version, nexusCompatible);
     }
 
     public static SynthDetection Detect(string path, string root, VstEnvelope? envelope)
@@ -92,6 +113,10 @@ internal static partial class PresetDetection
                 reason += hintText + " 文件头优先，未采用不一致的目录名称。";
             return new(SynthKind.Sylenth1, reason);
         }
+        if (envelope.PluginId == "NEXU")
+            return envelope.Nexus2Compatible
+                ? new(SynthKind.Nexus2, "依据 NEXU 文件头及已核对的 Nexus 2 原生或兼容旧版状态格式识别。")
+                : new(SynthKind.Unknown, "插件 ID NEXU 的状态格式尚未核对，不能认定为 Nexus 2 可加载音色。");
         if (envelope.PluginId == "XfsX")
         {
             if (hint?.Synths.Contains(SynthKind.Serum1) == true && hint.Synths.Contains(SynthKind.Serum2))

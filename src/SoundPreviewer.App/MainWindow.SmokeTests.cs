@@ -273,6 +273,7 @@ public partial class MainWindow
             editedBackendModel.Backend = originalBackend;
             RefreshGrid(PluginGrid);
         }
+        await CheckSynthAssignmentAsync();
         await CheckLanguagesAsync();
         await CheckClosingCallbacksAsync();
         await File.WriteAllTextAsync(Path.Combine(App.DataDirectory, "ui-smoke.json"), JsonSerializer.Serialize(new
@@ -282,6 +283,7 @@ public partial class MainWindow
             Platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             AppearanceChecked = true, AppearancePersistenceChecked = appearancePersistenceChecked, AppearanceCancelChecked = true, AppearanceViewports = 2,
             FilterOptionCountsChecked = true,
+            SynthAssignmentChecked = true, SynthAssignmentInputRows = 14000, SynthAssignmentYieldMilliseconds = _assignmentYieldMilliseconds,
             FilterCountsBenchmarkRows = 14000, FilterCountsBenchmarkMilliseconds = _filterCountsBenchmarkMilliseconds,
             FilterCountsBenchmarkAllocatedBytes = _filterCountsBenchmarkAllocatedBytes,
             Presets = Presets.Count, PlaybackChecked = playbackChecked, FormatsChecked = true, FormatViewports = actualViewports.Count, ActualViewports = actualViewports,

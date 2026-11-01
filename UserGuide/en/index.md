@@ -14,7 +14,7 @@ If SoundPreviewer saves you time auditioning presets, you can support future dev
 
 SoundPreviewer generates short audio previews of synthesizer presets so you can search, filter, and audition a local library. Playing an existing preview does not require opening a DAW or loading its synth again.
 
-This Markdown guide accompanies **1.0.2**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
+This Markdown guide accompanies **1.2.2**. Windows installer and portable packages also include a compiled CHM manual. Text, screenshots, and chapter links work offline; GitHub, runtime downloads, and technical references require internet access. Chinese is the default guide language, with an equivalent English edition in `UserGuide/en`.
 
 <a id="interface"></a>
 
@@ -57,6 +57,7 @@ Minimum systems reflect package configuration, rather than testing on every olde
 | Serum 1 | VST2 | Individual `.fxp` | Generation available; real samples checked on Windows x64; Mac awaits testing |
 | Serum 2 | VST3 | Native `.SerumPreset` | Generation available; real samples checked on Apple Silicon; Windows / Intel Mac await testing |
 | Sylenth1 | VST2; bundled host for Windows x86 | Individual `.fxp` | Generation available; real samples checked on Windows x86; other combinations await testing |
+| **Nexus 2** | Windows x86 VST2; bundled host | Individual `.fxp` (native and compatible legacy formats) | Nexus 2.2.0 x86 bass and sampled piano presets tested; other versions await validation |
 | Spire | Native generation not available yet | `.spf`, `.spf2`, `.sbf`, `.swzip` | Scan and index only; no preview generation |
 | FXB banks | Depends on the synth | `.fxb` | Indexed, but cannot generate directly; export supported individual presets in the synth first |
 
@@ -99,4 +100,4 @@ Markdown and CHM update with the package. Keep the complete application folder s
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.1.0. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.2.2. Text and screenshots work offline; external download and feedback links require internet access.

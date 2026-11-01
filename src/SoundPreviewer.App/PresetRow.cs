@@ -76,13 +76,14 @@ public sealed record CompatibilityRow(string Synth, string Status, string Detail
 
 public static class Labels
 {
-    public static string Synth(SynthKind s) => s switch { SynthKind.Serum1 => "Serum 1", SynthKind.Serum2 => "Serum 2", SynthKind.Unknown => "待识别", _ => s.ToString() };
+    public static string Synth(SynthKind s) => s switch { SynthKind.Serum1 => "Serum 1", SynthKind.Serum2 => "Serum 2", SynthKind.Nexus2 => "Nexus 2", SynthKind.Unknown => "待识别", _ => s.ToString() };
     public static string PresetExtensions(SynthKind s) => s switch
     {
         SynthKind.Vital => ".vital / .vitalbank",
         SynthKind.Serum1 => ".fxp",
         SynthKind.Serum2 => ".SerumPreset / .fxp",
         SynthKind.Sylenth1 => ".fxp / .fxb",
+        SynthKind.Nexus2 => ".fxp",
         SynthKind.Spire => ".spf / .spf2 / .sbf / .swzip / .fxp（手动指定）",
         SynthKind.Unknown => ".fxp / .fxb",
         _ => ""

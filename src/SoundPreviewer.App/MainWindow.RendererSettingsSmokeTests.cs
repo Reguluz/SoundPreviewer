@@ -81,6 +81,24 @@ public partial class MainWindow
                 stored.Plugins.Single(plugin => plugin.Synth == SynthKind.Spire).Backend != RenderBackend.DawDreamer ||
                 RenderReadinessService.Evaluate(stored).Any(state => state.CanAttemptRender))
                 throw new InvalidOperationException("暂不可用的音源阻止保存、路径丢失或错误显示为可生成。");
+            var nexus = Plugins.Single(plugin => plugin.Synth == SynthKind.Nexus2);
+            string nexusDll = Path.Combine(App.DataDirectory, "TEST-ONLY-Nexus.dll");
+            File.WriteAllText(nexusDll, "TEST ONLY configuration fixture. Never load this file.");
+            var nexusCandidate = new DiscoveredPlugin { Synth = SynthKind.Nexus2, FilePath = nexusDll, BinaryPath = nexusDll,
+                Platform = PluginPlatform.Windows, Architecture = PluginArchitecture.X86, Format = PluginBinaryFormat.Vst2, Version = "TEST ONLY 2" };
+            _settings.DiscoveredPlugins.Add(nexusCandidate);
+            var previousNexus = _settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Nexus2);
+            previousNexus.Backend = RenderBackend.ExternalWorker;
+            nexus.PluginPath = nexusDll; nexus.ExecutablePath = X86HostPath; nexus.Version = nexusCandidate.Version;
+            nexus.Backend = RenderBackend.DawDreamer;
+            await SaveSettingsCoreAsync(CancellationToken.None);
+            var savedNexus = _store.LoadSettings().Plugins.Single(plugin => plugin.Synth == SynthKind.Nexus2);
+            if (nexus.Backend != RenderBackend.DawDreamer || savedNexus.Backend != RenderBackend.DawDreamer || !savedNexus.BackendSelectedManually)
+                throw new InvalidOperationException("保存时自动修复覆盖了手动选择的 Nexus 2 生成方式。");
+            PluginSelectionService.RefreshBundledHost([savedNexus], X86HostPath, PluginPlatform.Windows, [nexusCandidate]);
+            PluginSelectionService.ApplyAutomatic([nexusCandidate], [savedNexus], X86HostPath, PluginPlatform.Windows, PluginArchitecture.X64);
+            if (savedNexus.Backend != RenderBackend.DawDreamer)
+                throw new InvalidOperationException("重新加载或扫描音源覆盖了手动选择的生成方式。");
             return true;
         }
         finally

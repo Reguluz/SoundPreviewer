@@ -339,6 +339,10 @@ public sealed class PluginScanService
         }
         if (KnownFileName(fileName, "Sylenth1") && (metadata.CompanyName ?? "").Contains("Lennar", StringComparison.OrdinalIgnoreCase) && MetadataNames(metadata, "Sylenth1"))
             return SynthKind.Sylenth1;
+        if ((KnownFileName(fileName, "Nexus") || KnownFileName(fileName, "Nexus2")) &&
+            string.Equals(metadata.CompanyName?.Trim(), "reFX", StringComparison.OrdinalIgnoreCase) &&
+            MetadataNames(metadata, "Nexus") && (metadata.FileMajorPart > 0 ? metadata.FileMajorPart : metadata.ProductMajorPart) == 2)
+            return SynthKind.Nexus2;
         if (KnownFileName(fileName, "Vital") && MetadataNames(metadata, "Vital")) return SynthKind.Vital;
         return SynthKind.Unknown;
     }

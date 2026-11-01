@@ -22,6 +22,7 @@ An available rendering path still requires checks with your plugin version, lice
 | **Serum 1** | Individual `.fxp` | VST2 plugin and the prepared DawDreamer environment | Windows Serum 1.334 x64; [five-preset concurrency results](https://github.com/Reguluz/SoundPreviewer/blob/main/docs/parallel-rendering.md#060-windows-五样本实测2026-10-20); real Mac plugin testing pending |
 | **Serum 2** | Native `.SerumPreset` | VST3 plugin and DawDreamer with Serum 2 dependencies | Two factory presets with Serum 2 2.0.23 on Apple Silicon; Windows and Intel Mac testing pending |
 | **Sylenth1** | Individual `.fxp` | Bundled host for Windows x86; DawDreamer for other matching VST2 architectures | Five presets with Windows Sylenth1 2.2.1.2 x86 at concurrency 1 / 2 / 4; other combinations pending |
+| **Nexus 2** | Individual `.fxp` (native and compatible legacy formats) | Windows x86 VST2 and bundled host; complete Nexus Content library | Nexus 2.2.0 x86 bass and sampled piano presets tested; other versions await validation |
 | **Spire** | No preview generation yet | `.spf`, `.spf2`, `.sbf`, and `.swzip` can be indexed and appear as Unavailable | No real plugin generation verification yet |
 
 For Vital banks, **Scan presets** again to run resource checks. Entries with complete embedded wavetables / samples and supported resource types become Pending and can use Vital native rendering. Only the selected entry is loaded in a private task directory; Vital's global resources are not imported or modified. Unsupported or incomplete entries remain Unavailable with a reason. Import the bank into Vital and export an individual `.vital` if needed. Bank files are limited to 256 MiB and individual embedded presets to 16 MiB.
@@ -31,6 +32,8 @@ For Vital banks, **Scan presets** again to run resource checks. Entries with com
 See [rendering verification records](https://github.com/Reguluz/SoundPreviewer/blob/main/docs/rendering.md#本机验证记录) for versions and samples. These checks do not cover every preset, plugin version, or external resource.
 
 <a id="_1"></a>
+
+Nexus 2 generation currently supports Windows x86 VST2 only. The bundled host uses the External worker option and needs no Python. Explicit backend choices are retained; DawDreamer does not support this 32-bit path. Install and authorize the synth normally, and confirm the target preset works in your DAW with its complete Nexus Content library. `.nxp` expansion packages and later Nexus generations are not imported. Silent output is rejected; audible previews still require listening confirmation. Rendering does not open the plugin editor or a file picker.
 
 ## Planned support
 
@@ -51,7 +54,7 @@ Prefer a plugin matching your app architecture. Scanning identifies plugins; you
 Under **Synths and settings → Preview generation**:
 
 - **Vital:** choose the standalone program and Vital native mode. A VST plugin alone cannot use this native path.
-- **Windows Sylenth1 x86:** use the bundled host with the matching plugin. If prompted, install the **x86** VC++ runtime from [Microsoft](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/).
+- **Windows Sylenth1 / Nexus 2 x86:** use the bundled host with the matching plugin. If prompted, install the **x86** VC++ runtime from [Microsoft](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/).
 - **Serum 1 / Serum 2 / DawDreamer-based Sylenth1:** click **Prepare rendering environment**, let the initial download finish, and check the linked plugin file.
 
 Check the actual synth version and **Save settings**. The private environment matches the app architecture. Windows DawDreamer uses x64 and cannot load x86 plugins. On Mac, Python, DawDreamer, and the plugin must have matching arm64 / x64 architecture, or the plugin must be Universal.
@@ -70,7 +73,7 @@ See [concurrency and memory](rendering.md#parallel).
 
 ## Prepare DawDreamer
 
-Skip this section if you only use Vital native rendering or the bundled Windows Sylenth1 x86 host.
+Skip this section if you only use Vital native rendering or the bundled Windows Sylenth1 / Nexus 2 x86 host.
 
 Open **Synths and settings → Preview generation → Prepare rendering environment**. You do not need to install Python or uv separately. The initial setup requires internet access; generation can then work offline. Serum 2 dependencies are included. Failed downloads or checks preserve the existing environment and cache for a later retry.
 
@@ -92,4 +95,4 @@ After saving, run the [single-preset test](quick-start.md#test). For unavailable
 
 [Home](index.md) · [Quick start](quick-start.md) · [Installation](installation.md) · [Synth setup](synths.md) · [Generation and playback](rendering.md) · [Library](library.md) · [Data and backup](storage.md) · [Language and appearance](appearance.md) · [Troubleshooting](troubleshooting.md)
 
-Applies to SoundPreviewer 1.1.0. Text and screenshots work offline; external download and feedback links require internet access.
+Applies to SoundPreviewer 1.2.2. Text and screenshots work offline; external download and feedback links require internet access.

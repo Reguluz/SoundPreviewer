@@ -66,7 +66,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _loadedCategoryRules = "";
     private int _baselineRefreshGeneration;
 
-    public ObservableCollection<PresetRow> Presets { get; } = [];
+    public PresetCollection Presets { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
     public ObservableCollection<string> RecentLogs { get; } = [];
     public ObservableCollection<SourceFolder> Sources { get; } = [];
@@ -172,7 +172,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Log("目录配置已读取：" + DirectoryConfigurationLocation);
         if (seededPluginDirectories) Log("已添加系统和用户的默认音源安装目录，可直接点击“扫描音源”。");
         if (migratedPreviewDirectory) Log("预览保存目录：" + _settings.PreviewDirectory);
-        if (refreshedHost > 0) Log("已更新内置 32 位 Sylenth1 宿主路径，保留原有插件与音色库。");
+        if (refreshedHost > 0) Log("已更新内置 32 位 VST2 宿主路径，保留原有插件与音色库。");
         if (refreshedSushi > 0) Log("已定位自行放置的 Sushi 宿主，保留原有音源关联。");
         if (localPython > 0) Log("已填入本库准备好的 Python 宿主，实际音源加载仍需检查。");
         LoadCategoryRulesEditor();
@@ -236,8 +236,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var snapshot = records.ToList();
         SynchronizeMetadata(snapshot);
         var selectedId = _selected?.Record.Id;
-        Presets.Clear();
-        foreach (var record in snapshot) Presets.Add(new PresetRow(record, _categories, _tags, () => MetadataLanguage));
+        Presets.ReplaceAll(snapshot.Select(record => new PresetRow(record, _categories, _tags, () => MetadataLanguage)));
         RefreshFilterChoices();
         PresetGrid.SelectedItem = Presets.FirstOrDefault(p => p.Record.Id == selectedId);
         RefreshCompatibility();
@@ -423,7 +422,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Log(_taskMemoryText);
     });
 
-    private async Task RunTask(Func<CancellationToken, Task> action)
+    private async Task RunTask(Func<CancellationToken, Task> action, bool refreshRows = true)
     {
         if (!IsIdle || _isClosing) return;
         _isBusy = true;
@@ -493,7 +492,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _stopRequested = false;
             _taskCancellation.Dispose();
             _taskCancellation = null;
-            foreach (var row in Presets) row.Refresh();
+            if (refreshRows) foreach (var row in Presets) row.Refresh();
             RefreshPresetView();
             RefreshCompatibility();
             try { await RefreshInitBaselinesAsync(); }
@@ -728,20 +727,34 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (AssignmentSynthChoice.SelectedItem is not Choice<SynthKind> choice)
                 throw new ArgumentException("请先选择此预制所属的音源。");
-            var row = _selected;
-            ScanService.AssignSynth(row.Record, choice.Value);
-            var records = Presets.Select(p => p.Record).ToList();
-            PresetIndex.RebuildDuplicates(records, Sources.ToList());
-            _store.UpsertMany(records);
-            SetPresets(await Task.Run(() =>
-            {
-                DuplicatePreviewService.Synchronize(_store);
-                return _store.LoadPresets();
-            }));
-            await LoadSelectedPreview();
-            Log($"已确认音源标签：{row.Name} → {Labels.Synth(choice.Value)}。");
+            await AssignSelectedSynthAsync(choice.Value);
         }
         catch (Exception ex) { ShowError(ex); }
+    }
+
+    private Task AssignSelectedSynthAsync(SynthKind synth)
+    {
+        if (!CanAssignSynth || _selected is null) return Task.CompletedTask;
+        var selected = _selected.Record;
+        var records = Presets.Select(row => row.Record).ToList();
+        var sources = Sources.ToList();
+        return RunTask(async token =>
+        {
+            _statusMessage = "正在确认音源…";
+            NotifyAll();
+            var changed = await Task.Run(() => PresetAssignmentService.Assign(_store, records, selected.Id, synth, sources, token), token);
+            var selectedId = _selected?.Record.Id;
+            SynchronizeMetadata(changed);
+            var updates = changed.ToDictionary(record => record.Id);
+            for (int index = 0; index < Presets.Count; index++)
+                if (updates.TryGetValue(Presets[index].Record.Id, out var record))
+                    Presets[index] = new PresetRow(record, _categories, _tags, () => MetadataLanguage);
+            RefreshFilterChoices();
+            PresetGrid.SelectedItem = Presets.FirstOrDefault(row => row.Record.Id == selectedId);
+            _statusMessage = $"已确认音源标签：{selected.Name} → {Labels.Synth(synth)}。";
+            Log(_statusMessage);
+            await LoadSelectedPreview();
+        }, refreshRows: false);
     }
     private void ViewCanonical_Click(object sender, RoutedEventArgs e)
     {
@@ -1193,6 +1206,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var budget = ParseDouble(BudgetBox.Text, "存储预算");
             var attempts = ParseInt(AttemptsBox.Text, "最大尝试次数");
             if (budget <= 0 || !double.IsFinite(budget) || attempts is < 1 or > 5) throw new ArgumentException("存储预算须大于 0，最大尝试次数须为 1 到 5。");
+            foreach (var plugin in Plugins)
+                if (_settings.Plugins.FirstOrDefault(previous => previous.Synth == plugin.Synth)?.Backend != plugin.Backend)
+                    plugin.BackendSelectedManually = true;
             PluginSelectionService.RefreshBundledHost(Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
             PluginSelectionService.RefreshBundledSushiHost(Plugins, SushiHostPath);
             PluginSelectionService.RefreshLocalDawDreamer(Plugins, App.DataDirectory);

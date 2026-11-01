@@ -38,7 +38,7 @@ public static class InitBaselineService
         plugin.Synth == SynthKind.Serum1 && plugin.Backend == RenderBackend.Sushi &&
         PluginSelectionService.CurrentPlatform == PluginPlatform.Windows && PluginSelectionService.CurrentArchitecture == PluginArchitecture.X64 &&
         PluginSelectionService.IsSushiExecutable(plugin.ExecutablePath) ||
-        plugin.Synth == SynthKind.Sylenth1 && plugin.Backend == RenderBackend.ExternalWorker &&
+        plugin.Synth is SynthKind.Sylenth1 or SynthKind.Nexus2 && plugin.Backend == RenderBackend.ExternalWorker &&
         string.Equals(Path.GetFileName(plugin.ExecutablePath), "SoundPreviewer.Vst2Host.exe", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<InitBaselineState> InspectAsync(AppSettings settings, PluginConfiguration plugin,

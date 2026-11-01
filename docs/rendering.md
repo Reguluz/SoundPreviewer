@@ -157,7 +157,7 @@ DawDreamer 每次 `render()` 都从头处理，不能连续调用当成无损续
 SoundPreviewer.Worker.exe --request <绝对 request.json 路径> --result <绝对 result.json 路径>
 ```
 
-JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3、Unknown=4、Spire=5；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。旧枚举值保持不变。`PreviewNoteOrder` 为 LowMiddleHigh=0、MiddleHighLow=1，缺字段兼容旧低中高。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器须按模板 `Pitches` 的实际顺序返回三个 Notes，只能将成功结果提交到请求的输出路径。
+JSON 属性见 `SoundPreviewer.Core.Models.RenderRequest` / `RenderResult`，枚举按默认 System.Text.Json 数字序列化：Vital=0、Serum1=1、Serum2=2、Sylenth1=3、Unknown=4、Spire=5、Nexus2=6；Unconfigured=0、VitalCli=1、ExternalWorker=2、DawDreamer=3。旧枚举值保持不变。`PreviewNoteOrder` 为 LowMiddleHigh=0、MiddleHighLow=1，缺字段兼容旧低中高。请求含源预制身份、插件配置、试听模板、缓存键和本次暂存 WAV 输出路径。渲染器须按模板 `Pitches` 的实际顺序返回三个 Notes，只能将成功结果提交到请求的输出路径。
 
 外部后端使用相同 `--request` / `--result` 参数，无命令行 shell。用户指定实际外部渲染器可执行文件及插件路径。外部程序须：
 
@@ -262,3 +262,32 @@ RMS 小于 0.00001 记为疑似静音；峰值达到 0.999 记为接近削波。
 桌面和 Worker 统一为 .NET 8，渲染协议、三音区、快速裁剪与结果校验共用。macOS 的可选 DawDreamer 桥接支持与 Python 架构匹配的 VST2 `.vst` bundle，原先的 `.dll` / MSVC 检查仅适用于 Windows；macOS bundle 读取 Info.plist 与 Mach-O 校验架构。插件基准指纹也支持 bundle 实际二进制与元数据。Vital 使用本平台独立程序，原生采集命令采用两平台都接受的相对输入路径。
 
 v1.3.0 已在本机 Mac 完成 Vital 1.6.4 的测试 patch 原生渲染，以及 Serum 2 2.0.23 的两个工厂预制完整队列和三参考启动基准。此前 Windows Serum 1 / Sylenth1 的历史结果不自动延伸到 Mac；Windows / Intel Mac 的新版构建也不等于对应硬件实测。发布、输出路径和完整验收边界见 [双平台说明](cross-platform.md)。
+
+
+## Nexus 2 Windows x86（1.2.0 测试版）
+
+原生宿主新增 reFX Nexus 2 x86 VST2。插件元数据主版本必须为 2，实际插件 ID 必须为 NEXU；独立 FPCh FXP 还须具有第 2 代版本及 `NEXUS2 Preset` 状态标记，读取前校验源 SHA256。每个音区使用新实例，核对 SetChunk 返回长度、实际音色名与有效参数。Nexus 连续 GetChunk 的不透明数据会变化，因此不忽略未知字段、不解码其保护格式，也不伪造精确状态证明。默认声音通过三参考校准比对；不稳定或静音的基准不能降级为 Sylenth 的证明模式。输出仍标记为待试听确认。
+
+本机 Nexus 2.2.0.0（reFX / NEXU / x86），`BA Basic Saw.fxp` 三音区输出可听、有限值，通过独立默认启动 holdout（命中 3/3）与目标音色排除（命中 0/3）。报告位于 `artifacts/nexus2-baseline-validation-v2/summary.json`，Success/InputsUnchanged 均为 true。初次钢琴测试以 CodexSandboxOffline 隔离账户运行，未使用正常用户的 Nexus 配置，产生静音。用户确认两个钢琴音色在 DAW 正常后，以相同正常用户运行原版宿主，`PN Nexus Grandpiano` / `PN Arena Ambience` 均生成真实三音区音频（峰值约 0.37 / 0.27）；无需修改插件加载顺序、打开编辑器或导入窗口。此前的静音不作为 Nexus 2 兼容性限制。结果与源文件哈希记录见 `artifacts/nexus2-validation/*-native-user-result.json`。此范围不代表所有预制、扩展、x64 或 macOS 已兼容。
+
+
+正常用户下的最终整批验收（报告 `artifacts/nexus2-user-validation-summary.json`）：`BA Basic Saw`、`BA Basic Saw Open`、`PN Nexus Grandpiano`、`PN Arena Ambience` 均通过每音区实际音频与默认声音检查；两条并行配置下新生成 4、失败 0，再次运行复用 4。全部源 FXP 与插件 SHA256 不变，测试收藏及手工标签保留，私有任务临时目录为 0。用户仍需试听确认音色身份；此四条验收不扩展到其他版本或平台。
+
+
+### 1.2.1 旧 Nexus 格式与单条确认性能修复
+
+真实未识别样本包含 NEXU 的 1356 字节旧状态（版本字段 1、0x442、打包的 1.x），部分导出文件多一个任意尾部字节，且文件长度与 chunk 长度均未包含该字节。仅对这一已验证布局接受单字节尾部，并在内存中按声明长度交给 Nexus 2，源文件保持原样；未知新版本、错误 chunk 长度与多字节尾部仍拒绝。Nexus 2.2.0 对五类旧样本的真实三音区输出通过，包含纯文本和不透明旧状态。扫描完整 Nexus 目录后，4849/4849 条均识别，未凭目录名称猜测音源。
+
+使用当前库的只读一致快照进行确认操作对照：14145 条记录，旧流程重算、写回及加载全库耗时 28570 毫秒；新流程只写 1 条相关记录耗时 11.9 毫秒，无关记录 JSON 保持不变。这是后台处理测量，不代替完整界面耗时；报告 `artifacts/nexus121-benchmark-94e4b48938/summary.json`。原库仅被读取，测试写入私有快照；自动回归同时覆盖重复组迁移、预览共享、取消、非法选择及个人标签保留。
+
+
+发布包界面回归在 14000 条记录下通过单条确认：交还界面调度耗时 3.6 毫秒，确认期间调度仍可响应，仅替换相关行，保留选择、收藏及个人标签。批量装载使用单次集合重置，避免逐行重建。五类旧预制加一个原生钢琴的正常用户完整队列生成 6、失败 0、复用 6，源 FXP / DLL 哈希不变，临时目录为 0（`artifacts/nf-12dd22b42f5b/report.json`）。75 项自动检查通过。
+
+
+### 1.2.2 真实失败原因与显式生成方式
+
+当前库失败记录涉及空外层名称、插件访问冲突、载入状态不一致及静音。用户核对 `AR chrystaline`（XP Bigtone Signature 2）、`PD inside out`（XP Bigtone Signature 3）、`SY Big Bells` 后确认在 DAW 也不能正常发声；不将它们标记为已修复或绕过声音保护。合法空名称不再单独作为坏格式，仍要求匹配状态接口、完整载入、有效输出及启动声音检查；未对插件伪造音色名称。
+
+正常用户的发布包完整队列中，无名称 `AR Excelsior Harpeggio` 与工厂钢琴生成 2、复用 2；已知崩溃与状态不符样本保留失败且各尝试 1 次（最大次数设为 3），临时目录为 0，源文件和 DLL 哈希不变。报告 `artifacts/ng-09f63e99a0d7/report.json`；访问冲突结果另核对 `NonRetryable=true` / `PresetLoadFailed=true`。75 项自动检查及保存选项、重新加载、音源自动关联的发布界面回归通过。
+
+生成方式增加显式选择标记，仅影响自动关联和修复策略，不改变音频缓存身份。历史误配仍可修复；显式选择不会被旧的 x86 宿主修复逻辑覆盖。Nexus 2 当前适配的 Windows x86 VST2 宿主仍使用“外部工作进程”入口；DawDreamer 选择可保存，但显示未适配。
