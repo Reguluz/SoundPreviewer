@@ -2,10 +2,6 @@
 
 **简体中文（默认）** · [English](README.en.md) · [English user guide](UserGuide/en/index.md)
 
-## 支持创作
-
-<img src="UserGuide/images/afdian-Reguluz.jpg" alt="Reguluz 爱发电支持二维码" width="375" height="513">
-
 ## 软件简介
 
 把合成器音色生成短试听片段，在一个本地音色库里搜索、筛选和播放，减少逐个打开音源试音的时间。已有预览无需打开 DAW。
@@ -33,6 +29,10 @@
 5. **日常使用**：搜索或勾选筛选条件，点击「生成 / 继续」处理当前结果；已有有效预览会跳过，「停止」保留已完成项。选中已有预览后按空格试听，再用收藏、标签和分类整理。
 
 升级或搬移前退出程序，保留 **Preview、Config、categories.json、tags.json** 和自定义语言文件，以继续使用个人记录与缓存。
+
+## 支持创作
+
+<img src="UserGuide/images/afdian-Reguluz.jpg" alt="Reguluz 爱发电支持二维码" width="375" height="513">
 
 ## 常规问题 Q&A
 
